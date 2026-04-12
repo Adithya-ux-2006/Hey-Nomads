@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm start:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(curl -s http://localhost:3000/login.html)",
+      "Bash(curl -s http://localhost:3000/api/users)",
+      "Bash(curl -s http://localhost:3000/matches.html)",
+      "Bash(curl -s http://localhost:3000/app.js)",
+      "Bash(curl -s http://localhost:3000/style.css)",
+      "Bash(curl:*)"
+    ]
+  }
+}

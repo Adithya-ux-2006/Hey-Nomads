@@ -1,0 +1,5 @@
+/* App.css — minimal overrides, main styles in index.css */
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
