@@ -15,8 +15,8 @@ const Navbar = ({ activePage }) => {
     return 'discover';
   })();
 
-  const handleLogout = () => {
-    auth.logout();
+  const handleLogout = async () => {
+    await auth.logout();
     navigate('/login', { replace: true });
   };
 

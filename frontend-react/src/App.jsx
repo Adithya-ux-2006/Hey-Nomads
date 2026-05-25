@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import DiscoverPage from './pages/DiscoverPage';
@@ -9,14 +9,15 @@ import RegisterPage from './pages/RegisterPage';
 import ShortlistPage from './pages/ShortlistPage';
 import ComparePage from './pages/ComparePage';
 import AgreementEditor from './pages/AgreementEditor';
-import { apiFetch, auth } from './utils/api';
+import { auth } from './utils/api';
+import { supabase } from './lib/supabase';
 import { Home, Eye, EyeOff, ShieldCheck, Calendar, Sparkles } from 'lucide-react';
 import heroImg from './assets/hero.png';
 
 // ── Private Route ──────────────────────────────────────────────
 const PrivateRoute = ({ children }) => {
-  const userId = auth.getUserId();
-  if (!userId) return <Navigate to="/login" replace />;
+  const isAuthenticated = auth.isAuthenticated();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
   return children;
 };
 
@@ -34,14 +35,19 @@ const LoginPage = () => {
     setLoading(true);
     setError('');
     try {
-      const data = await apiFetch('/login', {
-        method: 'POST',
-        body: { email, password }
-      });
-      const loggedInUserId = data.userId || data.user?.id;
-      if (!loggedInUserId) throw new Error('Invalid server response');
-      auth.setUserId(loggedInUserId);
-      auth.setUserName(data.user.name);
+      const { data: signInData, error: supabaseError } = await auth.signIn({ email, password });
+      if (supabaseError) {
+        throw new Error(supabaseError.message || 'Invalid email or password');
+      }
+
+      const supabaseUser = signInData?.user;
+      if (!supabaseUser?.id || !supabaseUser?.email) {
+        throw new Error('Supabase login succeeded but user payload was missing');
+      }
+
+      auth.setUserId(supabaseUser.id);
+      auth.setUserName(supabaseUser.user_metadata?.name || email.split('@')[0]);
+      localStorage.setItem('supabaseSession', 'true');
       navigate('/discover', { replace: true });
     } catch (err) {
       setError(err.message || 'Network error. Is the server running?');
@@ -268,6 +274,47 @@ const LoginPage = () => {
 
 // ── App ────────────────────────────────────────────────────────
 function App() {
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const init = async () => {
+      const { session } = await auth.restoreSession();
+      if (!session) {
+        auth.clearLocal();
+      }
+      if (isMounted) {
+        setAuthReady(true);
+      }
+    };
+
+    init();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        auth.clearLocal();
+      } else {
+        localStorage.setItem('supabaseSession', 'true');
+        localStorage.setItem('supabaseUserId', session.user.id);
+        localStorage.setItem('supabaseEmail', session.user.email || '');
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      listener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  if (!authReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white text-slate-600">
+        Restoring session...
+      </div>
+    );
+  }
+
   return (
     <Router>
       <AnimatePresence mode="wait">

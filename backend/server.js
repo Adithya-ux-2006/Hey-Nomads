@@ -38,6 +38,67 @@ app.get('/api/health', (req, res) => {
 // AUTH ROUTES
 // ============================================================
 
+async function ensureDefaultUserRows(uid) {
+    await pool.query(
+        `INSERT IGNORE INTO profiles
+          (user_id, sleep_time, cleanliness, diet, noise_tolerance, noise_level,
+           budget, tax_bracket, deposit, flat_type, occupants, smoking, drinking, partying, city)
+         VALUES (?, 'flexible', 3, 'veg', 'moderate', 3, 15000, 'medium', 5000, 'shared', 1, 'no', 'no', 'low', '')`,
+        [uid]
+    );
+    await pool.query('INSERT IGNORE INTO preferences (user_id) VALUES (?)', [uid]);
+}
+
+// Supabase identity sync route (primary auth bridge)
+app.post('/api/auth/sync', async (req, res) => {
+    try {
+        const { supabaseUserId, email, name } = req.body;
+        if (!supabaseUserId || !email) {
+            return res.status(400).json({ error: 'supabaseUserId and email are required' });
+        }
+
+        const normalizedEmail = String(email).trim().toLowerCase();
+        const safeName = String(name || normalizedEmail.split('@')[0] || 'User').trim().slice(0, 100);
+
+        const [bySupabaseId] = await pool.query(
+            'SELECT id, name, email FROM users WHERE supabase_user_id = ? LIMIT 1',
+            [supabaseUserId]
+        );
+        if (bySupabaseId.length > 0) {
+            const user = bySupabaseId[0];
+            await pool.query('UPDATE users SET email = ?, name = ? WHERE id = ?', [normalizedEmail, safeName, user.id]);
+            await ensureDefaultUserRows(user.id);
+            return res.json({ message: 'User synced', userId: user.id, user: { id: user.id, name: safeName, email: normalizedEmail } });
+        }
+
+        const [byEmail] = await pool.query(
+            'SELECT id, name, email FROM users WHERE email = ? LIMIT 1',
+            [normalizedEmail]
+        );
+        if (byEmail.length > 0) {
+            const user = byEmail[0];
+            await pool.query(
+                'UPDATE users SET supabase_user_id = ?, name = ? WHERE id = ?',
+                [supabaseUserId, safeName || user.name, user.id]
+            );
+            await ensureDefaultUserRows(user.id);
+            return res.json({ message: 'User linked', userId: user.id, user: { id: user.id, name: safeName || user.name, email: normalizedEmail } });
+        }
+
+        const [result] = await pool.query(
+            'INSERT INTO users (name, email, supabase_user_id, password) VALUES (?, ?, ?, ?)',
+            [safeName, normalizedEmail, supabaseUserId, 'SUPABASE_AUTH']
+        );
+        const uid = result.insertId;
+        await ensureDefaultUserRows(uid);
+
+        return res.status(201).json({ message: 'User created', userId: uid, user: { id: uid, name: safeName, email: normalizedEmail } });
+    } catch (err) {
+        console.error('Supabase sync error:', err);
+        return res.status(500).json({ error: 'Auth sync failed' });
+    }
+});
+
 // Register
 app.post('/api/register', async (req, res) => {
     try {
@@ -58,19 +119,9 @@ app.post('/api/register', async (req, res) => {
         );
         const uid = result.insertId;
 
-        // Create default profile
-        await pool.query(
-            `INSERT INTO profiles
-              (user_id, sleep_time, cleanliness, diet, noise_tolerance, noise_level,
-               budget, tax_bracket, deposit, flat_type, occupants, smoking, drinking, partying, city)
-             VALUES (?, 'flexible', 3, 'veg', 'moderate', 3, 15000, 'medium', 5000, 'shared', 1, 'no', 'no', 'low', '')`,
-            [uid]
-        );
+        await ensureDefaultUserRows(uid);
 
-        // Create default preferences
-        await pool.query('INSERT INTO preferences (user_id) VALUES (?)', [uid]);
-
-        res.status(201).json({ message: 'User registered successfully', userId: uid });
+        res.status(201).json({ message: 'User registered successfully (legacy)', userId: uid });
     } catch (err) {
         console.error('Registration error:', err);
         res.status(500).json({ error: 'Registration failed' });
@@ -100,7 +151,7 @@ app.post('/api/login', async (req, res) => {
         }
 
         res.json({
-            message: 'Login successful',
+            message: 'Login successful (legacy)',
             userId: user.id,
             user: { id: user.id, name: user.name, email: user.email }
         });

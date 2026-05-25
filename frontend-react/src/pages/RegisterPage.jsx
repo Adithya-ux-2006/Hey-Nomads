@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button, Card, Input, Spinner } from '../components/UI';
 import { User, Mail, Lock, Home, ArrowRight, CheckCircle, Eye, EyeOff } from 'lucide-react';
-import { apiFetch, auth } from '../utils/api';
+import { auth } from '../utils/api';
 
 const RegisterPage = () => {
   const navigate = useNavigate();
@@ -27,16 +27,31 @@ const RegisterPage = () => {
     setLoading(true);
     setError('');
     try {
-      const data = await apiFetch('/register', { method: 'POST', body: formData });
-      const userId = data.userId || data.user?.id;
-      if (!userId) throw new Error('Invalid server response');
-      
-      auth.setUserId(userId);
+      const { data: signUpData, error: supabaseError } = await auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        name: formData.name,
+      });
+
+      if (supabaseError) {
+        throw new Error(supabaseError.message || 'Supabase signup failed');
+      }
+
+      const supabaseUser = signUpData?.user;
+      if (!supabaseUser?.id || !supabaseUser?.email) {
+        throw new Error('Supabase signup succeeded but user payload was missing');
+      }
+
+      auth.setUserId(supabaseUser.id);
       auth.setUserName(formData.name);
+      const hasSession = !!signUpData?.session;
+      if (hasSession) {
+        localStorage.setItem('supabaseSession', 'true');
+      }
       setSuccess(true);
       
       setTimeout(() => {
-        navigate('/edit-profile');
+        navigate(hasSession ? '/edit-profile' : '/login');
       }, 1200);
     } catch (err) {
       setError(err.message || 'Registration failed. Try again.');
@@ -250,4 +265,3 @@ const RegisterPage = () => {
 };
 
 export default RegisterPage;
-

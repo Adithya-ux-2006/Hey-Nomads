@@ -1,20 +1,19 @@
+import { supabase } from '../lib/supabase';
+
 const runtimeNodeEnv = typeof process !== 'undefined' ? process.env.NODE_ENV : undefined;
 export const API_URL = (
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.PROD || runtimeNodeEnv === 'production'
-    ? 'https://your-backend-url.com'
-    : 'http://localhost:3000')
+  import.meta.env.VITE_API_URL || ''
 ).replace(/\/+$/, '');
 
-export const API_BASE_URL = `${API_URL}/api`;
+export const API_BASE_URL = API_URL ? `${API_URL}/api` : '/api';
 
 const API_HOST = (() => {
   try {
     return typeof window !== 'undefined'
       ? new URL(API_BASE_URL, window.location.origin).origin
-      : 'http://localhost:3000';
+      : 'https://invalid.local';
   } catch {
-    return 'http://localhost:3000';
+    return typeof window !== 'undefined' ? window.location.origin : 'https://invalid.local';
   }
 })();
 
@@ -92,9 +91,54 @@ export const auth = {
   setUserId: (id) => localStorage.setItem('userId', id),
   getUserName: () => localStorage.getItem('userName'),
   setUserName: (name) => localStorage.setItem('userName', name),
-  logout: () => {
+  getSupabaseUserId: () => localStorage.getItem('supabaseUserId'),
+  hasSupabaseSession: () => localStorage.getItem('supabaseSession') === 'true',
+  async restoreSession() {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) {
+      this.clearLocal();
+      return { session: null, error };
+    }
+
+    const session = data?.session || null;
+    if (session?.user?.id) {
+      localStorage.setItem('userId', session.user.id);
+      localStorage.setItem('userName', session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User');
+      localStorage.setItem('supabaseSession', 'true');
+      localStorage.setItem('supabaseUserId', session.user.id);
+      localStorage.setItem('supabaseEmail', session.user.email || '');
+    } else {
+      localStorage.removeItem('supabaseSession');
+      localStorage.removeItem('supabaseUserId');
+      localStorage.removeItem('supabaseEmail');
+    }
+
+    return { session, error: null };
+  },
+  async signUp({ email, password, name }) {
+    return supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name,
+        },
+      },
+    });
+  },
+  async signIn({ email, password }) {
+    return supabase.auth.signInWithPassword({ email, password });
+  },
+  clearLocal: () => {
     localStorage.removeItem('userId');
     localStorage.removeItem('userName');
+    localStorage.removeItem('supabaseSession');
+    localStorage.removeItem('supabaseUserId');
+    localStorage.removeItem('supabaseEmail');
   },
-  isAuthenticated: () => !!localStorage.getItem('userId')
+  logout: () => {
+    auth.clearLocal();
+    return supabase.auth.signOut();
+  },
+  isAuthenticated: () => localStorage.getItem('supabaseSession') === 'true' && !!localStorage.getItem('supabaseUserId')
 };

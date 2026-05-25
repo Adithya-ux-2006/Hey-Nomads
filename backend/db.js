@@ -32,12 +32,14 @@ async function ensureDatabaseSchema() {
             id INT AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(100) NOT NULL,
             email VARCHAR(100) NOT NULL UNIQUE,
+            supabase_user_id VARCHAR(255) DEFAULT NULL UNIQUE,
             password VARCHAR(255) NOT NULL,
             is_verified BOOLEAN DEFAULT FALSE,
             gender VARCHAR(20) DEFAULT NULL,
             age INT DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS supabase_user_id VARCHAR(255) DEFAULT NULL UNIQUE`,
         `CREATE TABLE IF NOT EXISTS profiles (
             id INT AUTO_INCREMENT PRIMARY KEY,
             user_id INT NOT NULL,

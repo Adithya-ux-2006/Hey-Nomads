@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.106.2",
     "autoprefixer": "^10.4.18",
     "canvas-confetti": "^1.9.2",
     "framer-motion": "^11.0.8",
@@ -31,4 +32,3 @@
     "vite": "^5.2.0"
   }
 }
-
