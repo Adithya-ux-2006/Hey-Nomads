@@ -1,25 +1,43 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Mail, Lock, Home, ArrowRight } from 'lucide-react';
-import { apiFetch } from '../utils/api';
+import { Link, useNavigate } from 'react-router-dom';
+import { Button, Card, Input, Spinner } from '../components/UI';
+import { User, Mail, Lock, Home, ArrowRight, CheckCircle, Eye, EyeOff } from 'lucide-react';
+import { apiFetch, auth } from '../utils/api';
 
 const RegisterPage = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ name: '', email: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const [showPass, setShowPass] = useState(false);
 
-  const handleChange = e => setFormData({ ...formData, [e.target.name]: e.target.value });
+  const handleChange = e => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+    if (error) setError('');
+  };
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    if (formData.password.length < 6) { setError('Password must be at least 6 characters'); return; }
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      await apiFetch('/register', { method: 'POST', body: JSON.stringify(formData) });
-      navigate('/login?registered=true');
+      const data = await apiFetch('/register', { method: 'POST', body: formData });
+      const userId = data.userId || data.user?.id;
+      if (!userId) throw new Error('Invalid server response');
+      
+      auth.setUserId(userId);
+      auth.setUserName(formData.name);
+      setSuccess(true);
+      
+      setTimeout(() => {
+        navigate('/edit-profile');
+      }, 1200);
     } catch (err) {
       setError(err.message || 'Registration failed. Try again.');
     } finally {
@@ -28,89 +46,208 @@ const RegisterPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-surface-bg flex items-center justify-center px-4 relative overflow-hidden">
-      <div className="absolute top-[-80px] right-[-60px] w-72 h-72 rounded-full bg-brand-accent opacity-30 blur-3xl pointer-events-none" />
-      <div className="absolute bottom-[-60px] left-[-60px] w-56 h-56 rounded-full bg-brand-secondary opacity-40 blur-3xl pointer-events-none" />
-
+    <div className="min-h-screen flex overflow-hidden bg-white">
+      {/* Left: Hero Image - Cinematic gradient */}
       <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="card w-full max-w-md p-10 relative z-10"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.6 }}
+        className="hidden lg:flex lg:w-1/2 relative bg-gradient-to-br from-brand-warm via-brand-primary to-orange-600 overflow-hidden items-center justify-center"
       >
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-secondary mb-4">
-            <Home className="text-brand-warm" size={26} />
-          </div>
-          <h1 className="text-3xl font-display font-bold text-text-primary">Create Account</h1>
-          <p className="text-text-muted text-sm mt-1">Join Hey Nomads and find your roommate</p>
-        </div>
+        {/* Animated gradient overlay */}
+        <motion.div
+          animate={{ 
+            rotate: [0, 5, 0],
+            scale: [1, 1.05, 1]
+          }}
+          transition={{ repeat: Infinity, duration: 8 }}
+          className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent"
+        />
+        
+        {/* Warm light rays */}
+        <motion.div
+          animate={{ opacity: [0.3, 0.6, 0.3] }}
+          transition={{ repeat: Infinity, duration: 4 }}
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `radial-gradient(circle at 20% 50%, rgba(255,255,255,0.1) 0%, transparent 50%),
+                            radial-gradient(circle at 80% 80%, rgba(255,165,0,0.1) 0%, transparent 50%)`
+          }}
+        />
 
-        {error && (
-          <div className="mb-5 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm text-center font-medium">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleRegister} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-text-secondary mb-1.5 ml-1">Full Name</label>
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
-              <input
-                id="register-name"
-                type="text" name="name" className="input pl-10"
-                placeholder="e.g. Priya Sharma"
-                value={formData.name} onChange={handleChange} required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-text-secondary mb-1.5 ml-1">Email</label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
-              <input
-                id="register-email"
-                type="email" name="email" className="input pl-10"
-                placeholder="you@example.com"
-                value={formData.email} onChange={handleChange} required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-text-secondary mb-1.5 ml-1">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
-              <input
-                id="register-password"
-                type="password" name="password" className="input pl-10"
-                placeholder="Min. 6 characters"
-                value={formData.password} onChange={handleChange} required minLength={6}
-              />
-            </div>
-          </div>
-
-          <button
-            id="register-submit"
-            type="submit"
-            disabled={loading}
-            className="btn-primary w-full justify-center mt-2 py-3.5 text-sm font-semibold"
+        {/* Content */}
+        <div className="relative z-10 text-center text-white px-8">
+          <motion.div
+            initial={{ y: -20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.2, duration: 0.5 }}
           >
-            {loading ? 'Creating account…' : <> Create Account <ArrowRight size={16} /> </>}
-          </button>
-        </form>
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-white/20 backdrop-blur-lg border border-white/30 mb-6">
+              <Home size={40} className="text-white" />
+            </div>
+            <h2 className="text-5xl font-display font-bold mb-3">Hey Nomads</h2>
+            <p className="text-xl text-white/90 font-light">Find your perfect roommate</p>
+            <p className="text-white/70 text-sm mt-4 max-w-xs mx-auto">
+              Connect with compatible roommates based on lifestyle, budget, and living habits
+            </p>
+          </motion.div>
+        </div>
+      </motion.div>
 
-        <p className="mt-6 text-center text-sm text-text-muted">
-          Already have an account?{' '}
-          <Link to="/login" className="text-brand-warm font-semibold hover:text-brand-deep transition-colors">
-            Sign In
-          </Link>
-        </p>
+      {/* Right: Register Form */}
+      <motion.div
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.5 }}
+        className="w-full lg:w-1/2 flex items-center justify-center px-4 sm:px-6 lg:px-12"
+      >
+        <div className="w-full max-w-md">
+          {/* Header */}
+          <div className="mb-8">
+            <h1 className="text-3xl font-display font-bold text-text-primary mb-2">Create account</h1>
+            <p className="text-text-muted">Join Hey Nomads today</p>
+          </div>
+
+          {/* Error */}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 bg-red-50 border border-red-300 rounded-xl text-red-700 text-sm font-medium"
+            >
+              {error}
+            </motion.div>
+          )}
+
+          {/* Success State */}
+          {success && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex flex-col items-center justify-center py-12"
+            >
+              <motion.div
+                animate={{ scale: [0.8, 1.1, 1], rotate: [0, 10, 0] }}
+                transition={{ type: 'spring', stiffness: 200 }}
+              >
+                <CheckCircle className="text-status-success" size={48} />
+              </motion.div>
+              <p className="mt-4 text-lg font-semibold text-text-primary">Account Created!</p>
+              <p className="text-text-muted text-sm mt-2">Redirecting to profile setup...</p>
+            </motion.div>
+          )}
+
+          {/* Form */}
+          {!success && (
+            <motion.form
+              onSubmit={handleRegister}
+              className="space-y-5"
+            >
+              {/* Name */}
+              <div>
+                <label className="block text-xs font-semibold text-text-secondary mb-2">Full name</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
+                  <motion.input
+                    whileFocus={{ scale: 1.02 }}
+                    type="text"
+                    name="name"
+                    className="input pl-10"
+                    placeholder="e.g. Priya Sharma"
+                    value={formData.name}
+                    onChange={handleChange}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="block text-xs font-semibold text-text-secondary mb-2">Email address</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
+                  <motion.input
+                    whileFocus={{ scale: 1.02 }}
+                    type="email"
+                    name="email"
+                    className="input pl-10"
+                    placeholder="you@example.com"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="block text-xs font-semibold text-text-secondary mb-2">Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
+                  <motion.input
+                    whileFocus={{ scale: 1.02 }}
+                    type={showPass ? 'text' : 'password'}
+                    name="password"
+                    className="input pl-10 pr-10"
+                    placeholder="Min. 6 characters"
+                    value={formData.password}
+                    onChange={handleChange}
+                    required
+                    minLength={6}
+                  />
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
+                    onClick={() => setShowPass(!showPass)}
+                  >
+                    {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </motion.button>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                type="submit"
+                disabled={loading}
+                className="btn-primary w-full justify-center mt-6 py-3.5 text-sm font-semibold"
+              >
+                {loading ? (
+                  <>
+                    <Spinner size="sm" />
+                    Creating account…
+                  </>
+                ) : (
+                  <>
+                    Create Account
+                    <ArrowRight size={18} />
+                  </>
+                )}
+              </motion.button>
+            </motion.form>
+          )}
+
+          {/* Sign In Link */}
+          {!success && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="mt-6 text-center text-sm text-text-muted"
+            >
+              Already have an account?{' '}
+              <Link to="/login" className="text-brand-primary font-semibold hover:text-brand-warm transition-colors">
+                Sign in
+              </Link>
+            </motion.p>
+          )}
+        </div>
       </motion.div>
     </div>
   );
 };
 
 export default RegisterPage;
+

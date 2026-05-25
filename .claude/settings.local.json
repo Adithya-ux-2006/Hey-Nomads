@@ -9,7 +9,14 @@
       "Bash(curl -s http://localhost:3000/matches.html)",
       "Bash(curl -s http://localhost:3000/app.js)",
       "Bash(curl -s http://localhost:3000/style.css)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npm run:*)",
+      "Bash(timeout 10s npx nodemon server.js)",
+      "Bash(pkill -f \"node server.js\")",
+      "Bash(nohup node *)",
+      "Bash(netstat -ano)",
+      "Bash(mysqladmin status *)",
+      "Bash(node server.js)"
     ]
   }
 }

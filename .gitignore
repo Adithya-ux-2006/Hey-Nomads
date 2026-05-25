@@ -1,1 +1,30 @@
+# Aider CLI artifacts
 .aider*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Runtime logs
+*.log
+server.log
+
+# Dependencies
+node_modules/
+dist/
+build/
+
+# IDE artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Uploads (typically managed separately)
+backend/uploads/*

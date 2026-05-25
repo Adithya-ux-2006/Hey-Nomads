@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Heart, ArrowRight, IndianRupee, MapPin, Calendar, Trash2, Scale } from 'lucide-react';
-import { apiFetch, auth, resolveMediaUrl } from '../utils/api';
+import { apiFetch, resolveMediaUrl, auth } from '../utils/api';
 import Layout from '../components/Layout';
 import { Link } from 'react-router-dom';
 
@@ -9,42 +9,70 @@ const ShortlistPage = () => {
     const userId = auth.getUserId();
     const [shortlist, setShortlist] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
     const [compareList, setCompareList] = useState([]); // Stores IDs of users to compare
 
     useEffect(() => {
-        loadShortlist();
-    }, []);
+        console.log('Shortlist userId:', userId);
 
-    const loadShortlist = async () => {
-        try {
-            const data = await apiFetch(`/shortlist/${userId}`);
-            setShortlist(data || []);
-        } catch (err) {
-            console.error('Failed to load shortlist');
-        } finally {
+        if (!userId) {
             setLoading(false);
+            return;
         }
-    };
+
+        setLoading(true);
+        setError('');
+
+        const loadShortlist = async () => {
+            try {
+                const data = await apiFetch(`/shortlist/${userId}`);
+                console.log('shortlist data:', data);
+                setShortlist(Array.isArray(data) ? data : []);
+            } catch (err) {
+                console.error('Shortlist load error:', err);
+                setError(err.message || 'Failed to load shortlist.');
+                setShortlist([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadShortlist();
+    }, [userId]);
 
     const removeItem = async (targetId) => {
+        if (!userId || !targetId) {
+            setError('Invalid user or target ID');
+            return;
+        }
         try {
-            await apiFetch('/shortlist', { method: 'DELETE', body: { userId, targetId } });
-            setShortlist(s => s.filter(u => u.id !== targetId));
-            setCompareList(c => c.filter(id => id !== targetId));
+            await apiFetch('/shortlist', {
+                method: 'DELETE',
+                body: { userId: parseInt(userId), targetId: parseInt(targetId) }
+            });
+            setShortlist((s) => s.filter((u) => u?.id !== targetId));
+            setCompareList((c) => c.filter((id) => id !== targetId));
         } catch (err) {
-            console.error('Remove error');
+            console.error('Remove shortlist error:', err);
+            setError(err.message || 'Failed to remove shortlist item.');
         }
     };
 
     const toggleCompare = (id) => {
-        setCompareList(prev => 
-            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id].slice(-2)
+        setCompareList((prev) =>
+            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id].slice(-2)
         );
     };
 
     if (loading) return (
         <Layout activePage="shortlist">
-            <div className="max-w-5xl mx-auto px-4 pt-12 text-center text-text-muted">Loading your shortlist...</div>
+            <div className="max-w-5xl mx-auto px-4 pt-12 text-center text-text-muted">Loading shortlist...</div>
+        </Layout>
+    );
+
+    if (!userId) return (
+        <Layout activePage="shortlist">
+            <div className="max-w-5xl mx-auto px-4 pt-12 text-center text-text-muted">User not logged in</div>
         </Layout>
     );
 
@@ -64,12 +92,18 @@ const ShortlistPage = () => {
                     )}
                 </div>
 
-                {shortlist.length === 0 ? (
+                {error && (
+                    <div className="card p-4 mb-6 text-sm text-red-600 border border-red-200 bg-red-50">
+                        {error}
+                    </div>
+                )}
+
+                {!shortlist || shortlist.length === 0 ? (
                     <div className="card p-12 text-center">
                         <div className="w-16 h-16 bg-surface-muted rounded-full flex items-center justify-center mx-auto mb-4 text-text-muted">
                             <Heart size={32} />
                         </div>
-                        <h2 className="text-xl font-bold text-text-primary mb-2">No shortlists yet</h2>
+                        <h2 className="text-xl font-bold text-text-primary mb-2">No shortlisted users yet</h2>
                         <p className="text-text-muted max-w-xs mx-auto mb-6">Explore potential roommates and save your favorites to compare them side-by-side.</p>
                         <Link to="/discover" className="btn-primary inline-flex">Go to Discover</Link>
                     </div>
@@ -77,57 +111,57 @@ const ShortlistPage = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {shortlist.map((user) => (
                             <motion.div 
-                                key={user.id} 
-                                layoutId={`fav-${user.id}`}
+                                key={user?.id} 
+                                layoutId={`fav-${user?.id}`}
                                 className={`card overflow-hidden border-2 transition-all ${
-                                    compareList.includes(user.id) ? 'border-brand-primary shadow-lg ring-4 ring-brand-primary/10' : 'border-transparent'
+                                    compareList.includes(user?.id) ? 'border-brand-primary shadow-lg ring-4 ring-brand-primary/10' : 'border-transparent'
                                 }`}
                             >
                                 <div className="relative h-40 bg-surface-muted">
-                                    {user.profile_image ? (
-                                        <img src={resolveMediaUrl(user.profile_image)} className="w-full h-full object-cover" alt={user.name} />
+                                    {user?.profile_image ? (
+                                        <img src={resolveMediaUrl(user?.profile_image)} className="w-full h-full object-cover" alt={user?.name || 'Shortlisted user'} />
                                     ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-brand-warm opacity-30">{user.name[0]}</div>
+                                        <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-brand-warm opacity-30">{user?.name?.[0] || '?'}</div>
                                     )}
-                                    <button 
-                                        onClick={() => removeItem(user.id)}
+                                    <button
+                                        onClick={() => user?.id && removeItem(user.id)}
                                         className="absolute top-3 right-3 p-2 bg-white/90 rounded-full text-red-500 hover:bg-white transition-all shadow-sm"
                                     >
                                         <Trash2 size={16} />
                                     </button>
                                 </div>
                                 <div className="p-5">
-                                    <h3 className="text-lg font-bold text-text-primary mb-3">{user.name}</h3>
-                                    
+                                    <h3 className="text-lg font-bold text-text-primary mb-3">{user?.name || 'Unknown'}</h3>
+
                                     <div className="space-y-2 mb-5">
                                         <div className="flex items-center justify-between text-xs">
                                             <span className="text-text-muted flex items-center gap-1"><MapPin size={12} /> City</span>
-                                            <span className="font-bold text-text-primary">{user.city || 'Not set'}</span>
+                                            <p>{user?.city || 'Not set'}</p>
                                         </div>
                                         <div className="flex items-center justify-between text-xs">
                                             <span className="text-text-muted flex items-center gap-1"><IndianRupee size={12} /> Budget</span>
-                                            <span className="font-bold text-text-primary">₹{(user.budget || 0).toLocaleString()}</span>
+                                            <span className="font-bold text-text-primary">₹{(user?.budget || 0).toLocaleString('en-IN')}</span>
                                         </div>
                                         <div className="flex items-center justify-between text-xs">
                                             <span className="text-text-muted flex items-center gap-1"><Calendar size={12} /> Move-in</span>
                                             <span className="font-bold text-text-primary">
-                                                {user.move_in_date ? new Date(user.move_in_date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'Flexible'}
+                                                {user?.move_in_date ? new Date(user.move_in_date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'Flexible'}
                                             </span>
                                         </div>
                                     </div>
 
                                     <div className="flex items-center gap-2">
-                                        <button 
-                                            onClick={() => toggleCompare(user.id)}
+                                        <button
+                                            onClick={() => user?.id && toggleCompare(user.id)}
                                             className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all ${
-                                                compareList.includes(user.id) 
-                                                ? 'bg-brand-primary border-brand-primary text-text-primary' 
+                                                compareList.includes(user?.id)
+                                                ? 'bg-brand-primary border-brand-primary text-text-primary'
                                                 : 'border-surface-border text-text-muted hover:border-brand-primary'
                                             }`}
                                         >
-                                            {compareList.includes(user.id) ? 'Selected' : 'Compare'}
+                                            {compareList.includes(user?.id) ? 'Selected' : 'Compare'}
                                         </button>
-                                        <Link to={`/profile/${user.id}`} className="p-2 border border-surface-border rounded-xl text-text-muted hover:text-brand-warm transition-all">
+                                        <Link to={`/profile/${user?.id}`} className="p-2 border border-surface-border rounded-xl text-text-muted hover:text-brand-warm transition-all">
                                             <ArrowRight size={16} />
                                         </Link>
                                     </div>
@@ -148,12 +182,12 @@ const ShortlistPage = () => {
                         >
                             <div className="card p-2 shadow-2xl bg-white/90 backdrop-blur-md border-brand-primary border-2 flex items-center justify-between overflow-hidden">
                                 <div className="flex items-center -space-x-4 pl-2">
-                                    {compareList.map(id => {
-                                        const u = shortlist.find(x => x.id === id);
+                                    {compareList.map((id) => {
+                                        const u = shortlist.find((x) => x?.id === id);
                                         return (
                                             <div key={id} className="w-12 h-12 rounded-full border-4 border-white overflow-hidden bg-brand-secondary ring-2 ring-brand-primary/20">
                                                 {u?.profile_image && (
-                                                    <img src={resolveMediaUrl(u.profile_image)} className="w-full h-full object-cover" alt="" />
+                                                    <img src={resolveMediaUrl(u?.profile_image)} className="w-full h-full object-cover" alt="" />
                                                 )}
                                             </div>
                                         );

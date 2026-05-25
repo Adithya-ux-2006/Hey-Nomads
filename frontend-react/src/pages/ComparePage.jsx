@@ -1,225 +1,455 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowLeft, Scale, CheckCircle2, AlertTriangle, FileText, ChevronRight } from 'lucide-react';
-import { apiFetch, auth, resolveMediaUrl } from '../utils/api';
+import { ArrowLeft, Scale, AlertTriangle, FileText, Calendar, TrendingUp, TrendingDown, Zap } from 'lucide-react';
+import { apiFetch, resolveMediaUrl } from '../utils/api';
 import Layout from '../components/Layout';
+import { Button, Card, Spinner, EmptyState, ProgressBar } from '../components/UI';
+import { pageVariants, staggerContainer, staggerItem, slideInLeft, slideInRight } from '../utils/animations';
 
-const MetricsBar = ({ label, val1, val2, name1 = 'User 1', name2 = 'User 2', max = 5 }) => {
-  const safeVal1 = val1 || 0;
-  const safeVal2 = val2 || 0;
+const MetricsBar = ({ label, val1, val2, name1 = 'User 1', name2 = 'User 2', max = 5, icon: Icon }) => {
+  const safeVal1 = Number(val1) || 0;
+  const safeVal2 = Number(val2) || 0;
+  const isMatch = safeVal1 === safeVal2;
+
   return (
-    <div className="space-y-2">
-      <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-text-muted">
-        <span>{label}</span>
-        <span>{(safeVal1 === safeVal2) ? 'Balanced' : 'Mismatch'}</span>
+    <motion.div variants={staggerItem} className="space-y-3">
+      <div className="flex justify-between items-center">
+        <div className="flex items-center gap-2">
+          {Icon && <Icon size={16} className="text-brand-primary" />}
+          <span className="text-sm font-semibold text-text-primary">{label}</span>
+        </div>
+        <motion.div
+          initial={{ scale: 0.8 }}
+          animate={{ scale: 1 }}
+          className={`px-2 py-1 rounded-full text-xs font-bold ${
+            isMatch
+              ? 'bg-status-success/20 text-green-700'
+              : 'bg-status-warning/20 text-amber-700'
+          }`}
+        >
+          {isMatch ? '✓ Balanced' : '! Mismatch'}
+        </motion.div>
       </div>
-      <div className="relative h-4 bg-surface-muted rounded-full overflow-hidden flex">
-        <div 
-          className="h-full bg-brand-primary border-r-2 border-white transition-all duration-1000" 
-          style={{ width: `${(safeVal1 / max) * 100}%` }} 
+
+      <div className="relative h-3 bg-surface-border rounded-full overflow-hidden flex">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${(safeVal1 / max) * 100}%` }}
+          transition={{ duration: 0.8, delay: 0.1 }}
+          className="h-full bg-gradient-to-r from-brand-primary to-brand-warm"
         />
-        <div 
-          className="h-full bg-brand-warm opacity-70 transition-all duration-1000" 
-          style={{ width: `${(safeVal2 / max) * 100}%` }} 
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${(safeVal2 / max) * 100}%` }}
+          transition={{ duration: 0.8, delay: 0.2 }}
+          className="h-full bg-brand-accent/60"
         />
       </div>
-      <div className="flex justify-between text-[10px] font-medium text-text-secondary">
-        <span>{name1}: {safeVal1}/{max}</span>
-        <span>{name2}: {safeVal2}/{max}</span>
+
+      <div className="flex justify-between text-xs text-text-muted font-medium">
+        <span>
+          {name1}: <span className="font-bold text-text-primary">{safeVal1}/{max}</span>
+        </span>
+        <span>
+          {name2}: <span className="font-bold text-text-primary">{safeVal2}/{max}</span>
+        </span>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
+const mapSleepToScore = (sleepTime) => {
+  if (sleepTime === 'early') return 1;
+  if (sleepTime === 'late') return 5;
+  return 3;
+};
+
+const formatMonthDay = (dateStr) => {
+  if (!dateStr) return 'Not specified';
+  const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed.getTime())) return 'Not specified';
+  return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
 const ComparePage = () => {
-    const [searchParams] = useSearchParams();
-    const navigate = useNavigate();
-    const u1_id = searchParams.get('u1');
-    const u2_id = searchParams.get('u2');
-    
-    // Phase 3: State Management
-    const [userA, setUserA] = useState(null);
-    const [userB, setUserB] = useState(null);
-    const [loading, setLoading] = useState(true);
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const u1Id = searchParams.get('u1');
+  const u2Id = searchParams.get('u2');
 
-    // Phase 6: Debugging
-    console.log("u1:", u1_id, "u2:", u2_id);
-    console.log("userA:", userA);
-    console.log("userB:", userB);
+  const [userA, setUserA] = useState(null);
+  const [userB, setUserB] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-    useEffect(() => {
-        const load = async () => {
-            try {
-                // Phase 2: Fetch Data
-                const [p1, p2] = await Promise.all([
-                    apiFetch(`/profile/${u1_id}`),
-                    apiFetch(`/profile/${u2_id}`)
-                ]);
-                setUserA(p1);
-                setUserB(p2);
-            } catch (err) {
-                console.error('Failed to load profiles for comparison', err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        if (u1_id && u2_id) {
-            load();
-        } else {
-            setLoading(false);
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      if (!u1Id || !u2Id) {
+        setError('Select two profiles to compare.');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError('');
+        const [profileA, profileB] = await Promise.all([
+          apiFetch(`/profile/${u1Id}`),
+          apiFetch(`/profile/${u2Id}`),
+        ]);
+
+        if (!cancelled) {
+          setUserA(profileA);
+          setUserB(profileB);
         }
-    }, [u1_id, u2_id]);
-
-    // Phase 4: Handle Loading + Errors
-    if (loading) return <Layout activePage="shortlist"><div className="p-20 text-center text-text-muted">Analysing lifestyle data...</div></Layout>;
-    
-    // Phase 7: UI Fallback
-    if (!userA || !userB) {
-        return (
-            <Layout activePage="shortlist">
-                <div className="p-20 text-center">
-                    <AlertTriangle className="mx-auto text-orange-500 mb-4" size={32} />
-                    <h2 className="text-xl font-bold mb-2">Comparison Unavailable</h2>
-                    <p className="text-text-muted mb-6">Failed to load matching profiles. One or both users may lack completed data.</p>
-                    <button onClick={() => navigate(-1)} className="btn-primary">Go Back</button>
-                </div>
-            </Layout>
-        );
-    }
-
-    // Phase 2 Logic: Timeline Compatibility
-    const formatMonthDay = (dateStr) => {
-        if (!dateStr) return "Not specified";
-        const d = new Date(dateStr);
-        return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || 'Failed to load profiles for comparison.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
     };
 
-    let timelineStatus = "Move-in date not specified";
-    let timelineMessage = "Cannot compare without both dates";
-    let diffDays = null;
-    let badgeClass = "bg-surface-muted text-text-muted";
-    let badgeIcon = <AlertTriangle size={14} className="mr-1 inline-block mb-0.5" />;
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [u1Id, u2Id]);
 
-    if (userA?.move_in_date && userB?.move_in_date) {
-        diffDays = Math.round(Math.abs(new Date(userA.move_in_date) - new Date(userB.move_in_date)) / (1000 * 60 * 60 * 24));
-        // Phase 5 Debug
-        console.log("Timeline Status - UserA Date:", userA.move_in_date, "UserB Date:", userB.move_in_date, "diffDays:", diffDays);
+  const timeline = useMemo(() => {
+    const dateA = userA?.move_in_date ? new Date(userA.move_in_date) : null;
+    const dateB = userB?.move_in_date ? new Date(userB.move_in_date) : null;
 
-        if (diffDays <= 7) {
-            timelineStatus = "Excellent match";
-            timelineMessage = "Move-in dates align well";
-            badgeClass = "bg-green-100 text-green-700";
-            badgeIcon = "✅";
-        } else if (diffDays <= 30) {
-            timelineStatus = "Moderate overlap";
-            timelineMessage = "Reasonable move-in gap";
-            badgeClass = "bg-orange-100 text-orange-700";
-            badgeIcon = "⚠️";
-        } else {
-            timelineStatus = "Poor alignment";
-            timelineMessage = "Dates are far apart";
-            badgeClass = "bg-red-100 text-red-700";
-            badgeIcon = "❌";
-        }
+    if (!dateA || !dateB || Number.isNaN(dateA.getTime()) || Number.isNaN(dateB.getTime())) {
+      return {
+        diffDays: null,
+        status: 'Dates not specified',
+        message: 'Add move-in dates to compare timeline alignment.',
+        variant: 'warning',
+        icon: AlertTriangle,
+      };
     }
 
+    const diffDays = Math.round(Math.abs(dateA - dateB) / (1000 * 60 * 60 * 24));
+    if (diffDays <= 7) {
+      return {
+        diffDays,
+        status: 'Excellent match',
+        message: 'Move-in dates align very closely.',
+        variant: 'success',
+        icon: TrendingUp,
+      };
+    }
+    if (diffDays <= 30) {
+      return {
+        diffDays,
+        status: 'Moderate overlap',
+        message: 'The timeline gap is workable with some flexibility.',
+        variant: 'warning',
+        icon: Zap,
+      };
+    }
+    return {
+      diffDays,
+      status: 'Poor alignment',
+      message: 'The move-in gap is wide and may require coordination.',
+      variant: 'error',
+      icon: TrendingDown,
+    };
+  }, [userA, userB]);
+
+  // ── Loading State ──────────────────────────────────────────────
+  if (loading) {
     return (
-        <Layout activePage="shortlist">
-            <div className="max-w-4xl mx-auto px-4 pt-6 pb-20">
-                {/* Header */}
-                <div className="flex items-center justify-between mb-8">
-                    <button onClick={() => navigate(-1)} className="btn-ghost p-2">
-                        <ArrowLeft size={20} />
-                    </button>
-                    <div className="flex items-center gap-2">
-                        <Scale size={20} className="text-brand-warm" />
-                        <h1 className="font-display font-bold text-xl">Comparing {userA?.name || 'User A'} vs {userB?.name || 'User B'}</h1>
-                    </div>
-                    <div className="w-10" />
-                </div>
-
-                {/* Profiles Side-by-Side */}
-                <div className="grid grid-cols-2 gap-4 mb-8">
-                    {[userA, userB].map((p, i) => (
-                        <div key={i} className="card p-4 text-center">
-                            <div className="w-20 h-20 rounded-2xl mx-auto mb-3 overflow-hidden border-2 border-brand-primary/20">
-                                <img 
-                                    src={p?.profile_image ? resolveMediaUrl(p.profile_image) : 'https://via.placeholder.com/150'} 
-                                    className="w-full h-full object-cover" 
-                                    alt={p?.name || 'User'}
-                                    onError={e => e.target.src = 'https://via.placeholder.com/150'}
-                                />
-                            </div>
-                            <h2 className="font-bold text-text-primary">{p?.name || 'Unknown'}</h2>
-                            <p className="text-[10px] text-text-muted uppercase font-bold tracking-tighter">{p?.occupation || 'Professional'}</p>
-                        </div>
-                    ))}
-                </div>
-
-                {/* Data Insights */}
-                <div className="space-y-6">
-                    <div className="card p-6">
-                        <h3 className="text-xs font-bold uppercase tracking-widest text-text-muted mb-6 flex items-center gap-2">
-                            <Scale size={14} /> Lifestyle Alignment Metrics
-                        </h3>
-                        <div className="space-y-8">
-                            <MetricsBar label="Cleanliness" val1={userA?.cleanliness} val2={userB?.cleanliness} name1={userA?.name} name2={userB?.name} />
-                            <MetricsBar label="Noise Level" val1={userA?.noise_level} val2={userB?.noise_level} name1={userA?.name} name2={userB?.name} />
-                            <MetricsBar label="Sleep Schedule" 
-                                val1={userA?.sleep_time === 'early' ? 1 : userA?.sleep_time === 'late' ? 5 : 3} 
-                                val2={userB?.sleep_time === 'early' ? 1 : userB?.sleep_time === 'late' ? 5 : 3} 
-                                name1={userA?.name} name2={userB?.name}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Summary Box */}
-                        <div className="card p-6 bg-brand-secondary/5 border-brand-primary/10">
-                            <h4 className="text-[10px] font-bold uppercase text-brand-warm mb-4 flex items-center gap-1.5 whitespace-nowrap">
-                                📅 Move-in Compatibility
-                            </h4>
-                            <div className="space-y-3 mb-5">
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="font-semibold px-1">{userA?.name || 'User A'}:</span>
-                                    <span className="text-text-muted px-1">Available from {formatMonthDay(userA?.move_in_date)}</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="font-semibold px-1">{userB?.name || 'User B'}:</span>
-                                    <span className="text-text-muted px-1">Available from {formatMonthDay(userB?.move_in_date)}</span>
-                                </div>
-                            </div>
-                            
-                            <div className="pt-4 border-t border-brand-primary/10 flex flex-col gap-1.5">
-                                <div className={`inline-flex items-center self-start px-3 py-1.5 rounded-full text-xs font-bold ${badgeClass}`}>
-                                    {typeof badgeIcon === 'string' ? <span className="mr-1.5 leading-none text-sm">{badgeIcon}</span> : badgeIcon} 
-                                    {timelineStatus} {diffDays !== null && `(${diffDays}-day diff)`}
-                                </div>
-                                <span className="text-[10px] font-bold text-text-muted italic px-2 mt-1">
-                                    {timelineMessage}
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Decision Box */}
-                        <div className="card p-6 bg-brand-primary/10 border-brand-primary/20">
-                            <h4 className="text-[10px] font-bold uppercase text-brand-deep mb-3">Decision Support</h4>
-                            <p className="text-xs text-text-secondary leading-relaxed mb-4">
-                                Based on both profiles, we recommend drafting a shared cleaning rota.
-                            </p>
-                            <Link 
-                                to={userB?.id ? `/agreement/${userB.id}` : '#'} 
-                                className="btn-primary w-full justify-center text-xs py-2.5"
-                            >
-                                <FileText size={14} /> Create Roommate Agreement
-                            </Link>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </Layout>
+      <Layout activePage="shortlist">
+        <div className="max-w-5xl mx-auto px-4 pt-12 pb-24 flex flex-col items-center justify-center min-h-screen">
+          <Spinner size="lg" />
+          <p className="mt-4 text-text-muted">Loading comparison...</p>
+        </div>
+      </Layout>
     );
+  }
+
+  // ── Error State ────────────────────────────────────────────────
+  if (error || !userA || !userB) {
+    return (
+      <Layout activePage="shortlist">
+        <div className="max-w-5xl mx-auto px-4 pt-12 pb-24">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+          >
+            <EmptyState
+              icon={AlertTriangle}
+              title="Comparison unavailable"
+              description={error || 'One or both profiles could not be loaded.'}
+              action={
+                <Button onClick={() => navigate('/shortlist')}>
+                  <ArrowLeft size={16} /> Back to Shortlist
+                </Button>
+              }
+            />
+          </motion.div>
+        </div>
+      </Layout>
+    );
+  }
+
+  const TimelineIcon = timeline.icon;
+
+  return (
+    <Layout activePage="shortlist">
+      <motion.div
+        variants={pageVariants}
+        initial="initial"
+        animate="animate"
+        className="max-w-5xl mx-auto px-4 pt-6 pb-24"
+      >
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center justify-between mb-8"
+        >
+          <Button variant="ghost" onClick={() => navigate(-1)}>
+            <ArrowLeft size={18} /> Back
+          </Button>
+          <div className="flex items-center gap-2">
+            <motion.div
+              animate={{ rotate: [0, -5, 5, 0] }}
+              transition={{ repeat: Infinity, duration: 3 }}
+            >
+              <Scale size={20} className="text-brand-primary" />
+            </motion.div>
+            <h1 className="font-display font-bold text-2xl text-text-primary">
+              Compare Profiles
+            </h1>
+          </div>
+          <div className="w-20" />
+        </motion.div>
+
+        {/* User Cards Header */}
+        <motion.div
+          variants={staggerContainer}
+          initial="initial"
+          animate="animate"
+          className="grid grid-cols-2 gap-4 mb-10"
+        >
+          {[
+            { profile: userA, variant: 'left' },
+            { profile: userB, variant: 'right' },
+          ].map(({ profile, variant }, idx) => (
+            <motion.div
+              key={profile?.id}
+              variants={variant === 'left' ? slideInLeft : slideInRight}
+            >
+              <Card className="p-6 text-center">
+                <motion.div
+                  initial={{ scale: 0.8 }}
+                  animate={{ scale: 1 }}
+                  transition={{ delay: idx * 0.1, type: 'spring', stiffness: 200 }}
+                  className="w-24 h-24 rounded-2xl mx-auto mb-4 overflow-hidden border-2 border-brand-primary shadow-lg"
+                >
+                  <img
+                    src={
+                      profile?.profile_image
+                        ? resolveMediaUrl(profile.profile_image)
+                        : `https://via.placeholder.com/96?text=${encodeURIComponent(profile?.name || 'User')}`
+                    }
+                    className="w-full h-full object-cover"
+                    alt={profile?.name || 'User'}
+                  />
+                </motion.div>
+                <h2 className="font-display font-bold text-lg text-text-primary">
+                  {profile?.name || 'Unknown'}
+                </h2>
+                <p className="text-xs text-text-muted uppercase font-semibold mt-1">
+                  {profile?.occupation || 'Professional'}
+                </p>
+                <p className="text-xs text-text-muted mt-2">{profile?.city || 'Location not specified'}</p>
+              </Card>
+            </motion.div>
+          ))}
+        </motion.div>
+
+        {/* Comparison Metrics */}
+        <motion.div
+          variants={staggerContainer}
+          initial="initial"
+          animate="animate"
+          className="space-y-8"
+        >
+          {/* Lifestyle Alignment */}
+          <motion.div variants={staggerItem}>
+            <Card className="p-8">
+              <div className="flex items-center gap-3 mb-8">
+                <Zap size={20} className="text-brand-primary" />
+                <h3 className="font-display font-bold text-lg text-text-primary">
+                  Lifestyle Alignment
+                </h3>
+              </div>
+
+              <motion.div
+                variants={staggerContainer}
+                initial="initial"
+                animate="animate"
+                className="space-y-8"
+              >
+                <MetricsBar
+                  label="Cleanliness"
+                  val1={userA?.cleanliness}
+                  val2={userB?.cleanliness}
+                  name1={userA?.name || 'User A'}
+                  name2={userB?.name || 'User B'}
+                  max={5}
+                />
+                <MetricsBar
+                  label="Noise Level"
+                  val1={userA?.noise_level}
+                  val2={userB?.noise_level}
+                  name1={userA?.name || 'User A'}
+                  name2={userB?.name || 'User B'}
+                  max={5}
+                />
+                <MetricsBar
+                  label="Sleep Schedule"
+                  val1={mapSleepToScore(userA?.sleep_time)}
+                  val2={mapSleepToScore(userB?.sleep_time)}
+                  name1={userA?.name || 'User A'}
+                  name2={userB?.name || 'User B'}
+                  max={5}
+                />
+              </motion.div>
+            </Card>
+          </motion.div>
+
+          {/* Move-in & Decision */}
+          <motion.div
+            variants={staggerContainer}
+            initial="initial"
+            animate="animate"
+            className="grid grid-cols-1 md:grid-cols-2 gap-6"
+          >
+            {/* Timeline */}
+            <motion.div variants={staggerItem}>
+              <Card className={`p-8 border-2 ${
+                timeline.variant === 'success'
+                  ? 'border-status-success/30 bg-status-success/5'
+                  : timeline.variant === 'warning'
+                  ? 'border-status-warning/30 bg-status-warning/5'
+                  : 'border-status-error/30 bg-status-error/5'
+              }`}>
+                <div className="flex items-center gap-3 mb-6">
+                  <Calendar size={20} className="text-brand-primary" />
+                  <h4 className="font-display font-bold text-text-primary">
+                    Move-in Compatibility
+                  </h4>
+                </div>
+
+                <div className="space-y-4 mb-6">
+                  <motion.div
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="p-3 rounded-lg bg-white/50"
+                  >
+                    <p className="text-xs font-semibold text-text-secondary">
+                      {userA?.name || 'User A'}
+                    </p>
+                    <p className="text-sm text-text-primary font-bold mt-1">
+                      {formatMonthDay(userA?.move_in_date)}
+                    </p>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="p-3 rounded-lg bg-white/50"
+                  >
+                    <p className="text-xs font-semibold text-text-secondary">
+                      {userB?.name || 'User B'}
+                    </p>
+                    <p className="text-sm text-text-primary font-bold mt-1">
+                      {formatMonthDay(userB?.move_in_date)}
+                    </p>
+                  </motion.div>
+                </div>
+
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.3 }}
+                  className={`p-3 rounded-lg ${
+                    timeline.variant === 'success'
+                      ? 'bg-status-success/20 border border-status-success'
+                      : timeline.variant === 'warning'
+                      ? 'bg-status-warning/20 border border-status-warning'
+                      : 'bg-status-error/20 border border-status-error'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <TimelineIcon size={16} className="text-text-primary" />
+                    <p className="text-sm font-bold text-text-primary">
+                      {timeline.status}
+                    </p>
+                  </div>
+                  {timeline.diffDays !== null && (
+                    <p className="text-xs text-text-secondary">
+                      {timeline.diffDays} day difference
+                    </p>
+                  )}
+                  <p className="text-xs text-text-muted mt-2 italic">
+                    {timeline.message}
+                  </p>
+                </motion.div>
+              </Card>
+            </motion.div>
+
+            {/* Next Steps */}
+            <motion.div variants={staggerItem}>
+              <Card className="p-8 bg-gradient-to-br from-brand-secondary/20 to-brand-primary/10 border border-brand-primary/20">
+                <div className="flex items-center gap-3 mb-6">
+                  <FileText size={20} className="text-brand-primary" />
+                  <h4 className="font-display font-bold text-text-primary">
+                    Next Steps
+                  </h4>
+                </div>
+
+                <p className="text-sm text-text-secondary leading-relaxed mb-6">
+                  Both profiles look compatible! The next step is drafting a shared roommate agreement to establish expectations and terms.
+                </p>
+
+                <motion.div
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <Link
+                    to={userB?.id ? `/agreement/${userB.id}` : '/shortlist'}
+                    className="block"
+                  >
+                    <Button variant="primary" className="w-full">
+                      <FileText size={16} /> Create Agreement
+                    </Button>
+                  </Link>
+                </motion.div>
+
+                <p className="text-xs text-text-muted text-center mt-4">
+                  You can always adjust terms later during discussions.
+                </p>
+              </Card>
+            </motion.div>
+          </motion.div>
+        </motion.div>
+      </motion.div>
+    </Layout>
+  );
 };
 
 export default ComparePage;

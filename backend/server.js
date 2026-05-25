@@ -1,18 +1,21 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+require('dotenv').config();
 const upload = require('./middleware/upload');
 const bcrypt = require('bcryptjs');
-const { pool, testConnection } = require('./db');
+const { pool, testConnection, ensureDatabaseSchema } = require('./db');
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
 
 // ============================================================
 // MIDDLEWARE
 // ============================================================
 app.use(cors({
-    origin: 'http://localhost:5173',
+    origin: FRONTEND_ORIGIN,
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -27,7 +30,9 @@ app.get('/', (req, res) => {
     res.json({ status: 'Hey Nomads API Running', version: '2.0.0' });
 });
 
-testConnection();
+app.get('/api/health', (req, res) => {
+    res.json({ ok: true, status: 'Hey Nomads API Running', version: '2.0.0' });
+});
 
 // ============================================================
 // AUTH ROUTES
@@ -76,7 +81,6 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
-        console.log('Login attempt:', { email, hasPassword: !!password, body: req.body }); // Debug log
         if (!email || !password) {
             return res.status(400).json({ error: 'Email and password required' });
         }
@@ -97,6 +101,7 @@ app.post('/api/login', async (req, res) => {
 
         res.json({
             message: 'Login successful',
+            userId: user.id,
             user: { id: user.id, name: user.name, email: user.email }
         });
     } catch (err) {
@@ -121,7 +126,7 @@ app.get('/api/profile/:userId', async (req, res) => {
             `SELECT
                 u.id, u.name, u.email, u.is_verified AS user_verified, u.gender, u.age,
                 p.id AS profile_id,
-                p.bio, p.occupation, p.city, p.profile_image,
+                p.bio, p.occupation, p.city, p.profile_image, p.move_in_date,
                 p.sleep_time, p.cleanliness, p.diet, p.noise_tolerance, p.noise_level,
                 p.budget, p.tax_bracket, p.deposit, p.flat_type, p.occupants,
                 p.smoking, p.drinking, p.partying,
@@ -184,6 +189,8 @@ app.post('/api/profile', upload.single('profile_image'), async (req, res) => {
             prefersSameDiet, prefersSameSleep
         } = req.body;
 
+        console.log('[POST /api/profile] Request:', { userId, hasFile: !!req.file, city, bio: bio?.substring(0, 50) });
+
         if (!userId || isNaN(userId)) {
             return res.status(400).json({ error: 'Valid userId is required' });
         }
@@ -191,8 +198,11 @@ app.post('/api/profile', upload.single('profile_image'), async (req, res) => {
         // Parse languages
         let parsedLanguages = [];
         try {
-            parsedLanguages = typeof languages === 'string' ? JSON.parse(languages) : (languages || []);
-        } catch (e) { parsedLanguages = []; }
+            parsedLanguages = typeof languages === 'string' ? JSON.parse(languages) : (Array.isArray(languages) ? languages : []);
+        } catch (e) {
+            console.log('Language parse error:', e);
+            parsedLanguages = [];
+        }
 
         // Handle image
         let imageUpdateSql = '';
@@ -211,34 +221,57 @@ app.post('/api/profile', upload.single('profile_image'), async (req, res) => {
             'SELECT id FROM profiles WHERE user_id = ?', [userId]
         );
 
-        const cleanInt = (v, d = 3) => parseInt(v) || d;
-        const safeStr = (v) => (v || '').toString().trim();
-        const safeDate = (v) => v ? v : null;
+        const cleanInt = (v, d = 3) => {
+            const n = parseInt(v);
+            return isNaN(n) ? d : n;
+        };
+        const safeStr = (v) => (v === undefined || v === null) ? '' : String(v).trim();
+        const safeDate = (v) => {
+            if (!v || v === '' || v === 'null' || v === 'undefined') return null;
+            // Validate date format
+            const date = new Date(v);
+            return isNaN(date.getTime()) ? null : v;
+        };
 
         if (existing.length > 0) {
-            await pool.query(
-                `UPDATE profiles SET
-                    bio = ?, occupation = ?, city = ?, move_in_date = ?,
-                    sleep_time = ?, cleanliness = ?, diet = ?,
-                    noise_tolerance = ?, noise_level = ?,
-                    budget = ?, tax_bracket = ?, deposit = ?,
-                    flat_type = ?, occupants = ?,
-                    smoking = ?, drinking = ?, partying = ?
-                    ${imageUpdateSql}
-                 WHERE user_id = ?`,
-                [
-                    safeStr(bio), safeStr(occupation), safeStr(city), safeDate(moveInDate),
-                    safeStr(sleepTime) || 'flexible', cleanInt(cleanliness), safeStr(diet) || 'veg',
-                    safeStr(noiseTolerance) || 'moderate', cleanInt(noiseLevel, 3),
-                    cleanInt(budget, 15000), safeStr(taxBracket) || 'medium', cleanInt(deposit, 5000),
-                    safeStr(flatType) || 'shared', cleanInt(occupants, 1),
-                    safeStr(smoking) || 'no', safeStr(drinking) || 'no', safeStr(partying) || 'low',
-                    ...imageUpdateVal,
-                    userId
-                ]
-            );
+            // Build dynamic update to only set fields that are provided
+            const updates = [];
+            const values = [];
+
+            if (bio !== undefined) { updates.push('bio = ?'); values.push(safeStr(bio)); }
+            if (occupation !== undefined) { updates.push('occupation = ?'); values.push(safeStr(occupation)); }
+            if (city !== undefined) { updates.push('city = ?'); values.push(safeStr(city)); }
+            if (moveInDate !== undefined) { updates.push('move_in_date = ?'); values.push(safeDate(moveInDate)); }
+            if (sleepTime !== undefined) { updates.push('sleep_time = ?'); values.push(safeStr(sleepTime) || 'flexible'); }
+            if (cleanliness !== undefined) { updates.push('cleanliness = ?'); values.push(cleanInt(cleanliness, 3)); }
+            if (diet !== undefined) { updates.push('diet = ?'); values.push(safeStr(diet) || 'veg'); }
+            if (noiseTolerance !== undefined) { updates.push('noise_tolerance = ?'); values.push(safeStr(noiseTolerance) || 'moderate'); }
+            if (noiseLevel !== undefined) { updates.push('noise_level = ?'); values.push(cleanInt(noiseLevel, 3)); }
+            if (budget !== undefined) { updates.push('budget = ?'); values.push(cleanInt(budget, 15000)); }
+            if (taxBracket !== undefined) { updates.push('tax_bracket = ?'); values.push(safeStr(taxBracket) || 'medium'); }
+            if (deposit !== undefined) { updates.push('deposit = ?'); values.push(cleanInt(deposit, 5000)); }
+            if (flatType !== undefined) { updates.push('flat_type = ?'); values.push(safeStr(flatType) || 'shared'); }
+            if (occupants !== undefined) { updates.push('occupants = ?'); values.push(cleanInt(occupants, 1)); }
+            if (smoking !== undefined) { updates.push('smoking = ?'); values.push(safeStr(smoking) || 'no'); }
+            if (drinking !== undefined) { updates.push('drinking = ?'); values.push(safeStr(drinking) || 'no'); }
+            if (partying !== undefined) { updates.push('partying = ?'); values.push(safeStr(partying) || 'low'); }
+
+            // Handle image update
+            if (imageUpdateSql) {
+                updates.push(`profile_image = ?`);
+                values.push(imageUpdateVal[0]);
+            }
+
+            values.push(userId);
+
+            if (updates.length > 0) {
+                await pool.query(
+                    `UPDATE profiles SET ${updates.join(', ')} WHERE user_id = ?`,
+                    values
+                );
+            }
         } else {
-            const imgVal = req.file ? `/uploads/${req.file.filename}` : '';
+            const imgVal = req.file ? `/uploads/${req.file.filename}` : (removeImage === 'true' ? '' : null);
             await pool.query(
                 `INSERT INTO profiles
                     (user_id, bio, occupation, city, move_in_date, sleep_time, cleanliness, diet,
@@ -253,7 +286,7 @@ app.post('/api/profile', upload.single('profile_image'), async (req, res) => {
                     cleanInt(budget, 15000), safeStr(taxBracket) || 'medium', cleanInt(deposit, 5000),
                     safeStr(flatType) || 'shared', cleanInt(occupants, 1),
                     safeStr(smoking) || 'no', safeStr(drinking) || 'no', safeStr(partying) || 'low',
-                    imgVal
+                    imgVal || ''
                 ]
             );
 
@@ -264,43 +297,41 @@ app.post('/api/profile', upload.single('profile_image'), async (req, res) => {
         }
 
         // Update preferences
-        await pool.query(
-            `UPDATE preferences SET
-                preferred_gender = ?,
-                preferred_budget_min = ?,
-                preferred_budget_max = ?,
-                preferred_location_radius = ?,
-                prefers_smoking = ?,
-                prefers_drinking = ?,
-                prefers_cleanliness_min = ?,
-                prefers_sleep_schedule = ?,
-                prefers_same_diet = ?,
-                prefers_same_sleep = ?
-             WHERE user_id = ?`,
-            [
-                safeStr(preferredGender) || null,
-                preferredBudgetMin ? parseInt(preferredBudgetMin) : null,
-                preferredBudgetMax ? parseInt(preferredBudgetMax) : null,
-                parseInt(preferredLocationRadius) || 10,
-                safeStr(prefersSmoking) || 'no_preference',
-                safeStr(prefersDrinking) || 'no_preference',
-                parseInt(prefersCleanlinessMin) || 1,
-                safeStr(prefersSleepSchedule) || 'no_preference',
-                prefersSameDiet === 'true' || prefersSameDiet === true,
-                prefersSameSleep === 'true' || prefersSameSleep === true,
-                userId
-            ]
-        );
+        const prefUpdates = [];
+        const prefValues = [];
+
+        if (preferredGender !== undefined) { prefUpdates.push('preferred_gender = ?'); prefValues.push(safeStr(preferredGender) || null); }
+        if (preferredBudgetMin !== undefined) { prefUpdates.push('preferred_budget_min = ?'); prefValues.push(parseInt(preferredBudgetMin) || null); }
+        if (preferredBudgetMax !== undefined) { prefUpdates.push('preferred_budget_max = ?'); prefValues.push(parseInt(preferredBudgetMax) || null); }
+        if (preferredLocationRadius !== undefined) { prefUpdates.push('preferred_location_radius = ?'); prefValues.push(parseInt(preferredLocationRadius) || 10); }
+        if (prefersSmoking !== undefined) { prefUpdates.push('prefers_smoking = ?'); prefValues.push(safeStr(prefersSmoking) || 'no_preference'); }
+        if (prefersDrinking !== undefined) { prefUpdates.push('prefers_drinking = ?'); prefValues.push(safeStr(prefersDrinking) || 'no_preference'); }
+        if (prefersCleanlinessMin !== undefined) { prefUpdates.push('prefers_cleanliness_min = ?'); prefValues.push(parseInt(prefersCleanlinessMin) || 1); }
+        if (prefersSleepSchedule !== undefined) { prefUpdates.push('prefers_sleep_schedule = ?'); prefValues.push(safeStr(prefersSleepSchedule) || 'no_preference'); }
+        if (prefersSameDiet !== undefined) { prefUpdates.push('prefers_same_diet = ?'); prefValues.push(prefersSameDiet === 'true' || prefersSameDiet === true ? 1 : 0); }
+        if (prefersSameSleep !== undefined) { prefUpdates.push('prefers_same_sleep = ?'); prefValues.push(prefersSameSleep === 'true' || prefersSameSleep === true ? 1 : 0); }
+
+        if (prefUpdates.length > 0) {
+            prefValues.push(userId);
+            await pool.query(
+                `UPDATE preferences SET ${prefUpdates.join(', ')} WHERE user_id = ?`,
+                prefValues
+            );
+        }
 
         // Update languages
         await pool.query('DELETE FROM user_languages WHERE user_id = ?', [userId]);
         if (parsedLanguages.length > 0) {
             for (const langId of parsedLanguages) {
                 if (langId) {
-                    await pool.query(
-                        'INSERT IGNORE INTO user_languages (user_id, language_id) VALUES (?, ?)',
-                        [userId, langId]
-                    );
+                    try {
+                        await pool.query(
+                            'INSERT IGNORE INTO user_languages (user_id, language_id) VALUES (?, ?)',
+                            [userId, parseInt(langId)]
+                        );
+                    } catch (langErr) {
+                        console.error('Language insert error:', langErr);
+                    }
                 }
             }
         }
@@ -537,6 +568,9 @@ function calculateCompatibilityScore(userA, userB) {
         breakdown,
         fitCategories: analysis.fitCategories,
         conflicts: analysis.conflicts,
+        riskLevel: analysis.riskLevel,
+        moveInStatus: analysis.moveInStatus,
+        moveInDate: analysis.moveInDate,
         summary: analysis.summary
     };
 }
@@ -554,7 +588,7 @@ app.get('/api/matches/:userId', async (req, res) => {
             `SELECT u.id, u.name, u.is_verified AS user_verified,
                     p.sleep_time, p.cleanliness, p.diet, p.noise_tolerance,
                     p.budget, p.deposit, p.flat_type, p.occupants,
-                    p.smoking, p.drinking, p.partying, p.city,
+                    p.smoking, p.drinking, p.partying, p.city, p.move_in_date,
                     p.bio, p.occupation, p.profile_image,
                     pref.prefers_smoking, pref.prefers_drinking,
                     pref.prefers_cleanliness_min, pref.prefers_sleep_schedule,
@@ -601,7 +635,7 @@ app.get('/api/matches/:userId', async (req, res) => {
             `SELECT u.id, u.name, u.is_verified AS user_verified,
                     p.sleep_time, p.cleanliness, p.diet, p.noise_tolerance,
                     p.budget, p.deposit, p.flat_type, p.occupants,
-                    p.smoking, p.drinking, p.partying, p.city,
+                    p.smoking, p.drinking, p.partying, p.city, p.move_in_date,
                     p.bio, p.occupation, p.profile_image,
                     pref.prefers_smoking, pref.prefers_drinking
              FROM users u
@@ -774,16 +808,20 @@ app.delete('/api/shortlist', async (req, res) => {
 app.get('/api/shortlist/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
+        if (!userId || isNaN(userId)) {
+            return res.status(400).json({ error: 'Invalid user ID' });
+        }
         console.log('[GET /api/shortlist/:userId] fetching for userId:', userId);
         const [rows] = await pool.query(
             `SELECT u.id, u.name, p.profile_image, p.city, p.budget, p.move_in_date
              FROM users u
              JOIN shortlists s ON u.id = s.target_id
              JOIN profiles p ON u.id = p.user_id
-             WHERE s.user_id = ?`,
+             WHERE s.user_id = ?
+             ORDER BY s.created_at DESC`,
             [userId]
         );
-        res.json(rows);
+        res.json(Array.isArray(rows) ? rows : []);
     } catch (err) {
         console.error('Failed to load shortlist:', err.message || err);
         res.status(500).json({ error: 'Failed to load shortlist' });
@@ -814,6 +852,9 @@ app.get('/api/agreement/:u1/:u2', async (req, res) => {
 
         const p1 = profiles.find(p => p.user_id == u1);
         const p2 = profiles.find(p => p.user_id == u2);
+        if (!p1 || !p2) {
+            return res.status(404).json({ error: 'Could not load both profiles for agreement generation' });
+        }
 
         const template = `ROOMMATE AGREEMENT
 
@@ -864,6 +905,12 @@ app.post('/api/agreement', async (req, res) => {
 // ============================================================
 // START
 // ============================================================
+ensureDatabaseSchema()
+    .then(() => testConnection())
+    .catch((error) => {
+        console.error('Backend initialization failed:', error.message);
+    });
+
 app.listen(PORT, () => {
     console.log(`\n🚀 Hey Nomads v2.0 running on http://localhost:${PORT}`);
     console.log(`\nEndpoints:`);

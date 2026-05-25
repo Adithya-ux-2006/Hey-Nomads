@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { MapPin, Briefcase, MessageSquare, ExternalLink, BadgeCheck, Sparkles, Check, Info, AlertTriangle, ChevronDown, ChevronUp,
          Moon, Sun, Utensils, Cigarette, Wine, Users, Home, IndianRupee, Heart, Calendar } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import UserAvatar from './UserAvatar';
 import { apiFetch, auth, resolveMediaUrl } from '../utils/api';
 
@@ -53,20 +53,26 @@ const ScoreRing = ({ score }) => {
 const MatchCard = ({ match, index = 0, featured = false }) => {
   const [expanded, setExpanded] = React.useState(false);
   const [isShortlisted, setIsShortlisted] = React.useState(match.is_shortlisted);
+  const navigate = useNavigate();
   const userId = auth.getUserId();
   const traits = [];
+
+  React.useEffect(() => {
+    setIsShortlisted(!!match.is_shortlisted);
+  }, [match.is_shortlisted]);
 
   const toggleShortlist = async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log('[Frontend] userId before API call:', userId);
+    if (!userId) {
+      navigate('/login', { replace: true });
+      return;
+    }
     try {
       if (isShortlisted) {
-        const response = await apiFetch('/shortlist', { method: 'DELETE', body: { userId, targetId: match.id } });
-        console.log('[Frontend] DELETE response data:', response);
+        await apiFetch('/shortlist', { method: 'DELETE', body: { userId, targetId: match.id } });
       } else {
-        const response = await apiFetch('/shortlist', { method: 'POST', body: { userId, targetId: match.id } });
-        console.log('[Frontend] POST response data:', response);
+        await apiFetch('/shortlist', { method: 'POST', body: { userId, targetId: match.id } });
       }
       setIsShortlisted(!isShortlisted);
     } catch (err) {
@@ -148,7 +154,7 @@ const MatchCard = ({ match, index = 0, featured = false }) => {
         {/* Name + Location */}
         <div className="mb-3">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="font-display font-bold text-xl text-text-primary leading-tight">{match.name}</h3>
+            <h3 className="font-display font-bold text-xl text-text-primary leading-tight">{match.name || 'Unknown'}</h3>
             {/* Legacy Archetype Tag - Hidden for cleaner look or could be kept if desired */}
             {/* {match.archetype && (
               <span className="px-2.5 py-1 rounded-lg bg-brand-secondary/30 text-brand-warm text-[10px] font-bold uppercase tracking-wider border border-brand-primary/20">

@@ -1,8 +1,12 @@
-export const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3000/api' : null);
+const runtimeNodeEnv = typeof process !== 'undefined' ? process.env.NODE_ENV : undefined;
+export const API_URL = (
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD || runtimeNodeEnv === 'production'
+    ? 'https://your-backend-url.com'
+    : 'http://localhost:3000')
+).replace(/\/+$/, '');
 
-if (!API_BASE_URL) {
-  throw new Error('Missing VITE_API_URL in production. Set this variable to your backend base URL.');
-}
+export const API_BASE_URL = `${API_URL}/api`;
 
 const API_HOST = (() => {
   try {
@@ -41,24 +45,25 @@ async function parseJsonResponse(response) {
  */
 export async function apiFetch(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
-  
+  const nextOptions = { ...options };
   const defaultOptions = {
+    credentials: 'include',
     headers: {},
   };
 
-  if (options.body && !(options.body instanceof FormData)) {
+  if (nextOptions.body && !(nextOptions.body instanceof FormData)) {
     defaultOptions.headers['Content-Type'] = 'application/json';
-    if (typeof options.body === 'object') {
-      options.body = JSON.stringify(options.body);
+    if (typeof nextOptions.body === 'object') {
+      nextOptions.body = JSON.stringify(nextOptions.body);
     }
   }
 
   const finalOptions = {
     ...defaultOptions,
-    ...options,
+    ...nextOptions,
     headers: {
       ...defaultOptions.headers,
-      ...(options.headers || {})
+      ...(nextOptions.headers || {})
     }
   };
 
@@ -70,6 +75,13 @@ export async function apiFetch(endpoint, options = {}) {
   }
   
   return parseJsonResponse(response);
+}
+
+export async function apiFormFetch(endpoint, formData, options = {}) {
+  return apiFetch(endpoint, {
+    ...options,
+    body: formData,
+  });
 }
 
 /**

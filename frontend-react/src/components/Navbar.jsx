@@ -1,10 +1,11 @@
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Home, MessageSquare, User, LogOut, Heart } from 'lucide-react';
 import { auth } from '../utils/api';
 
 const Navbar = ({ activePage }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const active = activePage || (() => {
     if (location.pathname.startsWith('/inbox')) return 'inbox';
     if (location.pathname.startsWith('/profile')) return 'profile';
@@ -16,20 +17,20 @@ const Navbar = ({ activePage }) => {
 
   const handleLogout = () => {
     auth.logout();
-    window.location.href = '/login';
+    navigate('/login', { replace: true });
   };
 
   const items = [
-    { key: 'discover',  to: '/discover',  Icon: Home,          label: 'Discover' },
-    { key: 'shortlist', to: '/shortlist', Icon: Heart,         label: 'Shortlist' },
-    { key: 'inbox',     to: '/inbox',     Icon: MessageSquare, label: 'Messages' },
-    { key: 'profile',   to: '/profile',   Icon: User,          label: 'Profile'  },
+    { key: 'discover',  to: '/discover',  icon: Home,          label: 'Discover' },
+    { key: 'shortlist', to: '/shortlist', icon: Heart,         label: 'Shortlist' },
+    { key: 'inbox',     to: '/inbox',     icon: MessageSquare, label: 'Messages' },
+    { key: 'profile',   to: '/profile',   icon: User,          label: 'Profile'  },
   ];
 
   return (
     <nav className="navbar">
       <div className="max-w-md mx-auto flex items-center justify-around px-4">
-        {items.map(({ key, to, Icon, label }) => {
+        {items.map(({ key, to, icon, label }) => {
           const isActive = active === key;
           return (
             <Link
@@ -43,7 +44,7 @@ const Navbar = ({ activePage }) => {
               }`}
             >
               <div className={`p-2 rounded-xl transition-all ${isActive ? 'bg-brand-secondary' : 'bg-transparent'}`}>
-                <Icon size={20} strokeWidth={isActive ? 2.5 : 1.8} />
+                {React.createElement(icon, { size: 20, strokeWidth: isActive ? 2.5 : 1.8 })}
               </div>
               <span className={`text-[10px] font-semibold ${isActive ? 'opacity-100' : 'opacity-0'}`}>
                 {label}
