@@ -4,7 +4,8 @@ import { MapPin, Briefcase, MessageSquare, ExternalLink, BadgeCheck, Sparkles, C
          Moon, Sun, Utensils, Cigarette, Wine, Users, Home, IndianRupee, Heart, Calendar } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import UserAvatar from './UserAvatar';
-import { apiFetch, auth, resolveMediaUrl } from '../utils/api';
+import { supabase } from '../lib/supabase';
+import { auth, resolveMediaUrl } from '../utils/api';
 
 // ── Trait Tag ──────────────────────────────────────────────────
 const TraitTag = ({ icon: Icon, label, variant = 'default' }) => {
@@ -70,9 +71,27 @@ const MatchCard = ({ match, index = 0, featured = false }) => {
     }
     try {
       if (isShortlisted) {
-        await apiFetch('/shortlist', { method: 'DELETE', body: { userId, targetId: match.id } });
+        const { error } = await supabase
+          .from('shortlists')
+          .delete()
+          .eq('user_id', userId)
+          .eq('target_id', match.id);
+
+        if (error) throw error;
       } else {
-        await apiFetch('/shortlist', { method: 'POST', body: { userId, targetId: match.id } });
+        const { error } = await supabase
+          .from('shortlists')
+          .upsert(
+            {
+              user_id: userId,
+              target_id: match.id
+            },
+            {
+              onConflict: 'user_id,target_id'
+            }
+          );
+
+        if (error) throw error;
       }
       setIsShortlisted(!isShortlisted);
     } catch (err) {

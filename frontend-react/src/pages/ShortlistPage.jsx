@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Heart, ArrowRight, IndianRupee, MapPin, Calendar, Trash2, Scale } from 'lucide-react';
-import { apiFetch, resolveMediaUrl, auth } from '../utils/api';
+import { supabase } from '../lib/supabase';
+import { resolveMediaUrl, auth } from '../utils/api';
 import Layout from '../components/Layout';
 import { Link } from 'react-router-dom';
 
@@ -25,7 +26,10 @@ const ShortlistPage = () => {
 
         const loadShortlist = async () => {
             try {
-                const data = await apiFetch(`/shortlist/${userId}`);
+                const { data, error } = await supabase.rpc('get_shortlist', {
+                    p_user_id: userId
+                });
+                if (error) throw error;
                 console.log('shortlist data:', data);
                 setShortlist(Array.isArray(data) ? data : []);
             } catch (err) {
@@ -46,10 +50,13 @@ const ShortlistPage = () => {
             return;
         }
         try {
-            await apiFetch('/shortlist', {
-                method: 'DELETE',
-                body: { userId: parseInt(userId), targetId: parseInt(targetId) }
-            });
+            const { error } = await supabase
+                .from('shortlists')
+                .delete()
+                .eq('user_id', userId)
+                .eq('target_id', targetId);
+
+            if (error) throw error;
             setShortlist((s) => s.filter((u) => u?.id !== targetId));
             setCompareList((c) => c.filter((id) => id !== targetId));
         } catch (err) {
