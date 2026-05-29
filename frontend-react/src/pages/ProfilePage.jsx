@@ -145,6 +145,8 @@ const ProfilePage = () => {
         smoking: profile?.smoking || 'no',
         drinking: profile?.drinking || 'no',
         partying: profile?.partying || 'low',
+      }, {
+        onConflict: 'user_id'
       });
 
       if (updateError) {

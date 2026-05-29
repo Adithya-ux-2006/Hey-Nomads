@@ -272,6 +272,8 @@ const EditProfilePage = () => {
         drinking: form.drinking,
         partying: form.partying,
         profile_image: updatedImageUrl,
+      }, {
+        onConflict: 'user_id'
       });
 
       if (profileError) {
@@ -292,6 +294,8 @@ const EditProfilePage = () => {
         prefers_sleep_schedule: form.prefersSleepSchedule,
         prefers_same_diet: form.prefersSameDiet,
         prefers_same_sleep: form.prefersSameSleep,
+      }, {
+        onConflict: 'user_id'
       });
 
       if (prefError) {
