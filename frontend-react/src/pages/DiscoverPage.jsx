@@ -245,8 +245,7 @@ const DiscoverPage = () => {
         console.log('Supabase RPC succeeded, retrieved', data?.length ?? 0, 'matches');
         setMatches(Array.isArray(data) ? data : []);
       } catch (rpcErr) {
-        console.warn('Supabase RPC failed, falling back to legacy API. Error:', rpcErr);
-        }
+        console.warn('Supabase RPC failed. Error:', rpcErr);
       } finally {
         setLoading(false);
       }
