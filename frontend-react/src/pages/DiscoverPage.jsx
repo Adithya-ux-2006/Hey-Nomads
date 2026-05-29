@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { Search, SlidersHorizontal, X, BadgeCheck, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { apiFetch, auth } from '../utils/api';
+import { supabase } from '../lib/supabase';
 import Layout from '../components/Layout';
 import MatchCard from '../components/MatchCard';
 import { SectionHeader, EmptyState, Spinner } from '../components/UI';
@@ -235,11 +236,17 @@ const DiscoverPage = () => {
     const load = async () => {
       try {
         setLoading(true);
-        const url = `/matches/${userId}${searchQuery ? `?city=${encodeURIComponent(searchQuery)}` : ''}`;
-        const data = await apiFetch(url);
+        console.log('Attempting Supabase RPC get_matches for userId', userId, 'city', searchQuery);
+        const { data, error } = await supabase.rpc('get_matches', { user_id: userId, city: searchQuery });
+        if (error) {
+          console.error('Supabase RPC error:', error);
+          throw new Error(error.message || 'Supabase RPC failed');
+        }
+        console.log('Supabase RPC succeeded, retrieved', data?.length ?? 0, 'matches');
         setMatches(Array.isArray(data) ? data : []);
-      } catch (err) {
-        setError(err.message || 'Failed to load matches');
+      } catch (rpcErr) {
+        console.warn('Supabase RPC failed, falling back to legacy API. Error:', rpcErr);
+        }
       } finally {
         setLoading(false);
       }
