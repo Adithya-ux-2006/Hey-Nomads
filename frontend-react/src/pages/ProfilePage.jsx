@@ -5,7 +5,9 @@ import {
   MessageSquare, Briefcase, MapPin, ArrowLeft, BadgeCheck,
   Edit3, Camera, Home, Users, IndianRupee, Sparkles, Heart
 } from 'lucide-react';
-import { apiFetch, apiFormFetch, auth, resolveMediaUrl } from '../utils/api';
+import { supabase } from '../lib/supabase';
+import { resolveMediaUrl, auth } from '../utils/api';
+
 import Layout from '../components/Layout';
 import {
   Button,
@@ -72,11 +74,21 @@ const ProfilePage = () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiFetch(`/profile/${viewingId}`);
+      console.log('Loading profile via Supabase RPC get_profile for viewingId', viewingId);
+      const { data, error } = await supabase.rpc('get_profile', { p_user_id: viewingId });
+      if (error) {
+        console.error('get_profile RPC error:', error);
+        throw new Error(error.message || 'Failed to load profile');
+      }
       setProfile(data);
       if (!isOwn) {
-        const me = await apiFetch(`/profile/${currentUserId}`);
-        setMyProfile(me);
+        console.log('Loading own profile via Supabase RPC get_profile for currentUserId', currentUserId);
+        const { data: me, error: meError } = await supabase.rpc('get_profile', { p_user_id: currentUserId });
+        if (meError) {
+          console.error('get_profile RPC error for own profile:', meError);
+        } else {
+          setMyProfile(me);
+        }
       }
     } catch (err) {
       setError(err.message || 'Failed to load profile');
@@ -94,36 +106,56 @@ const ProfilePage = () => {
     if (!file) return;
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append('profile_image', file);
-      const data = await apiFormFetch('/upload', fd, { method: 'POST' });
-      if (data.filePath) {
-        const profileFd = new FormData();
-        profileFd.append('userId', currentUserId);
-        profileFd.append('profile_image', file);
-        if (profile) {
-          profileFd.append('bio', profile.bio || '');
-          profileFd.append('occupation', profile.occupation || '');
-          profileFd.append('city', profile.city || '');
-          profileFd.append('sleepTime', profile.sleep_time || 'flexible');
-          profileFd.append('cleanliness', profile.cleanliness || 3);
-          profileFd.append('diet', profile.diet || 'veg');
-          profileFd.append('noiseTolerance', profile.noise_tolerance || 'moderate');
-          profileFd.append('noiseLevel', profile.noise_level || 3);
-          profileFd.append('budget', profile.budget || 15000);
-          profileFd.append('taxBracket', profile.tax_bracket || 'medium');
-          profileFd.append('deposit', profile.deposit || 5000);
-          profileFd.append('flatType', profile.flat_type || 'shared');
-          profileFd.append('occupants', profile.occupants || 1);
-          profileFd.append('smoking', profile.smoking || 'no');
-          profileFd.append('drinking', profile.drinking || 'no');
-          profileFd.append('partying', profile.partying || 'low');
-        }
-        await apiFormFetch('/profile', profileFd, { method: 'POST' });
-        await loadProfile();
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${currentUserId}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      console.log('Uploading image to Supabase avatars bucket:', filePath);
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) {
+        console.error('Supabase storage upload error:', uploadError);
+        throw new Error(uploadError.message || 'Failed to upload image');
       }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      console.log('Uploaded image public URL:', publicUrl);
+
+      const { error: updateError } = await supabase.from('profiles').upsert({
+        user_id: currentUserId,
+        profile_image: publicUrl,
+        bio: profile?.bio || '',
+        occupation: profile?.occupation || '',
+        city: profile?.city || '',
+        sleep_time: profile?.sleep_time || 'flexible',
+        cleanliness: profile?.cleanliness || 3,
+        diet: profile?.diet || 'veg',
+        noise_tolerance: profile?.noise_tolerance || 'moderate',
+        noise_level: profile?.noise_level || 3,
+        budget: profile?.budget || 15000,
+        tax_bracket: profile?.tax_bracket || 'medium',
+        deposit: profile?.deposit || 5000,
+        flat_type: profile?.flat_type || 'shared',
+        occupants: profile?.occupants || 1,
+        smoking: profile?.smoking || 'no',
+        drinking: profile?.drinking || 'no',
+        partying: profile?.partying || 'low',
+      });
+
+      if (updateError) {
+        console.error('Supabase profile update error:', updateError);
+        throw new Error(updateError.message || 'Failed to update profile image path');
+      }
+
+      await loadProfile();
     } catch (err) {
       console.error('Image upload failed:', err);
+      alert('Upload failed: ' + err.message);
     } finally {
       setUploading(false);
     }

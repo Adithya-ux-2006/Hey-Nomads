@@ -5,8 +5,17 @@ import {
   Music, IndianRupee, Star, Heart, Settings, Camera, Calendar,
   Info, Briefcase, MapPin, Sun, ArrowLeft, Save, Upload
 } from 'lucide-react';
-import { apiFetch, apiFormFetch, auth, resolveMediaUrl } from '../utils/api';
+import { supabase } from '../lib/supabase';
+import { resolveMediaUrl, auth } from '../utils/api';
 import Layout from '../components/Layout';
+
+const fallbackLangs = [
+  { id: 1, name: 'English' }, { id: 2, name: 'Hindi' }, { id: 3, name: 'Tamil' },
+  { id: 4, name: 'Telugu' }, { id: 5, name: 'Kannada' }, { id: 6, name: 'Malayalam' },
+  { id: 7, name: 'Marathi' }, { id: 8, name: 'Gujarati' }, { id: 9, name: 'Bengali' },
+  { id: 10, name: 'Punjabi' }, { id: 11, name: 'Urdu' }, { id: 12, name: 'Spanish' },
+  { id: 13, name: 'French' }, { id: 14, name: 'German' }, { id: 15, name: 'Other' }
+];
 import { staggerContainer, staggerItem } from '../utils/animations';
 
 // ── Section wrapper ────────────────────────────────────────────
@@ -133,11 +142,17 @@ const EditProfilePage = () => {
     if (!userId) { navigate('/login'); return; }
     const load = async () => {
       try {
-        const [langs, profile] = await Promise.all([
-          apiFetch('/languages'),
-          apiFetch(`/profile/${userId}`)
-        ]);
-        setAvailLangs(langs || []);
+        console.log('Loading profile & languages from Supabase for editing');
+        const { data: dbLangs, error: lError } = await supabase.from('languages').select('id, name');
+        if (lError) console.error('Supabase languages query error:', lError);
+        setAvailLangs(dbLangs && dbLangs.length > 0 ? dbLangs : fallbackLangs);
+
+        const { data: profile, error: pError } = await supabase.rpc('get_profile', { p_user_id: userId });
+        if (pError) {
+          console.error('get_profile RPC error:', pError);
+          throw new Error(pError.message || 'Failed to load profile details');
+        }
+
         if (profile) {
           setForm(f => ({
             ...f,
@@ -211,46 +226,107 @@ const EditProfilePage = () => {
     setSaving(true);
     setSaveMsg('');
     try {
-      const fd = new FormData();
-      fd.append('userId', userId);
-      // Core
-      fd.append('bio', form.bio);
-      fd.append('occupation', form.occupation);
-      fd.append('city', form.city);
-      fd.append('moveInDate', form.moveInDate);
-      // Financial
-      fd.append('budget', form.budget);
-      fd.append('deposit', form.deposit);
-      fd.append('flatType', form.flatType);
-      fd.append('occupants', form.occupants);
-      // Lifestyle
-      fd.append('sleepTime', form.sleepTime);
-      fd.append('cleanliness', form.cleanliness);
-      fd.append('diet', form.diet);
-      fd.append('noiseTolerance', form.noiseTolerance);
-      fd.append('noiseLevel', form.noiseLevel);
-      fd.append('smoking', form.smoking);
-      fd.append('drinking', form.drinking);
-      fd.append('partying', form.partying);
-      fd.append('taxBracket', 'medium');
-      // Languages
-      fd.append('languages', JSON.stringify(form.languages));
-      // Preferences
-      fd.append('preferredGender', form.preferredGender);
-      fd.append('preferredBudgetMin', form.preferredBudgetMin);
-      fd.append('preferredBudgetMax', form.preferredBudgetMax);
-      fd.append('preferredLocationRadius', form.preferredLocationRadius);
-      fd.append('prefersSmoking', form.prefersSmoking);
-      fd.append('prefersDrinking', form.prefersDrinking);
-      fd.append('prefersCleanlinessMin', form.prefersCleanlinessMin);
-      fd.append('prefersSleepSchedule', form.prefersSleepSchedule);
-      fd.append('prefersSameDiet', form.prefersSameDiet);
-      fd.append('prefersSameSleep', form.prefersSameSleep);
-      // Image
-      if (selectedFile) fd.append('profile_image', selectedFile);
-      else if (removeImg) fd.append('removeImage', 'true');
+      let updatedImageUrl = form.profileImage;
 
-      await apiFormFetch('/profile', fd, { method: 'POST' });
+      if (selectedFile) {
+        const fileExt = selectedFile.name.split('.').pop();
+        const fileName = `${userId}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+        const filePath = `${fileName}`;
+
+        console.log('Uploading image to Supabase storage:', filePath);
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, selectedFile, { upsert: true });
+
+        if (uploadError) {
+          console.error('Supabase storage upload error:', uploadError);
+          throw new Error(uploadError.message || 'Failed to upload image');
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+
+        updatedImageUrl = publicUrl;
+      } else if (removeImg) {
+        updatedImageUrl = null;
+      }
+
+      console.log('Upserting profile in Supabase profiles table');
+      const { error: profileError } = await supabase.from('profiles').upsert({
+        user_id: userId,
+        bio: form.bio,
+        occupation: form.occupation,
+        city: form.city,
+        move_in_date: form.moveInDate || null,
+        budget: form.budget,
+        deposit: form.deposit,
+        flat_type: form.flatType,
+        occupants: form.occupants,
+        sleep_time: form.sleepTime,
+        cleanliness: form.cleanliness,
+        diet: form.diet,
+        noise_tolerance: form.noiseTolerance,
+        noise_level: form.noiseLevel,
+        smoking: form.smoking,
+        drinking: form.drinking,
+        partying: form.partying,
+        profile_image: updatedImageUrl,
+      });
+
+      if (profileError) {
+        console.error('Supabase profiles update error:', profileError);
+        throw new Error(profileError.message || 'Failed to update profile');
+      }
+
+      console.log('Upserting preferences in Supabase preferences table');
+      const { error: prefError } = await supabase.from('preferences').upsert({
+        user_id: userId,
+        preferred_gender: form.preferredGender || null,
+        preferred_budget_min: form.preferredBudgetMin ? parseInt(form.preferredBudgetMin) : null,
+        preferred_budget_max: form.preferredBudgetMax ? parseInt(form.preferredBudgetMax) : null,
+        preferred_location_radius: form.preferredLocationRadius,
+        prefers_smoking: form.prefersSmoking,
+        prefers_drinking: form.prefersDrinking,
+        prefers_cleanliness_min: form.prefersCleanlinessMin,
+        prefers_sleep_schedule: form.prefersSleepSchedule,
+        prefers_same_diet: form.prefersSameDiet,
+        prefers_same_sleep: form.prefersSameSleep,
+      });
+
+      if (prefError) {
+        console.error('Supabase preferences update error:', prefError);
+        throw new Error(prefError.message || 'Failed to update roommate preferences');
+      }
+
+      console.log('Updating user languages in Supabase');
+      // Delete existing language links
+      const { error: deleteLangsError } = await supabase
+        .from('user_languages')
+        .delete()
+        .eq('user_id', userId);
+
+      if (deleteLangsError) {
+        console.error('Supabase delete user languages error:', deleteLangsError);
+        throw new Error(deleteLangsError.message || 'Failed to clean old languages');
+      }
+
+      // Insert new language links if selected
+      if (form.languages && form.languages.length > 0) {
+        const langInserts = form.languages.map(langId => ({
+          user_id: userId,
+          language_id: langId
+        }));
+        const { error: insertLangsError } = await supabase
+          .from('user_languages')
+          .insert(langInserts);
+
+        if (insertLangsError) {
+          console.error('Supabase insert user languages error:', insertLangsError);
+          throw new Error(insertLangsError.message || 'Failed to link languages');
+        }
+      }
+
       setSaveMsg('Profile saved!');
       setTimeout(() => navigate('/profile'), 800);
     } catch (err) {
