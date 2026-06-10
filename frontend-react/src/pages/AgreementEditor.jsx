@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, FileText, Save, Download, CheckCircle, Info } from 'lucide-react';
-import { apiFetch, auth } from '../utils/api';
+import { auth, supabase } from '../utils/api';
 import Layout from '../components/Layout';
 
 const AgreementEditor = () => {
@@ -18,11 +18,16 @@ const AgreementEditor = () => {
     useEffect(() => {
         const load = async () => {
             try {
-                const data = await apiFetch(`/agreement/${userId}/${targetId}`);
-                setContent(data?.content || '');
-                setStatus(data?.status || 'template');
+                const { data, error } = await supabase.rpc('get_agreement', {
+                    p_user_a_id: userId,
+                    p_user_b_id: targetId
+                });
+                if (error) throw error;
+                const result = Array.isArray(data) ? data[0] : data;
+                setContent(result?.content || '');
+                setStatus(result?.status || 'template');
             } catch (err) {
-                console.error('Failed to load agreement');
+                console.error('Failed to load agreement:', err);
             } finally {
                 setLoading(false);
             }
@@ -34,13 +39,17 @@ const AgreementEditor = () => {
         setSaving(true);
         setMsg('');
         try {
-            await apiFetch('/agreement', {
-                method: 'POST',
-                body: { userA_id: userId, userB_id: targetId, content }
+            const { data, error } = await supabase.rpc('save_agreement', {
+                p_user_a_id: userId,
+                p_user_b_id: targetId,
+                p_content: content,
+                p_status: 'draft'
             });
+            if (error) throw error;
             setMsg('Agreement saved successfully!');
             setStatus('draft');
         } catch (err) {
+            console.error('Error saving agreement:', err);
             setMsg('Error saving agreement');
         } finally {
             setSaving(false);
