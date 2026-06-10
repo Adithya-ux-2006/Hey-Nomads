@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useLocation, Link } from 'react-router-dom';
 import { Search, Send, User, MessageSquare, ArrowLeft } from 'lucide-react';
-import { apiFetch, auth } from '../utils/api';
+import { auth } from '../utils/api';
+import { supabase } from '../lib/supabase';
 import Layout from '../components/Layout';
 import UserAvatar from '../components/UserAvatar';
 import { Button, Card, EmptyState, Spinner } from '../components/UI';
@@ -118,6 +119,14 @@ const InboxPage = () => {
   const location = useLocation();
   const currentUserId = auth.getUserId();
 
+  const loadConversations = React.useCallback(async () => {
+    const { data, error } = await supabase.rpc('get_conversations');
+    if (error) throw error;
+    const list = Array.isArray(data) ? data : [];
+    setConversations(list);
+    return list;
+  }, []);
+
   const filteredConvos = React.useMemo(() => {
     if (!searchQuery.trim()) return conversations;
     const q = searchQuery.toLowerCase();
@@ -134,13 +143,12 @@ const InboxPage = () => {
 
     const load = async () => {
       try {
-        const matches = await apiFetch(`/matches/${currentUserId}`);
-        setConversations(Array.isArray(matches) ? matches : []);
+        const loadedConversations = await loadConversations();
         if (targetId) {
-          const target = matches.find(m => m.id == targetId);
+          const target = loadedConversations.find(m => m.id === targetId);
           if (target) setActiveChat(target);
-        } else if (matches.length > 0) {
-          setActiveChat(matches[0]);
+        } else if (loadedConversations.length > 0) {
+          setActiveChat(loadedConversations[0]);
         }
       } catch (err) {
         console.error('Inbox load error:', err);
@@ -149,14 +157,28 @@ const InboxPage = () => {
       }
     };
     load();
-  }, [location.search, currentUserId]);
+  }, [location.search, loadConversations]);
 
   useEffect(() => {
     if (!activeChat) return;
     const load = async () => {
       try {
-        const data = await apiFetch(`/messages/${currentUserId}/${activeChat.id}`);
+        const { data, error } = await supabase.rpc('get_conversation_messages', {
+          p_other_user_id: activeChat.id,
+        });
+        if (error) throw error;
         setMessages(Array.isArray(data) ? data : []);
+
+        const { error: readError } = await supabase.rpc('mark_conversation_read', {
+          p_other_user_id: activeChat.id,
+        });
+        if (readError) {
+          console.error('Mark read error:', readError);
+        } else {
+          setConversations(prev => prev.map(convo =>
+            convo.id === activeChat.id ? { ...convo, unread_count: 0 } : convo
+          ));
+        }
       } catch (err) {
         console.error('Messages load error:', err);
       }
@@ -164,7 +186,7 @@ const InboxPage = () => {
     load();
     const timer = setInterval(load, 3000);
     return () => clearInterval(timer);
-  }, [activeChat, currentUserId]);
+  }, [activeChat]);
 
   // Smooth scroll to latest message
   const scrollToBottom = () => {
@@ -179,24 +201,26 @@ const InboxPage = () => {
     e.preventDefault();
     if (!newMessage.trim() || !activeChat || sending) return;
 
-    const text = newMessage;
+    const messageText = newMessage.trim();
     setNewMessage('');
     setSending(true);
 
     try {
-      await apiFetch('/send-message', {
-        method: 'POST',
-        body: {
-          sender_id: parseInt(currentUserId, 10),
-          receiver_id: activeChat.id,
-          message: text,
-        },
+      const { error: sendError } = await supabase.rpc('send_message', {
+        p_receiver_id: activeChat.id,
+        p_message: messageText,
       });
-      const data = await apiFetch(`/messages/${currentUserId}/${activeChat.id}`);
+      if (sendError) throw sendError;
+
+      const { data, error } = await supabase.rpc('get_conversation_messages', {
+        p_other_user_id: activeChat.id,
+      });
+      if (error) throw error;
       setMessages(Array.isArray(data) ? data : []);
+      await loadConversations();
     } catch (err) {
       console.error('Send error:', err);
-      setNewMessage(text);
+      setNewMessage(messageText);
     } finally {
       setSending(false);
     }
