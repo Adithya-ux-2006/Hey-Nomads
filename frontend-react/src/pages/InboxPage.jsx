@@ -146,7 +146,36 @@ const InboxPage = () => {
         const loadedConversations = await loadConversations();
         if (targetId) {
           const target = loadedConversations.find(m => m.id === targetId);
-          if (target) setActiveChat(target);
+          if (target) {
+            setActiveChat(target);
+          } else {
+            // Fetch target profile for brand-new conversation
+            try {
+              const { data: profile, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('user_id', targetId)
+                .single();
+
+              if (error) throw error;
+
+              if (profile) {
+                const tempConvo = {
+                  id: profile.user_id,
+                  user_id: profile.user_id,
+                  name: profile.name ?? 'User',
+                  profile_image: profile.profile_image,
+                  city: profile.city,
+                  occupation: profile.occupation,
+                  unread_count: 0,
+                  score: 0
+                };
+                setActiveChat(tempConvo);
+              }
+            } catch (err) {
+              console.error('Failed to load target user for new conversation:', err);
+            }
+          }
         } else if (loadedConversations.length > 0) {
           setActiveChat(loadedConversations[0]);
         }
