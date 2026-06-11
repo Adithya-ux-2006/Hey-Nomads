@@ -130,10 +130,24 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+    t_budget int;
+    t_cleanliness int;
+    t_sleep_time varchar;
+    t_diet varchar;
+    t_smoking varchar;
+    t_drinking varchar;
+    t_city varchar;
 begin
     if auth.uid() is null then
         raise exception 'Not authenticated';
     end if;
+
+    -- Get current user's profile attributes for compatibility scoring
+    select budget, cleanliness, sleep_time, diet, smoking, drinking, city
+    into t_budget, t_cleanliness, t_sleep_time, t_diet, t_smoking, t_drinking, t_city
+    from public.profiles
+    where profiles.user_id = auth.uid();
 
     return query
     with message_partners as (
@@ -182,7 +196,17 @@ begin
         'last_message_time', r.created_at,
         'last_message_from_me', r.sender_id = auth.uid(),
         'unread_count', coalesce(unread.unread_count, 0),
-        'score', 0
+        'score', (
+            (case when t_city is not null and lower(p.city) = lower(t_city) then 30 else 0 end) +
+            (case when coalesce(greatest(p.budget, t_budget), 0) > 0 then
+                round(20 * (1 - abs(coalesce(p.budget, 0) - coalesce(t_budget, 0))::numeric / greatest(p.budget, t_budget)))
+             else 10 end) +
+            (20 - abs(coalesce(p.cleanliness, 3) - coalesce(t_cleanliness, 3)) * 5) +
+            (case when p.sleep_time = t_sleep_time then 10 else 0 end) +
+            (case when p.smoking = t_smoking then 10 else 0 end) +
+            (case when p.drinking = t_drinking then 10 else 0 end) +
+            (case when p.diet = t_diet then 5 else 0 end)
+        )
     )
     from ranked r
     join public.profiles p on p.user_id = r.partner_id
