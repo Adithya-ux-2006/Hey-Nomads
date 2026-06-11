@@ -160,6 +160,23 @@ const InboxPage = () => {
               if (error) throw error;
 
               if (profile) {
+                // Fetch compatibility score using get_matches
+                let compatibilityScore = 0;
+                try {
+                  const { data: matches, error: matchesError } = await supabase.rpc('get_matches', {
+                    user_id: currentUserId
+                  });
+
+                  if (!matchesError && Array.isArray(matches)) {
+                    const targetMatch = matches.find(m => m.id === targetId);
+                    if (targetMatch) {
+                      compatibilityScore = targetMatch.score;
+                    }
+                  }
+                } catch (err) {
+                  console.error('Failed to fetch compatibility score:', err);
+                }
+
                 const tempConvo = {
                   id: profile.user_id,
                   user_id: profile.user_id,
@@ -168,7 +185,7 @@ const InboxPage = () => {
                   city: profile.city,
                   occupation: profile.occupation,
                   unread_count: 0,
-                  score: 0
+                  score: compatibilityScore
                 };
                 setActiveChat(tempConvo);
               }
