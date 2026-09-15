@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
-import { auth } from './lib/api';
+import { auth, clearAuth } from './lib/api';
 import { Spinner } from './components/UI';
 
 import LoginPage from './pages/LoginPage';
