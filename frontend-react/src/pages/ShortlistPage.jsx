@@ -1,222 +1,115 @@
-import React, { useState, useEffect } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { Heart, ArrowRight, IndianRupee, MapPin, Calendar, Trash2, Scale } from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { resolveMediaUrl, auth } from '../utils/api';
-import Layout from '../components/Layout';
-import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react'
+import Layout from '../components/Layout'
+import { apiFetch } from '../lib/api'
+import { Card, Button, Spinner, EmptyState } from '../components/UI'
+import UserAvatar from '../components/UserAvatar'
+import { Link } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { Heart, X, MessageCircle, MapPin, Briefcase } from 'lucide-react'
 
-const ShortlistPage = () => {
-    const userId = auth.getUserId();
-    const [shortlist, setShortlist] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-    const [compareList, setCompareList] = useState([]); // Stores IDs of users to compare
+const cardVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: (i) => ({ opacity: 1, y: 0, transition: { delay: i * 0.07, duration: 0.35 } }),
+  exit: { opacity: 0, scale: 0.95, transition: { duration: 0.2 } },
+}
 
-    useEffect(() => {
-        console.log('Shortlist userId:', userId);
+export default function ShortlistPage() {
+  const [shortlist, setShortlist] = useState([])
+  const [loading, setLoading] = useState(true)
 
-        if (!userId) {
-            setLoading(false);
-            return;
-        }
+  useEffect(() => {
+    apiFetch('/shortlist')
+      .then((data) => setShortlist(Array.isArray(data) ? data : []))
+      .catch(() => setShortlist([]))
+      .finally(() => setLoading(false))
+  }, [])
 
-        setLoading(true);
-        setError('');
+  const remove = async (targetId) => {
+    try {
+      await apiFetch('/shortlist', { method: 'DELETE', body: { targetId } })
+      setShortlist((s) => s.filter((u) => u.id !== targetId))
+    } catch {}
+  }
 
-        const loadShortlist = async () => {
-            try {
-                const { data, error } = await supabase.rpc('get_shortlist', {
-                    p_user_id: userId
-                });
-                if (error) throw error;
-                console.log('shortlist data:', data);
-                setShortlist(Array.isArray(data) ? data : []);
-            } catch (err) {
-                console.error('Shortlist load error:', err);
-                setError(err.message || 'Failed to load shortlist.');
-                setShortlist([]);
-            } finally {
-                setLoading(false);
-            }
-        };
+  return (
+    <Layout activePage="shortlist">
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <h1 className="text-2xl font-bold text-text-primary mb-6">Your Shortlist</h1>
 
-        loadShortlist();
-    }, [userId]);
+        {loading && (
+          <div className="flex justify-center py-20"><Spinner /></div>
+        )}
 
-    const removeItem = async (targetId) => {
-        if (!userId || !targetId) {
-            setError('Invalid user or target ID');
-            return;
-        }
-        try {
-            const { error } = await supabase
-                .from('shortlists')
-                .delete()
-                .eq('user_id', userId)
-                .eq('target_id', targetId);
+        {!loading && shortlist.length === 0 && (
+          <EmptyState
+            icon={<Heart size={40} />}
+            title="No one shortlisted yet."
+            message="Start exploring!"
+            action={<Link to="/discover"><Button>Go to Discover</Button></Link>}
+          />
+        )}
 
-            if (error) throw error;
-            setShortlist((s) => s.filter((u) => u?.id !== targetId));
-            setCompareList((c) => c.filter((id) => id !== targetId));
-        } catch (err) {
-            console.error('Remove shortlist error:', err);
-            setError(err.message || 'Failed to remove shortlist item.');
-        }
-    };
+        {!loading && shortlist.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {shortlist.map((user, i) => (
+              <motion.div
+                key={user.id}
+                custom={i}
+                variants={cardVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                layout
+              >
+                <Card className="relative flex flex-col items-center p-5 text-center">
+                  <button
+                    onClick={() => remove(user.id)}
+                    className="absolute top-3 right-3 p-1 rounded-full text-text-muted hover:text-red-500 hover:bg-red-50 transition-colors"
+                    aria-label="Remove from shortlist"
+                  >
+                    <X size={16} />
+                  </button>
 
-    const toggleCompare = (id) => {
-        setCompareList((prev) =>
-            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id].slice(-2)
-        );
-    };
+                  <UserAvatar src={user.profile_image} name={user.name} size={64} />
 
-    if (loading) return (
-        <Layout activePage="shortlist">
-            <div className="max-w-5xl mx-auto px-4 pt-12 text-center text-text-muted">Loading shortlist...</div>
-        </Layout>
-    );
+                  <h3 className="mt-3 font-semibold text-text-primary">
+                    {user.name}{user.age ? `, ${user.age}` : ''}
+                  </h3>
 
-    if (!userId) return (
-        <Layout activePage="shortlist">
-            <div className="max-w-5xl mx-auto px-4 pt-12 text-center text-text-muted">User not logged in</div>
-        </Layout>
-    );
+                  {user.occupation && (
+                    <p className="text-xs text-text-muted flex items-center gap-1 mt-1">
+                      <Briefcase size={12} /> {user.occupation}
+                    </p>
+                  )}
 
-    return (
-        <Layout activePage="shortlist">
-            <div className="max-w-5xl mx-auto px-4 pt-8 pb-12">
-                <div className="flex items-center justify-between mb-8">
-                    <div>
-                        <h1 className="text-3xl font-display font-bold text-text-primary">Your Shortlist</h1>
-                        <p className="text-text-muted text-sm mt-1">High-potential roommates you've saved</p>
-                    </div>
-                    {shortlist.length > 0 && (
-                        <div className="flex items-center gap-2 px-4 py-2 bg-brand-primary/10 rounded-xl border border-brand-primary/20 text-brand-warm text-sm font-bold">
-                            <Scale size={16} />
-                            {compareList.length}/2 Selected to Compare
-                        </div>
-                    )}
-                </div>
+                  {user.city && (
+                    <p className="text-xs text-text-muted flex items-center gap-1 mt-1">
+                      <MapPin size={12} /> {user.city}
+                    </p>
+                  )}
 
-                {error && (
-                    <div className="card p-4 mb-6 text-sm text-red-600 border border-red-200 bg-red-50">
-                        {error}
-                    </div>
-                )}
+                  {user.budget && (
+                    <p className="text-sm font-medium text-brand-teal mt-2">
+                      ₹{Number(user.budget).toLocaleString('en-IN')}
+                    </p>
+                  )}
 
-                {!shortlist || shortlist.length === 0 ? (
-                    <div className="card p-12 text-center">
-                        <div className="w-16 h-16 bg-surface-muted rounded-full flex items-center justify-center mx-auto mb-4 text-text-muted">
-                            <Heart size={32} />
-                        </div>
-                        <h2 className="text-xl font-bold text-text-primary mb-2">No shortlisted users yet</h2>
-                        <p className="text-text-muted max-w-xs mx-auto mb-6">Explore potential roommates and save your favorites to compare them side-by-side.</p>
-                        <Link to="/discover" className="btn-primary inline-flex">Go to Discover</Link>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {shortlist.map((user) => (
-                            <motion.div 
-                                key={user?.id} 
-                                layoutId={`fav-${user?.id}`}
-                                className={`card overflow-hidden border-2 transition-all ${
-                                    compareList.includes(user?.id) ? 'border-brand-primary shadow-lg ring-4 ring-brand-primary/10' : 'border-transparent'
-                                }`}
-                            >
-                                <div className="relative h-40 bg-surface-muted">
-                                    {user?.profile_image ? (
-                                        <img src={resolveMediaUrl(user?.profile_image)} className="w-full h-full object-cover" alt={user?.name || 'Shortlisted user'} />
-                                    ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-brand-warm opacity-30">{user?.name?.[0] || '?'}</div>
-                                    )}
-                                    <button
-                                        onClick={() => user?.id && removeItem(user.id)}
-                                        className="absolute top-3 right-3 p-2 bg-white/90 rounded-full text-red-500 hover:bg-white transition-all shadow-sm"
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
-                                <div className="p-5">
-                                    <h3 className="text-lg font-bold text-text-primary mb-3">{user?.name || 'Unknown'}</h3>
-
-                                    <div className="space-y-2 mb-5">
-                                        <div className="flex items-center justify-between text-xs">
-                                            <span className="text-text-muted flex items-center gap-1"><MapPin size={12} /> City</span>
-                                            <p>{user?.city || 'Not set'}</p>
-                                        </div>
-                                        <div className="flex items-center justify-between text-xs">
-                                            <span className="text-text-muted flex items-center gap-1"><IndianRupee size={12} /> Budget</span>
-                                            <span className="font-bold text-text-primary">₹{(user?.budget || 0).toLocaleString('en-IN')}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between text-xs">
-                                            <span className="text-text-muted flex items-center gap-1"><Calendar size={12} /> Move-in</span>
-                                            <span className="font-bold text-text-primary">
-                                                {user?.move_in_date ? new Date(user.move_in_date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'Flexible'}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => user?.id && toggleCompare(user.id)}
-                                            className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all ${
-                                                compareList.includes(user?.id)
-                                                ? 'bg-brand-primary border-brand-primary text-text-primary'
-                                                : 'border-surface-border text-text-muted hover:border-brand-primary'
-                                            }`}
-                                        >
-                                            {compareList.includes(user?.id) ? 'Selected' : 'Compare'}
-                                        </button>
-                                        <Link to={`/profile/${user?.id}`} className="p-2 border border-surface-border rounded-xl text-text-muted hover:text-brand-warm transition-all">
-                                            <ArrowRight size={16} />
-                                        </Link>
-                                    </div>
-                                </div>
-                            </motion.div>
-                        ))}
-                    </div>
-                )}
-
-                {/* Compare Bar */}
-                <AnimatePresence>
-                    {compareList.length === 2 && (
-                        <motion.div 
-                            initial={{ y: 100, opacity: 0 }}
-                            animate={{ y: 0, opacity: 1 }}
-                            exit={{ y: 100, opacity: 0 }}
-                            className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-lg z-50 px-4"
-                        >
-                            <div className="card p-2 shadow-2xl bg-white/90 backdrop-blur-md border-brand-primary border-2 flex items-center justify-between overflow-hidden">
-                                <div className="flex items-center -space-x-4 pl-2">
-                                    {compareList.map((id) => {
-                                        const u = shortlist.find((x) => x?.id === id);
-                                        return (
-                                            <div key={id} className="w-12 h-12 rounded-full border-4 border-white overflow-hidden bg-brand-secondary ring-2 ring-brand-primary/20">
-                                                {u?.profile_image && (
-                                                    <img src={resolveMediaUrl(u?.profile_image)} className="w-full h-full object-cover" alt="" />
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                                <div className="text-center px-4">
-                                     <div className="text-[10px] font-bold text-brand-warm uppercase tracking-widest">Compare & Decide</div>
-                                     <div className="text-xs font-bold text-text-primary">Lifestyle Overlap Analysis</div>
-                                </div>
-                                <Link 
-                                    to={`/compare?u1=${compareList[0]}&u2=${compareList[1]}`} 
-                                    className="btn-primary py-3 px-6 rounded-xl text-sm font-bold shadow-soft"
-                                >
-                                    Compare Now <ArrowRight size={16} />
-                                </Link>
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
-        </Layout>
-    );
-};
-
-export default ShortlistPage;
+                  <div className="flex gap-2 mt-4 w-full">
+                    <Link to={`/roommates/${user.id}`} className="flex-1">
+                      <Button variant="primary" className="w-full text-xs py-1.5">View</Button>
+                    </Link>
+                    <Link to={`/chat?userId=${user.id}`} className="flex-1">
+                      <Button variant="outline" className="w-full text-xs py-1.5 flex items-center justify-center gap-1">
+                        <MessageCircle size={14} /> Message
+                      </Button>
+                    </Link>
+                  </div>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Layout>
+  )
+}

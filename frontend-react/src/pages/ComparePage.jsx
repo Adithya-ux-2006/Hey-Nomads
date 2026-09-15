@@ -2,8 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Scale, AlertTriangle, FileText, Calendar, TrendingUp, TrendingDown, Zap } from 'lucide-react';
-import { resolveMediaUrl } from '../utils/api';
-import { supabase } from '../lib/supabase';
+import { resolveMediaUrl, apiFetch } from '../utils/api';
 import Layout from '../components/Layout';
 import { Button, Card, Spinner, EmptyState, ProgressBar } from '../components/UI';
 import { pageVariants, staggerContainer, staggerItem, slideInLeft, slideInRight } from '../utils/animations';
@@ -98,9 +97,9 @@ const ComparePage = () => {
         setLoading(true);
         setError('');
         const [profileA, profileB] = await Promise.all([
-  supabase.rpc('get_profile', { p_user_id: u1Id }),
-  supabase.rpc('get_profile', { p_user_id: u2Id }),
-]);
+          apiFetch(`/profile/${u1Id}`),
+          apiFetch(`/profile/${u2Id}`),
+        ]);
 
         if (!cancelled) {
           setUserA(profileA);

@@ -1,15 +1,12 @@
-import React from 'react';
 import Navbar from './Navbar';
 
-const Layout = ({ children, activePage }) => {
+export default function Layout({ children, className = '' }) {
   return (
     <div className="min-h-screen bg-surface-bg">
-      <main className="pb-24">
+      <div className={`pb-24 ${className}`}>
         {children}
-      </main>
-      <Navbar activePage={activePage} />
+      </div>
+      <Navbar />
     </div>
   );
-};
-
-export default Layout;
+}

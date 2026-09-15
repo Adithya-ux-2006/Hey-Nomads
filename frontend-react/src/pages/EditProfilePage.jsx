@@ -1,698 +1,473 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
-import {
-  Music, IndianRupee, Star, Heart, Settings, Camera, Calendar,
-  Info, Briefcase, MapPin, Sun, ArrowLeft, Save, Upload
-} from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { resolveMediaUrl, auth } from '../utils/api';
-import Layout from '../components/Layout';
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import Layout from '../components/Layout'
+import { apiFetch, auth } from '../lib/api'
+import { Button, Spinner } from '../components/UI'
+import { ChevronLeft, ChevronRight, Camera } from 'lucide-react'
 
-const fallbackLangs = [
-  { id: 1, name: 'English' }, { id: 2, name: 'Hindi' }, { id: 3, name: 'Tamil' },
-  { id: 4, name: 'Telugu' }, { id: 5, name: 'Kannada' }, { id: 6, name: 'Malayalam' },
-  { id: 7, name: 'Marathi' }, { id: 8, name: 'Gujarati' }, { id: 9, name: 'Bengali' },
-  { id: 10, name: 'Punjabi' }, { id: 11, name: 'Urdu' }, { id: 12, name: 'Spanish' },
-  { id: 13, name: 'French' }, { id: 14, name: 'German' }, { id: 15, name: 'Other' }
-];
-import { staggerContainer, staggerItem } from '../utils/animations';
+const INTERESTS = [
+  { id: 'sports', label: 'Sports', icon: '⚽' },
+  { id: 'music', label: 'Music', icon: '🎵' },
+  { id: 'gaming', label: 'Gaming', icon: '🎮' },
+  { id: 'fitness', label: 'Fitness', icon: '💪' },
+  { id: 'food', label: 'Food', icon: '🍕' },
+  { id: 'travel', label: 'Travel', icon: '✈️' },
+  { id: 'technology', label: 'Technology', icon: '💻' },
+  { id: 'arts', label: 'Arts', icon: '🎨' },
+  { id: 'reading', label: 'Reading', icon: '📚' },
+  { id: 'photography', label: 'Photography', icon: '📸' },
+  { id: 'cooking', label: 'Cooking', icon: '👨‍🍳' },
+  { id: 'hiking', label: 'Hiking', icon: '🥾' },
+  { id: 'yoga', label: 'Yoga', icon: '🧘' },
+  { id: 'movies', label: 'Movies', icon: '🎬' },
+  { id: 'podcasts', label: 'Podcasts', icon: '🎙️' },
+  { id: 'volunteering', label: 'Volunteering', icon: '🤝' },
+]
 
-// ── Section wrapper ────────────────────────────────────────────
-const Section = ({ icon: Icon, title, children, delay = 0 }) => (
-  <motion.div
-    variants={staggerItem}
-    className="card p-6 space-y-5"
-    whileHover={{ y: -2 }}
-    transition={{ type: 'spring', stiffness: 300 }}
-  >
-    <motion.div
-      initial={{ opacity: 0, x: -10 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay }}
-      className="flex items-center gap-2 mb-1"
-    >
-      {Icon && <Icon size={17} className="text-brand-warm" />}
-      <h2 className="font-display font-bold text-text-primary">{title}</h2>
-    </motion.div>
-    <motion.div
-      variants={staggerContainer}
-      initial="hidden"
-      animate="visible"
-    >
-      {children}
-    </motion.div>
-  </motion.div>
-);
+const STEP_LABELS = ['Basic Info', 'Location', 'Lifestyle', 'Housing', 'Interests', 'Languages', 'Photo']
 
-// ── Option Button ──────────────────────────────────────────────
-const OptionBtn = ({ children, active, onClick, className = '' }) => (
-  <motion.button
-    type="button"
-    onClick={onClick}
-    variants={staggerItem}
-    whileHover={{ scale: 1.05 }}
-    whileTap={{ scale: 0.95 }}
-    className={`px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all ${className} ${
-      active
-        ? 'bg-brand-primary border-brand-primary text-text-primary shadow-soft'
-        : 'border-surface-border text-text-muted hover:border-brand-primary hover:text-text-secondary'
-    }`}
-  >
-    {children}
-  </motion.button>
-);
+const inputCls = 'w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral transition-all'
+const labelCls = 'text-xs font-bold tracking-wider text-text-muted uppercase mb-2 block'
+const chipActive = 'bg-brand-coral text-white shadow-coral'
+const chipBase = 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/30'
+const chipCls = `px-4 py-2 rounded-full text-sm font-semibold transition-all cursor-pointer`
 
-// ── Cleanliness Picker ─────────────────────────────────────────
-const CleanlinessSlider = ({ value, onChange }) => (
-  <motion.div variants={staggerItem}>
-    <label className="block text-xs font-semibold text-text-secondary mb-2">
-      Cleanliness Level: <span className="text-brand-warm">{value}/5</span>
-    </label>
-    <motion.div className="flex gap-2" variants={staggerContainer} initial="hidden" animate="visible">
-      {[1, 2, 3, 4, 5].map(n => (
-        <motion.button
-          key={n}
-          type="button"
-          onClick={() => onChange(n)}
-          variants={staggerItem}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          className={`flex-1 py-3 rounded-xl text-sm font-bold border transition-all ${
-            value >= n
-              ? 'bg-brand-primary border-brand-primary text-text-primary'
-              : 'border-surface-border text-text-muted hover:border-brand-primary'
-          }`}
-        >
-          {n === 1 ? '😅' : n === 2 ? '🙂' : n === 3 ? '😊' : n === 4 ? '✨' : '🌟'}
-        </motion.button>
-      ))}
-    </motion.div>
-    <motion.p
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ delay: 0.1 }}
-      className="text-[11px] text-text-muted mt-1.5"
-    >
-      {value === 1 ? 'Very relaxed about cleanliness'
-        : value === 2 ? 'Mostly tidy'
-        : value === 3 ? 'Moderately clean'
-        : value === 4 ? 'Quite clean'
-        : 'Extremely clean'}
-    </motion.p>
-  </motion.div>
-);
-
-// ── Edit Profile Page ──────────────────────────────────────────
-const EditProfilePage = () => {
-  const navigate  = useNavigate();
-  const userId    = auth.getUserId();
-  const [loading, setLoading]     = useState(true);
-  const [saving, setSaving]       = useState(false);
-  const [saveMsg, setSaveMsg]     = useState('');
-  const [availLangs, setAvailLangs] = useState([]);
-  const [selectedFile, setSelectedFile]   = useState(null);
-  const [imagePreview, setImagePreview]   = useState(null);
-  const [removeImg, setRemoveImg]         = useState(false);
+export default function EditProfilePage() {
+  const navigate = useNavigate()
+  const userId = auth.getUserId()
+  const [step, setStep] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [languages, setLanguages] = useState([])
+  const [imagePreview, setImagePreview] = useState(null)
+  const [selectedFile, setSelectedFile] = useState(null)
 
   const [form, setForm] = useState({
-    // core
-    bio: '', occupation: '', city: '', moveInDate: '',
-    // financial
-    budget: 15000, deposit: 5000, flatType: 'shared', occupants: 1,
-    // lifestyle
+    name: '', age: '', gender: '', bio: '', occupation: '', university: '',
+    city: '', movingTo: '', country: '', moveInDate: '', neighbourhood: '', preferredNeighbourhood: '',
     sleepTime: 'flexible', cleanliness: 3, diet: 'veg',
     noiseTolerance: 'moderate', noiseLevel: 3,
     smoking: 'no', drinking: 'no', partying: 'low',
-    // languages
-    languages: [],
-    // image
-    profileImage: '',
-    // preferences
+    socialLevel: 'moderate', pets: '', workSchedule: '',
+    budget: 15000, deposit: 5000, flatType: 'shared', occupants: 1,
+    interests: [], languages: [],
     preferredGender: '', preferredBudgetMin: '', preferredBudgetMax: '',
-    preferredLocationRadius: 10, prefersSmoking: 'no_preference',
-    prefersDrinking: 'no_preference', prefersCleanlinessMin: 1,
-    prefersSleepSchedule: 'no_preference',
-    prefersSameDiet: false, prefersSameSleep: false,
-  });
+    profileImage: '',
+  })
 
-  const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => {
-    if (!userId) { navigate('/login'); return; }
+    if (!userId) { navigate('/login'); return }
     const load = async () => {
       try {
-        console.log('Loading profile & languages from Supabase for editing');
-        const { data: dbLangs, error: lError } = await supabase.from('languages').select('id, name');
-        if (lError) console.error('Supabase languages query error:', lError);
-        setAvailLangs(dbLangs && dbLangs.length > 0 ? dbLangs : fallbackLangs);
-
-        const { data: profile, error: pError } = await supabase.rpc('get_profile', { p_user_id: userId });
-        if (pError) {
-          console.error('get_profile RPC error:', pError);
-          throw new Error(pError.message || 'Failed to load profile details');
-        }
-
+        const [dbLangs, profile] = await Promise.all([
+          apiFetch('/languages').catch(() => []),
+          apiFetch(`/profile/${userId}`).catch(() => null),
+        ])
+        if (dbLangs?.length) setLanguages(dbLangs)
         if (profile) {
           setForm(f => ({
             ...f,
-            bio:          profile.bio || '',
-            occupation:   profile.occupation || '',
-            city:         profile.city || '',
-            moveInDate:   profile.move_in_date ? profile.move_in_date.split('T')[0] : '',
-            budget:       profile.budget || 15000,
-            deposit:      profile.deposit || 5000,
-            flatType:     profile.flat_type || 'shared',
-            occupants:    profile.occupants || 1,
-            sleepTime:    profile.sleep_time || 'flexible',
-            cleanliness:  profile.cleanliness || 3,
-            diet:         profile.diet || 'veg',
-            noiseTolerance: profile.noise_tolerance || 'moderate',
-            noiseLevel:   profile.noise_level || 3,
-            smoking:      profile.smoking || 'no',
-            drinking:     profile.drinking || 'no',
-            partying:     profile.partying || 'low',
-            profileImage: profile.profile_image || '',
-            languages:    profile.languages?.map(l => l.id) || [],
-            // preferences
-            preferredGender:         profile.preferred_gender || '',
-            preferredBudgetMin:      profile.preferred_budget_min || '',
-            preferredBudgetMax:      profile.preferred_budget_max || '',
-            preferredLocationRadius: profile.preferred_location_radius || 10,
-            prefersSmoking:          profile.prefers_smoking || 'no_preference',
-            prefersDrinking:         profile.prefers_drinking || 'no_preference',
-            prefersCleanlinessMin:   profile.prefers_cleanliness_min || 1,
-            prefersSleepSchedule:    profile.prefers_sleep_schedule || 'no_preference',
-            prefersSameDiet:         !!profile.prefers_same_diet,
-            prefersSameSleep:        !!profile.prefers_same_sleep,
-          }));
-          if (profile.profile_image) setImagePreview(resolveMediaUrl(profile.profile_image));
+            name: profile.name || '',
+            age: profile.age || '',
+            gender: profile.gender || '',
+            bio: profile.bio || '',
+            occupation: profile.occupation || '',
+            university: profile.university || '',
+            city: profile.city || '',
+            movingTo: profile.moving_to || profile.movingTo || '',
+            country: profile.country || '',
+            moveInDate: profile.move_in_date ? profile.move_in_date.split('T')[0] : (profile.moveInDate || ''),
+            neighbourhood: profile.neighbourhood || '',
+            preferredNeighbourhood: profile.preferred_neighbourhood || profile.preferredNeighbourhood || '',
+            sleepTime: profile.sleep_time || profile.sleepTime || 'flexible',
+            cleanliness: profile.cleanliness || 3,
+            diet: profile.diet || 'veg',
+            noiseTolerance: profile.noise_tolerance || profile.noiseTolerance || 'moderate',
+            noiseLevel: profile.noise_level || profile.noiseLevel || 3,
+            smoking: profile.smoking || 'no',
+            drinking: profile.drinking || 'no',
+            partying: profile.partying || 'low',
+            socialLevel: profile.social_level || profile.socialLevel || 'moderate',
+            pets: profile.pets || '',
+            workSchedule: profile.work_schedule || profile.workSchedule || '',
+            budget: profile.budget || 15000,
+            deposit: profile.deposit || 5000,
+            flatType: profile.flat_type || profile.flatType || 'shared',
+            occupants: profile.occupants || 1,
+            interests: profile.interests || [],
+            languages: profile.languages?.map(l => l.id) || [],
+            preferredGender: profile.preferred_gender || profile.preferredGender || '',
+            preferredBudgetMin: profile.preferred_budget_min || profile.preferredBudgetMin || '',
+            preferredBudgetMax: profile.preferred_budget_max || profile.preferredBudgetMax || '',
+            profileImage: profile.profile_image || profile.profileImage || '',
+          }))
+          if (profile.profile_image || profile.profileImage) {
+            const img = profile.profile_image || profile.profileImage
+            setImagePreview(img.startsWith('http') ? img : `${window.location.origin}${img}`)
+          }
         }
       } catch (err) {
-        console.error('Load error:', err);
+        console.error('Load error:', err)
       } finally {
-        setLoading(false);
+        setLoading(false)
       }
-    };
-    load();
-  }, [userId, navigate]);
+    }
+    load()
+  }, [userId, navigate])
 
-  const handleFileChange = e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setSelectedFile(file);
-    setImagePreview(URL.createObjectURL(file));
-    setRemoveImg(false);
-  };
-
-  const handleRemoveImg = () => {
-    setSelectedFile(null);
-    setImagePreview(null);
-    setRemoveImg(true);
-    set('profileImage', '');
-  };
-
-  const toggleLang = id => {
+  const toggleInterest = (id) => {
     setForm(f => ({
       ...f,
-      languages: f.languages.includes(id)
-        ? f.languages.filter(x => x !== id)
-        : [...f.languages, id]
-    }));
-  };
+      interests: f.interests.includes(id) ? f.interests.filter(i => i !== id) : [...f.interests, id],
+    }))
+  }
 
-  const handleSave = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    setSaveMsg('');
+  const toggleLang = (id) => {
+    setForm(f => ({
+      ...f,
+      languages: f.languages.includes(id) ? f.languages.filter(l => l !== id) : [...f.languages, id],
+    }))
+  }
+
+  const handleFile = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setSelectedFile(file)
+    setImagePreview(URL.createObjectURL(file))
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
     try {
-      let updatedImageUrl = form.profileImage;
-
+      let imageUrl = form.profileImage
       if (selectedFile) {
-        const fileExt = selectedFile.name.split('.').pop();
-        const fileName = `${userId}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-        const filePath = `${fileName}`;
-
-        console.log('Uploading image to Supabase storage:', filePath);
-        const { error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(filePath, selectedFile, { upsert: true });
-
-        if (uploadError) {
-          console.error('Supabase storage upload error:', uploadError);
-          throw new Error(uploadError.message || 'Failed to upload image');
-        }
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('avatars')
-          .getPublicUrl(filePath);
-
-        updatedImageUrl = publicUrl;
-      } else if (removeImg) {
-        updatedImageUrl = null;
+        const uploadRes = await apiFetch('/upload', {
+          method: 'POST',
+          body: selectedFile,
+          headers: { 'Content-Type': selectedFile.type },
+        })
+        imageUrl = uploadRes.url
       }
-
-      console.log('Upserting profile in Supabase profiles table');
-      const { error: profileError } = await supabase.from('profiles').upsert({
-        user_id: userId,
-        bio: form.bio,
-        occupation: form.occupation,
-        city: form.city,
-        move_in_date: form.moveInDate || null,
-        budget: form.budget,
-        deposit: form.deposit,
-        flat_type: form.flatType,
-        occupants: form.occupants,
-        sleep_time: form.sleepTime,
-        cleanliness: form.cleanliness,
-        diet: form.diet,
-        noise_tolerance: form.noiseTolerance,
-        noise_level: form.noiseLevel,
-        smoking: form.smoking,
-        drinking: form.drinking,
-        partying: form.partying,
-        profile_image: updatedImageUrl,
-      }, {
-        onConflict: 'user_id'
-      });
-
-      if (profileError) {
-        console.error('Supabase profiles update error:', profileError);
-        throw new Error(profileError.message || 'Failed to update profile');
-      }
-
-      console.log('Upserting preferences in Supabase preferences table');
-      const { error: prefError } = await supabase.from('preferences').upsert({
-        user_id: userId,
-        preferred_gender: form.preferredGender || null,
-        preferred_budget_min: form.preferredBudgetMin ? parseInt(form.preferredBudgetMin) : null,
-        preferred_budget_max: form.preferredBudgetMax ? parseInt(form.preferredBudgetMax) : null,
-        preferred_location_radius: form.preferredLocationRadius,
-        prefers_smoking: form.prefersSmoking,
-        prefers_drinking: form.prefersDrinking,
-        prefers_cleanliness_min: form.prefersCleanlinessMin,
-        prefers_sleep_schedule: form.prefersSleepSchedule,
-        prefers_same_diet: form.prefersSameDiet,
-        prefers_same_sleep: form.prefersSameSleep,
-      }, {
-        onConflict: 'user_id'
-      });
-
-      if (prefError) {
-        console.error('Supabase preferences update error:', prefError);
-        throw new Error(prefError.message || 'Failed to update roommate preferences');
-      }
-
-      console.log('Updating user languages in Supabase');
-      // Delete existing language links
-      const { error: deleteLangsError } = await supabase
-        .from('user_languages')
-        .delete()
-        .eq('user_id', userId);
-
-      if (deleteLangsError) {
-        console.error('Supabase delete user languages error:', deleteLangsError);
-        throw new Error(deleteLangsError.message || 'Failed to clean old languages');
-      }
-
-      // Insert new language links if selected
-      if (form.languages && form.languages.length > 0) {
-        const langInserts = form.languages.map(langId => ({
-          user_id: userId,
-          language_id: langId
-        }));
-        const { error: insertLangsError } = await supabase
-          .from('user_languages')
-          .insert(langInserts);
-
-        if (insertLangsError) {
-          console.error('Supabase insert user languages error:', insertLangsError);
-          throw new Error(insertLangsError.message || 'Failed to link languages');
-        }
-      }
-
-      setSaveMsg('Profile saved!');
-      setTimeout(() => navigate('/profile'), 800);
+      await apiFetch('/profile', {
+        method: 'POST',
+        body: {
+          bio: form.bio,
+          occupation: form.occupation,
+          city: form.city,
+          moveInDate: form.moveInDate || null,
+          sleepTime: form.sleepTime,
+          cleanliness: form.cleanliness,
+          diet: form.diet,
+          noiseTolerance: form.noiseTolerance,
+          noiseLevel: form.noiseLevel,
+          budget: form.budget,
+          deposit: form.deposit,
+          flatType: form.flatType,
+          occupants: form.occupants,
+          smoking: form.smoking,
+          drinking: form.drinking,
+          partying: form.partying,
+          profileImage: imageUrl,
+          languages: form.languages,
+          preferredGender: form.preferredGender || null,
+          preferredBudgetMin: form.preferredBudgetMin ? parseInt(form.preferredBudgetMin) : null,
+          preferredBudgetMax: form.preferredBudgetMax ? parseInt(form.preferredBudgetMax) : null,
+          socialLevel: form.socialLevel,
+          pets: form.pets,
+          workSchedule: form.workSchedule,
+          neighbourhood: form.neighbourhood,
+          preferredNeighbourhood: form.preferredNeighbourhood,
+          gender: form.gender,
+          age: form.age ? parseInt(form.age) : null,
+          movingTo: form.movingTo,
+          movingDate: form.moveInDate || null,
+          university: form.university,
+          country: form.country,
+          interests: form.interests,
+        },
+      })
+      navigate('/profile')
     } catch (err) {
-      console.error('Save error:', err);
-      setSaveMsg(`Error: ${err.message}`);
+      console.error('Save error:', err)
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
-  };
+  }
 
-  if (loading) return (
-    <Layout activePage="profile">
-      <div className="max-w-3xl mx-auto px-4 pt-8 animate-pulse space-y-5">
-        {[1,2,3,4].map(i => <div key={i} className="skeleton h-48 rounded-2xl" />)}
-      </div>
-    </Layout>
-  );
+  if (loading) {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 pt-8 flex justify-center">
+          <Spinner />
+        </div>
+      </Layout>
+    )
+  }
+
+  const progress = ((step + 1) / STEP_LABELS.length) * 100
 
   return (
-    <Layout activePage="profile">
-      <motion.form
-        onSubmit={handleSave}
-        variants={staggerContainer}
-        initial="hidden"
-        animate="visible"
-        className="max-w-3xl mx-auto px-4 pt-6 pb-8"
-      >
-        {/* Header */}
-        <motion.div variants={staggerItem} className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <motion.button whileTap={{ scale: 0.95 }} type="button" onClick={() => navigate('/profile')} className="btn-ghost p-2.5">
-              <ArrowLeft size={18} />
-            </motion.button>
-            <motion.h1 variants={staggerItem} className="text-2xl font-display font-bold text-text-primary">Edit Profile</motion.h1>
+    <Layout>
+      <div className="max-w-2xl mx-auto px-4 pt-6 pb-24">
+        {/* Progress bar */}
+        <div className="mb-2">
+          <div className="h-1.5 bg-surface-border rounded-full overflow-hidden">
+            <div className="h-full bg-brand-coral rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
           </div>
-          <motion.button
-            id="save-profile-btn"
-            type="submit"
-            disabled={saving}
-            variants={staggerItem}
-            whileTap={{ scale: 0.98 }}
-            className="btn-primary"
-          >
-            {saving ? (
-              <span className="flex items-center gap-2">
-                <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                Saving…
-              </span>
-            ) : (
-              <><Save size={16} /> Save Changes</>
-            )}
-          </motion.button>
-        </motion.div>
+          <p className="text-xs text-text-muted font-medium mt-2">Step {step + 1} of {STEP_LABELS.length} — {STEP_LABELS[step]}</p>
+        </div>
 
-        <AnimatePresence>
-          {saveMsg && (
-            <motion.div
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              className={`mb-4 p-3 rounded-xl text-sm text-center font-semibold ${saveMsg.startsWith('Error') ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}
-            >
-              {saveMsg}
-            </motion.div>
+        {/* Step content */}
+        <div className="mt-6">
+
+          {/* Step 0: Basic Info */}
+          {step === 0 && (
+            <div className="space-y-5">
+              <div>
+                <label className={labelCls}>Name</label>
+                <input className={`${inputCls} bg-surface-muted cursor-not-allowed`} value={form.name} readOnly />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>Age</label>
+                  <input type="number" className={inputCls} placeholder="25" value={form.age} onChange={e => set('age', e.target.value)} />
+                </div>
+                <div>
+                  <label className={labelCls}>Gender</label>
+                  <select className={inputCls} value={form.gender} onChange={e => set('gender', e.target.value)}>
+                    <option value="">Select</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                    <option value="prefer_not_to_say">Prefer not to say</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Bio</label>
+                <textarea rows={3} className={`${inputCls} resize-none`} placeholder="Tell potential roommates about yourself…" value={form.bio} onChange={e => set('bio', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Occupation</label>
+                <input className={inputCls} placeholder="e.g. UX Designer" value={form.occupation} onChange={e => set('occupation', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>University</label>
+                <input className={inputCls} placeholder="e.g. University of Melbourne" value={form.university} onChange={e => set('university', e.target.value)} />
+              </div>
+            </div>
           )}
-        </AnimatePresence>
 
-        <div className="space-y-5">
-          {/* ── Photo Section ── */}
-          <Section icon={Camera} title="Profile Photo">
-            <motion.div className="flex items-center gap-5" variants={staggerContainer} initial="hidden" animate="visible">
-              <motion.div variants={staggerItem} whileHover={{ scale: 1.03 }} className="w-20 h-20 rounded-2xl border-2 border-surface-border overflow-hidden bg-surface-muted flex-shrink-0">
+          {/* Step 1: Location */}
+          {step === 1 && (
+            <div className="space-y-5">
+              <div>
+                <label className={labelCls}>City</label>
+                <input className={inputCls} placeholder="e.g. Melbourne" value={form.city} onChange={e => set('city', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Moving To</label>
+                <input className={inputCls} placeholder="e.g. Melbourne" value={form.movingTo} onChange={e => set('movingTo', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Country</label>
+                <input className={inputCls} placeholder="e.g. Australia" value={form.country} onChange={e => set('country', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Move-in Date</label>
+                <input type="date" className={inputCls} value={form.moveInDate} onChange={e => set('moveInDate', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Neighbourhood</label>
+                <input className={inputCls} placeholder="e.g. Fitzroy" value={form.neighbourhood} onChange={e => set('neighbourhood', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Preferred Neighbourhood</label>
+                <input className={inputCls} placeholder="e.g. CBD" value={form.preferredNeighbourhood} onChange={e => set('preferredNeighbourhood', e.target.value)} />
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Lifestyle */}
+          {step === 2 && (
+            <div className="space-y-5">
+              <div>
+                <label className={labelCls}>Sleep Schedule</label>
+                <div className="flex flex-wrap gap-2">
+                  {[{ v: 'early', l: '🌅 Early Bird' }, { v: 'flexible', l: '⏰ Flexible' }, { v: 'late', l: '🌙 Night Owl' }].map(o => (
+                    <button key={o.v} type="button" onClick={() => set('sleepTime', o.v)} className={`${chipCls} ${form.sleepTime === o.v ? chipActive : chipBase}`}>{o.l}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Cleanliness: {form.cleanliness}/5</label>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5].map(n => (
+                    <button key={n} type="button" onClick={() => set('cleanliness', n)} className={`flex-1 py-3 rounded-xl text-sm font-bold border transition-all ${form.cleanliness >= n ? 'bg-brand-coral border-brand-coral text-white' : 'border-surface-border text-text-muted hover:border-brand-coral/30'}`}>{n}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Diet</label>
+                <div className="flex flex-wrap gap-2">
+                  {[{ v: 'veg', l: '🥗 Vegetarian' }, { v: 'eggetarian', l: '🥚 Eggetarian' }, { v: 'vegan', l: '🌱 Vegan' }, { v: 'nonveg', l: '🍗 Non-Veg' }].map(o => (
+                    <button key={o.v} type="button" onClick={() => set('diet', o.v)} className={`${chipCls} ${form.diet === o.v ? chipActive : chipBase}`}>{o.l}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Smoking</label>
+                <div className="flex gap-2">
+                  {[{ v: 'no', l: '🚭 No' }, { v: 'yes', l: '🚬 Yes' }].map(o => (
+                    <button key={o.v} type="button" onClick={() => set('smoking', o.v)} className={`${chipCls} flex-1 ${form.smoking === o.v ? chipActive : chipBase}`}>{o.l}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Drinking</label>
+                <div className="flex gap-2">
+                  {[{ v: 'no', l: '🧃 No' }, { v: 'yes', l: '🍺 Yes' }].map(o => (
+                    <button key={o.v} type="button" onClick={() => set('drinking', o.v)} className={`${chipCls} flex-1 ${form.drinking === o.v ? chipActive : chipBase}`}>{o.l}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Social Level</label>
+                <div className="flex gap-2">
+                  {[{ v: 'introvert', l: 'Introvert' }, { v: 'moderate', l: 'Balanced' }, { v: 'extrovert', l: 'Extrovert' }].map(o => (
+                    <button key={o.v} type="button" onClick={() => set('socialLevel', o.v)} className={`${chipCls} flex-1 ${form.socialLevel === o.v ? chipActive : chipBase}`}>{o.l}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Noise Tolerance</label>
+                <div className="flex gap-2">
+                  {[{ v: 'quiet', l: '🔇 Quiet' }, { v: 'moderate', l: '🔉 Moderate' }, { v: 'loud', l: '🔊 Loud OK' }].map(o => (
+                    <button key={o.v} type="button" onClick={() => set('noiseTolerance', o.v)} className={`${chipCls} flex-1 ${form.noiseTolerance === o.v ? chipActive : chipBase}`}>{o.l}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Pets</label>
+                <input className={inputCls} placeholder="e.g. Dog lover" value={form.pets} onChange={e => set('pets', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Work Schedule</label>
+                <div className="flex flex-wrap gap-2">
+                  {[{ v: '9-5', l: '9-5' }, { v: 'flexible', l: 'Flexible' }, { v: 'remote', l: 'Remote' }, { v: 'shifts', l: 'Shifts' }].map(o => (
+                    <button key={o.v} type="button" onClick={() => set('workSchedule', o.v)} className={`${chipCls} ${form.workSchedule === o.v ? chipActive : chipBase}`}>{o.l}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Housing */}
+          {step === 3 && (
+            <div className="space-y-5">
+              <div>
+                <label className={labelCls}>Monthly Budget: ₹{(form.budget || 0).toLocaleString()}</label>
+                <input type="range" min={5000} max={100000} step={1000} value={form.budget} onChange={e => set('budget', parseInt(e.target.value))} className="w-full" />
+                <div className="flex justify-between text-xs text-text-muted mt-1"><span>₹5K</span><span>₹1L</span></div>
+              </div>
+              <div>
+                <label className={labelCls}>Deposit: ₹{(form.deposit || 0).toLocaleString()}</label>
+                <input type="number" className={inputCls} value={form.deposit} onChange={e => set('deposit', parseInt(e.target.value) || 0)} />
+              </div>
+              <div>
+                <label className={labelCls}>Flat Type</label>
+                <div className="flex flex-wrap gap-2">
+                  {['shared', '1BHK', '2BHK', '3BHK', 'studio', 'other'].map(t => (
+                    <button key={t} type="button" onClick={() => set('flatType', t)} className={`${chipCls} ${form.flatType === t ? chipActive : chipBase}`}>{t}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Occupants</label>
+                <input type="number" min={1} max={10} className={inputCls} value={form.occupants} onChange={e => set('occupants', parseInt(e.target.value) || 1)} />
+              </div>
+              <div>
+                <label className={labelCls}>Preferred Neighbourhood</label>
+                <input className={inputCls} placeholder="e.g. CBD" value={form.preferredNeighbourhood} onChange={e => set('preferredNeighbourhood', e.target.value)} />
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: Interests */}
+          {step === 4 && (
+            <div className="flex flex-wrap gap-3">
+              {INTERESTS.map(int => (
+                <button key={int.id} type="button" onClick={() => toggleInterest(int.id)} className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold transition-all ${form.interests.includes(int.id) ? chipActive : chipBase}`}>
+                  <span>{int.icon}</span>
+                  <span>{int.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Step 5: Languages */}
+          {step === 5 && (
+            <div className="flex flex-wrap gap-2">
+              {languages.map(lang => (
+                <button key={lang.id} type="button" onClick={() => toggleLang(lang.id)} className={`${chipCls} ${form.languages.includes(lang.id) ? chipActive : chipBase}`}>
+                  {lang.name}
+                </button>
+              ))}
+              {!languages.length && <p className="text-text-muted text-sm">No languages available.</p>}
+            </div>
+          )}
+
+          {/* Step 6: Photo */}
+          {step === 6 && (
+            <div className="flex items-center gap-5">
+              <div className="w-20 h-20 rounded-2xl border-2 border-surface-border overflow-hidden bg-surface-muted flex-shrink-0">
                 {imagePreview ? (
                   <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-brand-warm">
-                    {auth.getUserName()?.[0]?.toUpperCase() || '?'}
+                  <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-brand-coral">
+                    {form.name?.[0]?.toUpperCase() || '?'}
                   </div>
                 )}
-              </motion.div>
+              </div>
               <div className="flex flex-col gap-2">
-                <motion.label variants={staggerItem} className="btn-primary cursor-pointer text-sm py-2 inline-flex items-center gap-2">
-                  <Camera size={14} /> <span>Upload Photo</span>
-                  <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
-                </motion.label>
-                <AnimatePresence>
-                  {imagePreview && (
-                    <motion.button
-                      variants={staggerItem}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      type="button"
-                      onClick={handleRemoveImg}
-                      className="btn-ghost text-sm py-2 text-red-500 border-red-200 hover:bg-red-50"
-                    >
-                      Remove
-                    </motion.button>
-                  )}
-                </AnimatePresence>
-              </div>
-            </motion.div>
-          </Section>
-
-          {/* ── About ── */}
-          <Section icon={Info} title="About You">
-            <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-4" variants={staggerContainer} initial="hidden" animate="visible">
-              <motion.div variants={staggerItem}>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Occupation</label>
-                <div className="relative">
-                  <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
-                  <motion.input id="edit-occupation" type="text" className="input pl-10" placeholder="e.g. UX Designer"
-                    value={form.occupation} onChange={e => set('occupation', e.target.value)} />
-                </div>
-              </motion.div>
-              <motion.div variants={staggerItem}>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">City</label>
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
-                  <motion.input id="edit-city" type="text" className="input pl-10" placeholder="e.g. Mumbai"
-                    value={form.city} onChange={e => set('city', e.target.value)} />
-                </div>
-              </motion.div>
-            </motion.div>
-            <motion.div variants={staggerItem}>
-              <label className="block text-xs font-semibold text-text-secondary mb-1.5">Bio</label>
-              <motion.textarea
-                id="edit-bio"
-                className="input min-h-[96px] resize-none"
-                placeholder="Tell potential roommates about yourself…"
-                value={form.bio}
-                onChange={e => set('bio', e.target.value)}
-              />
-            </motion.div>
-          </Section>
-
-          {/* ── Rental Details ── */}
-          <Section icon={IndianRupee} title="Rental Details">
-            <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-4" variants={staggerContainer} initial="hidden" animate="visible">
-              <motion.div variants={staggerItem}>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Monthly Rent (₹)</label>
-                <motion.input id="edit-budget" type="number" className="input" placeholder="15000"
-                  value={form.budget} onChange={e => set('budget', parseInt(e.target.value) || 0)} />
-              </motion.div>
-              <motion.div variants={staggerItem}>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Deposit (₹)</label>
-                <motion.input id="edit-deposit" type="number" className="input" placeholder="30000"
-                  value={form.deposit} onChange={e => set('deposit', parseInt(e.target.value) || 0)} />
-              </motion.div>
-              <motion.div variants={staggerItem}>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Flat Type</label>
-                <motion.select id="edit-flat-type" className="input" value={form.flatType} onChange={e => set('flatType', e.target.value)}>
-                  {['1BHK','2BHK','3BHK','shared','studio','other'].map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </motion.select>
-              </motion.div>
-              <motion.div variants={staggerItem}>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Occupants</label>
-                <motion.input id="edit-occupants" type="number" min="1" max="10" className="input" placeholder="1"
-                   value={form.occupants} onChange={e => set('occupants', parseInt(e.target.value) || 1)} />
-              </motion.div>
-              <motion.div variants={staggerItem} className="col-span-2 md:col-span-1">
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Move-in Date</label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
-                  <motion.input id="edit-move-in-date" type="date" className="input pl-10"
-                    value={form.moveInDate} onChange={e => set('moveInDate', e.target.value)} />
-                </div>
-              </motion.div>
-            </motion.div>
-          </Section>
-
-          {/* ── Lifestyle ── */}
-          <Section icon={Sun} title="Lifestyle Traits">
-            <CleanlinessSlider value={form.cleanliness} onChange={v => set('cleanliness', v)} />
-
-            <div>
-              <label className="block text-xs font-semibold text-text-secondary mb-2">Sleep Schedule</label>
-              <div className="flex gap-2">
-                {[
-                  { v: 'early', label: '🌅 Early Bird' },
-                  { v: 'flexible', label: '⏰ Flexible' },
-                  { v: 'late', label: '🌙 Night Owl' },
-                ].map(({ v, label }) => (
-                  <OptionBtn key={v} active={form.sleepTime === v} onClick={() => set('sleepTime', v)} className="flex-1">
-                    {label}
-                  </OptionBtn>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-text-secondary mb-2">Diet</label>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { v: 'veg', label: '🥗 Vegetarian' },
-                  { v: 'eggetarian', label: '🥚 Eggetarian' },
-                  { v: 'vegan', label: '🌱 Vegan' },
-                  { v: 'nonveg', label: '🍗 Non-Veg' },
-                ].map(({ v, label }) => (
-                  <OptionBtn key={v} active={form.diet === v} onClick={() => set('diet', v)}>
-                    {label}
-                  </OptionBtn>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-text-secondary mb-2">Noise Tolerance</label>
-              <div className="flex gap-2">
-                {[
-                  { v: 'quiet', label: '🔇 Quiet' },
-                  { v: 'moderate', label: '🔉 Moderate' },
-                  { v: 'loud', label: '🔊 Loud OK' },
-                ].map(({ v, label }) => (
-                  <OptionBtn key={v} active={form.noiseTolerance === v} onClick={() => set('noiseTolerance', v)} className="flex-1">
-                    {label}
-                  </OptionBtn>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-text-secondary mb-2">Smoking</label>
-                <div className="flex gap-2">
-                  {[{ v: 'no', label: '🚭 No' }, { v: 'yes', label: '🚬 Yes' }].map(({ v, label }) => (
-                    <OptionBtn key={v} active={form.smoking === v} onClick={() => set('smoking', v)} className="flex-1">{label}</OptionBtn>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-text-secondary mb-2">Drinking</label>
-                <div className="flex gap-2">
-                  {[{ v: 'no', label: '🧃 No' }, { v: 'yes', label: '🍺 Yes' }].map(({ v, label }) => (
-                    <OptionBtn key={v} active={form.drinking === v} onClick={() => set('drinking', v)} className="flex-1">{label}</OptionBtn>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-text-secondary mb-2">Partying</label>
-                <div className="flex gap-2">
-                  {[{ v: 'low', label: '🏠 Low' }, { v: 'medium', label: '🎶 Med' }, { v: 'high', label: '🎉 High' }].map(({ v, label }) => (
-                    <OptionBtn key={v} active={form.partying === v} onClick={() => set('partying', v)} className="flex-1 text-[11px]">{label}</OptionBtn>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </Section>
-
-          {/* ── Languages ── */}
-          <Section icon={Heart} title="Languages">
-            <motion.div className="flex flex-wrap gap-2" variants={staggerContainer} initial="hidden" animate="visible">
-              {availLangs.map(lang => (
-                <motion.button
-                  key={lang.id}
-                  type="button"
-                  variants={staggerItem}
-                  onClick={() => toggleLang(lang.id)}
-                  className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
-                    form.languages.includes(lang.id)
-                      ? 'bg-brand-accent/20 border-brand-accent text-green-700'
-                      : 'border-surface-border text-text-muted hover:border-brand-primary'
-                  }`}
-                >
-                  {lang.name}
-                </motion.button>
-              ))}
-            </motion.div>
-          </Section>
-
-          {/* ── Preferences ── */}
-          <Section icon={Settings} title="Roommate Preferences">
-            <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-4" variants={staggerContainer} initial="hidden" animate="visible">
-              <motion.div variants={staggerItem}>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Preferred Gender</label>
-                <motion.select className="input" value={form.preferredGender} onChange={e => set('preferredGender', e.target.value)}>
-                  <option value="">No preference</option>
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                  <option value="any">Any</option>
-                </motion.select>
-              </motion.div>
-              <motion.div variants={staggerItem}>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Preferred Sleep Schedule</label>
-                <motion.select className="input" value={form.prefersSleepSchedule} onChange={e => set('prefersSleepSchedule', e.target.value)}>
-                  <option value="no_preference">No preference</option>
-                  <option value="early">Early bird</option>
-                  <option value="late">Night owl</option>
-                  <option value="flexible">Flexible</option>
-                </motion.select>
-              </motion.div>
-              <motion.div variants={staggerItem}>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Roommate Smoking</label>
-                <motion.select className="input" value={form.prefersSmoking} onChange={e => set('prefersSmoking', e.target.value)}>
-                  <option value="no_preference">No preference</option>
-                  <option value="no">Non-smoker only</option>
-                  <option value="yes">Smoker OK</option>
-                </motion.select>
-              </motion.div>
-              <motion.div variants={staggerItem}>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Roommate Drinking</label>
-                <motion.select className="input" value={form.prefersDrinking} onChange={e => set('prefersDrinking', e.target.value)}>
-                  <option value="no_preference">No preference</option>
-                  <option value="no">Non-drinker only</option>
-                  <option value="yes">Drinker OK</option>
-                </motion.select>
-              </motion.div>
-              <motion.div variants={staggerItem}>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Budget Range (₹)</label>
-                <div className="flex gap-2">
-                  <motion.input type="number" className="input" placeholder="Min"
-                    value={form.preferredBudgetMin} onChange={e => set('preferredBudgetMin', e.target.value)} />
-                  <motion.input type="number" className="input" placeholder="Max"
-                    value={form.preferredBudgetMax} onChange={e => set('preferredBudgetMax', e.target.value)} />
-                </div>
-              </motion.div>
-              <motion.div variants={staggerItem}>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">
-                  Min Cleanliness Required: {form.prefersCleanlinessMin}/5
+                <label className={`${chipCls} bg-brand-coral text-white cursor-pointer inline-flex items-center gap-2 px-4 py-2.5`}>
+                  <Camera size={14} /> Upload Photo
+                  <input type="file" className="hidden" accept="image/*" onChange={handleFile} />
                 </label>
-                <motion.input type="range" min="1" max="5" step="1"
-                  value={form.prefersCleanlinessMin} onChange={e => set('prefersCleanlinessMin', parseInt(e.target.value))} />
-              </motion.div>
-            </motion.div>
-
-            <motion.div className="flex flex-wrap gap-3 pt-2" variants={staggerContainer} initial="hidden" animate="visible">
-              {[
-                { key: 'prefersSameDiet', label: '🥗 Prefers same diet' },
-                { key: 'prefersSameSleep', label: '🌙 Prefers same sleep schedule' },
-              ].map(({ key, label }) => (
-                <motion.button
-                  key={key}
-                  type="button"
-                  variants={staggerItem}
-                  onClick={() => set(key, !form[key])}
-                  className={`px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
-                    form[key]
-                      ? 'bg-brand-primary border-brand-primary text-text-primary'
-                      : 'border-surface-border text-text-muted hover:border-brand-primary'
-                  }`}
-                >
-                  {label} {form[key] ? '✓' : ''}
-                </motion.button>
-              ))}
-            </motion.div>
-          </Section>
+                {imagePreview && (
+                  <button type="button" onClick={() => { setSelectedFile(null); setImagePreview(null); set('profileImage', '') }} className={`${chipCls} text-red-500 border-red-200 hover:bg-red-50 px-4 py-2.5`}>
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Bottom Save */}
-        <div className="flex justify-end gap-3 mt-6">
-          <button type="button" onClick={() => navigate('/profile')} className="btn-secondary">
-            Cancel
-          </button>
-          <button type="submit" id="save-profile-bottom" disabled={saving} className="btn-primary">
-            {saving ? 'Saving…' : <><Save size={15} /> Save Profile</>}
-          </button>
+        {/* Navigation */}
+        <div className="flex justify-between mt-8 gap-3">
+          {step > 0 ? (
+            <Button variant="ghost" onClick={() => setStep(s => s - 1)}>
+              <ChevronLeft size={18} /> Back
+            </Button>
+          ) : (
+            <Button variant="ghost" onClick={() => navigate('/profile')}>
+              Cancel
+            </Button>
+          )}
+          {step < STEP_LABELS.length - 1 ? (
+            <Button variant="primary" onClick={() => setStep(s => s + 1)}>
+              Next <ChevronRight size={18} />
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={handleSave} disabled={saving}>
+              {saving ? <><Spinner size="sm" /> Saving…</> : 'Save Profile'}
+            </Button>
+          )}
         </div>
-      </motion.form>
+      </div>
     </Layout>
-  );
-};
-
-export default EditProfilePage;
+  )
+}

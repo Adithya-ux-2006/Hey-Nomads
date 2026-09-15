@@ -1,623 +1,235 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react'
+import { useParams, Link } from 'react-router-dom'
+import Layout from '../components/Layout'
+import { apiFetch, auth } from '../lib/api'
+import { Card, Badge, Button, Spinner, SectionHeader } from '../components/UI'
+import UserAvatar from '../components/UserAvatar'
 import {
-  MessageSquare, Briefcase, MapPin, ArrowLeft, BadgeCheck,
-  Edit3, Camera, Home, Users, IndianRupee, Sparkles, Heart
-} from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { resolveMediaUrl, auth } from '../utils/api';
+  Edit, MapPin, Briefcase, Home, Calendar, Shield,
+  Moon, Cigarette, Wine, Users, Globe, ArrowLeft, ShieldCheck
+} from 'lucide-react'
 
-import Layout from '../components/Layout';
-import {
-  Button,
-  Card,
-  ProgressBar,
-  CompatibilityBadge,
-  Avatar,
-  Spinner,
-  EmptyState,
-  AttributeChip,
-  Badge,
-  SectionHeader,
-} from '../components/UI';
-import {
-  pageVariants,
-  staggerContainer,
-  staggerItem,
-  premiumSpring,
-} from '../utils/animations';
+const CLEANLINESS_MAP = { 1: 'Minimal', 2: 'Casual', 3: 'Moderate', 4: 'Tidy', 5: 'Spotless' }
+const DIET_MAP = { veg: 'Vegetarian', eggetarian: 'Eggetarian', vegan: 'Vegan', non_veg: 'Non-veg' }
+const SLEEP_MAP = { early: 'Early Bird', late: 'Night Owl', flexible: 'Flexible' }
+const SMOKING_MAP = { yes: 'Smoker', no: 'Non-smoker', occasionally: 'Occasionally' }
+const DRINKING_MAP = { yes: 'Drinks', no: 'Non-drinker', socially: 'Socially' }
+const SOCIAL_MAP = { introvert: 'Introvert', ambivert: 'Ambivert', extrovert: 'Extrovert' }
 
-// ── Lifestyle Traits ──────────────────────────────────────────
-const TraitBadge = ({ label, color = 'primary' }) => {
-  const colorMap = {
-    primary: 'bg-brand-secondary text-brand-deep',
-    success: 'bg-status-success/20 text-green-700',
-    warning: 'bg-status-warning/20 text-amber-700',
-    error: 'bg-status-error/20 text-red-700',
-  };
-  return (
-    <motion.span
-      whileHover={{ scale: 1.05 }}
-      className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold ${colorMap[color]} border border-opacity-30`}
-    >
-      {label}
-    </motion.span>
-  );
-};
+const AboutItem = ({ icon: Icon, label, value, color }) =>
+  value ? (
+    <div className="flex items-center gap-3 p-3 rounded-xl bg-surface-bg border border-surface-border">
+      <Icon size={16} className={`${color} flex-shrink-0`} />
+      <div>
+        <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+        <p className="text-sm font-semibold text-text-primary">{value}</p>
+      </div>
+    </div>
+  ) : null
 
-// ── Profile Page ───────────────────────────────────────────────
 const ProfilePage = () => {
-  const navigate = useNavigate();
-  const { id } = useParams();
-  const currentUserId = auth.getUserId();
+  const { id } = useParams()
+  const currentUserId = auth.getUserId()
+  const viewingId = id || currentUserId
+  const isOwn = !id || id === currentUserId
 
-  const viewingId = id || currentUserId;
-  const isOwn = !id || id == currentUserId;
-
-  const [profile, setProfile] = useState(null);
-  const [myProfile, setMyProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [uploading, setUploading] = useState(false);
+  const [profile, setProfile] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
-    if (!currentUserId) {
-      navigate('/login');
-    }
-  }, [currentUserId, navigate]);
+    if (!currentUserId) return
+    let cancelled = false
 
-  const loadProfile = useCallback(async () => {
-    if (!currentUserId) {
-      return;
-    }
-    try {
-      setLoading(true);
-      setError(null);
-      console.log('Loading profile via Supabase RPC get_profile for viewingId', viewingId);
-      const { data, error } = await supabase.rpc('get_profile', { p_user_id: viewingId });
-      if (error) {
-        console.error('get_profile RPC error:', error);
-        throw new Error(error.message || 'Failed to load profile');
-      }
-      setProfile(data);
-      if (!isOwn) {
-        console.log('Loading own profile via Supabase RPC get_profile for currentUserId', currentUserId);
-        const { data: me, error: meError } = await supabase.rpc('get_profile', { p_user_id: currentUserId });
-        if (meError) {
-          console.error('get_profile RPC error for own profile:', meError);
+    const loadProfile = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        if (isOwn) {
+          const me = await apiFetch('/auth/me')
+          if (!cancelled) setProfile(me)
         } else {
-          setMyProfile(me);
+          const data = await apiFetch(`/profile/${viewingId}`)
+          if (!cancelled) setProfile(data)
         }
+      } catch (err) {
+        if (!cancelled) setError(err.message || 'Failed to load profile')
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-    } catch (err) {
-      setError(err.message || 'Failed to load profile');
-    } finally {
-      setLoading(false);
     }
-  }, [currentUserId, isOwn, viewingId]);
 
-  useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+    loadProfile()
+    return () => { cancelled = true }
+  }, [viewingId, isOwn, currentUserId])
 
-  const handleImageUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${currentUserId}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-      const filePath = `${fileName}`;
-
-      console.log('Uploading image to Supabase avatars bucket:', filePath);
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file, { upsert: true });
-
-      if (uploadError) {
-        console.error('Supabase storage upload error:', uploadError);
-        throw new Error(uploadError.message || 'Failed to upload image');
-      }
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
-
-      console.log('Uploaded image public URL:', publicUrl);
-
-      const { error: updateError } = await supabase.from('profiles').upsert({
-        user_id: currentUserId,
-        profile_image: publicUrl,
-        bio: profile?.bio || '',
-        occupation: profile?.occupation || '',
-        city: profile?.city || '',
-        sleep_time: profile?.sleep_time || 'flexible',
-        cleanliness: profile?.cleanliness || 3,
-        diet: profile?.diet || 'veg',
-        noise_tolerance: profile?.noise_tolerance || 'moderate',
-        noise_level: profile?.noise_level || 3,
-        budget: profile?.budget || 15000,
-        tax_bracket: profile?.tax_bracket || 'medium',
-        deposit: profile?.deposit || 5000,
-        flat_type: profile?.flat_type || 'shared',
-        occupants: profile?.occupants || 1,
-        smoking: profile?.smoking || 'no',
-        drinking: profile?.drinking || 'no',
-        partying: profile?.partying || 'low',
-      }, {
-        onConflict: 'user_id'
-      });
-
-      if (updateError) {
-        console.error('Supabase profile update error:', updateError);
-        throw new Error(updateError.message || 'Failed to update profile image path');
-      }
-
-      await loadProfile();
-    } catch (err) {
-      console.error('Image upload failed:', err);
-      alert('Upload failed: ' + err.message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const compatScore = React.useMemo(() => {
-    if (isOwn || !profile || !myProfile) return null;
-    let s = 0;
-    const a = myProfile,
-      b = profile;
-    if (a.city && b.city && a.city.toLowerCase() === b.city.toLowerCase()) s += 30;
-    const mxB = Math.max(a.budget || 0, b.budget || 0);
-    const dB = Math.abs((a.budget || 0) - (b.budget || 0));
-    s += mxB > 0 ? Math.round(20 * (1 - dB / mxB)) : 10;
-    s += 20 - Math.abs((a.cleanliness || 3) - (b.cleanliness || 3)) * 5;
-    if (a.sleep_time === b.sleep_time) s += 10;
-    if (a.smoking === b.smoking) s += 10;
-    if (a.drinking === b.drinking) s += 10;
-    if (a.diet === b.diet) s += 5;
-    return Math.min(100, Math.max(0, Math.round(s)));
-  }, [profile, myProfile, isOwn]);
-
-  if (!currentUserId) {
-    return null;
-  }
-
-  // ── Loading State ──────────────────────────────────────────────
   if (loading) {
     return (
-      <Layout activePage="profile">
-        <div className="max-w-4xl mx-auto px-4 pt-8 pb-24">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="space-y-6"
-          >
-            <div className="skeleton h-56 rounded-2xl" />
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[1, 2, 3, 4].map(i => (
-                <div key={i} className="skeleton h-20 rounded-2xl" />
-              ))}
-            </div>
-            <div className="skeleton h-64 rounded-2xl" />
-          </motion.div>
+      <Layout>
+        <div className="max-w-3xl mx-auto px-4 pt-6 pb-24 space-y-6">
+          <div className="skeleton h-72 rounded-2xl" />
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {[1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} className="skeleton h-20 rounded-2xl" />
+            ))}
+          </div>
+          <div className="skeleton h-48 rounded-2xl" />
         </div>
       </Layout>
-    );
+    )
   }
 
-  // ── Error State ────────────────────────────────────────────────
   if (error || !profile) {
     return (
-      <Layout activePage="profile">
-        <div className="max-w-4xl mx-auto px-4 pt-8 pb-24">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-          >
-            <EmptyState
-              title="Profile not found"
-              description={error || 'This profile may have been deleted or is no longer available.'}
-              action={
-                <Button onClick={() => navigate('/discover')}>
-                  Back to Discover
-                </Button>
-              }
-            />
-          </motion.div>
+      <Layout>
+        <div className="max-w-3xl mx-auto px-4 pt-6 pb-24 text-center py-24">
+          <p className="text-text-muted mb-4">{error || 'Profile not found'}</p>
+          <Button variant="secondary" asChild>
+            <Link to="/discover">Back to Discover</Link>
+          </Button>
         </div>
       </Layout>
-    );
+    )
   }
 
-  const diet =
-    profile.diet === 'veg'
-      ? '🥗 Veg'
-      : profile.diet === 'eggetarian'
-      ? '🥚 Eggetarian'
-      : profile.diet === 'vegan'
-      ? '🌱 Vegan'
-      : '🍗 Non-veg';
-  const sleep =
-    profile.sleep_time === 'early'
-      ? '🌅 Early Bird'
-      : profile.sleep_time === 'late'
-      ? '🌙 Night Owl'
-      : '⏰ Flexible';
-  const noise =
-    profile.noise_tolerance === 'quiet'
-      ? '🔇 Quiet'
-      : profile.noise_tolerance === 'moderate'
-      ? '🔉 Moderate'
-      : '🔊 Loud OK';
+  const verified = profile.verification_status === 'verified'
+  const interests = profile.interests || []
+  const languages = profile.languages || []
 
   return (
-    <Layout activePage="profile">
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.4 }}
-        className="max-w-4xl mx-auto px-4 pt-6 pb-24"
-      >
-        {/* Back button */}
+    <Layout>
+      <div className="max-w-3xl mx-auto px-4 pt-4 pb-28">
         {!isOwn && (
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-          >
-            <Button
-              variant="ghost"
-              onClick={() => navigate(-1)}
-              className="mb-6"
-            >
-              <ArrowLeft size={18} /> Back
+          <div className="mb-4">
+            <Button variant="ghost" size="sm" asChild>
+              <Link to={-1}><ArrowLeft size={16} /> Back</Link>
             </Button>
-          </motion.div>
+          </div>
         )}
 
-        {/* Hero Card */}
-        <motion.div
-          variants={pageVariants}
-          initial="initial"
-          animate="animate"
-          className="mb-8"
-        >
-          <Card interactive>
-            {/* Cover Gradient */}
-            <div className="h-40 bg-gradient-to-r from-brand-secondary via-brand-primary to-brand-warm relative overflow-hidden">
-              <motion.div
-                animate={{ scale: [1, 1.05, 1] }}
-                transition={{ duration: 3, repeat: Infinity }}
-                className="absolute inset-0 opacity-20"
-                style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23fff' fill-opacity='0.4'%3E%3Cpath d='M0 40L40 0H20L0 20M40 40V20L20 40'/%3E%3C/g%3E%3C/svg%3E")`,
-                }}
-              />
-            </div>
-
-            <div className="px-6 pb-6 relative">
-              {/* Avatar & Actions */}
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1, type: 'spring', stiffness: 300 }}
-                className="flex justify-between items-end -mt-14 mb-6"
-              >
-                {/* Avatar with upload */}
-                <motion.div
-                  whileHover={isOwn ? { scale: 1.05 } : {}}
-                  className="relative group"
-                >
-                  <motion.div
-                    initial={{ scale: 0.8 }}
-                    animate={{ scale: 1 }}
-                    transition={{ type: 'spring', stiffness: 200 }}
-                    className="w-28 h-28 rounded-2xl border-4 border-white shadow-lg overflow-hidden bg-gradient-to-br from-brand-secondary to-brand-primary flex items-center justify-center"
-                  >
-                    {profile.profile_image ? (
-                      <img
-                        src={resolveMediaUrl(profile.profile_image)}
-                        alt={profile.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-4xl font-bold text-white">
-                        {profile.name?.[0]?.toUpperCase()}
-                      </span>
-                    )}
-                  </motion.div>
-                  {isOwn && (
-                    <label
-                      className={`absolute inset-0 flex items-center justify-center bg-black/30 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer ${uploading ? 'opacity-100' : ''}`}
-                    >
-                      {uploading ? (
-                        <Spinner size="sm" />
-                      ) : (
-                        <Camera size={24} className="text-white" />
-                      )}
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                      />
-                    </label>
-                  )}
-                </motion.div>
-
-                {/* Action Buttons */}
-                <motion.div
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="flex gap-3"
-                >
-                  {isOwn ? (
-                    <Button variant="primary" onClick={() => navigate('/edit-profile')}>
-                      <Edit3 size={16} /> Edit
-                    </Button>
-                  ) : (
-                    <>
-                      {compatScore !== null && (
-                        <motion.div
-                          whileHover={{ scale: 1.05 }}
-                          transition={premiumSpring}
-                        >
-                          <CompatibilityBadge score={compatScore} size="md" />
-                        </motion.div>
-                      )}
-                      <Button
-                        variant="primary"
-                        asChild
-                      >
-                        <Link to={`/inbox?user=${profile.id}`}>
-                          <MessageSquare size={16} /> Message
-                        </Link>
-                      </Button>
-                    </>
-                  )}
-                </motion.div>
-              </motion.div>
-
-              {/* Profile Info */}
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-              >
-                <div className="flex items-center gap-2 mb-3">
-                  <h1 className="text-3xl font-display font-bold text-text-primary">
-                    {profile.name}
-                  </h1>
-                  {(profile.user_verified || profile.is_verified) && (
-                    <motion.div
-                      animate={{ scale: [1, 1.2, 1] }}
-                      transition={{ repeat: Infinity, duration: 2 }}
-                    >
-                      <BadgeCheck className="text-status-success" size={24} />
-                    </motion.div>
-                  )}
-                </div>
-
-                {/* Meta Info */}
-                <div className="flex flex-wrap gap-6 mb-4">
-                  {profile.occupation && (
-                    <AttributeChip
-                      icon={Briefcase}
-                      label="Occupation"
-                      value={profile.occupation}
+        <div className="space-y-6">
+          <Card className="overflow-hidden">
+            <div className="relative h-32 bg-gradient-to-r from-brand-coral via-brand-teal to-brand-amber" />
+            <div className="px-6 pb-6">
+              <div className="flex justify-between items-end -mt-14 mb-4">
+                <div className="relative group">
+                  <div className="w-24 h-24 rounded-2xl border-4 border-white shadow-lg overflow-hidden bg-surface-muted">
+                    <UserAvatar
+                      src={profile.profile_image}
+                      name={profile.name}
+                      size="xl"
+                      className="w-full h-full"
                     />
-                  )}
-                  {profile.city && (
-                    <AttributeChip
-                      icon={MapPin}
-                      label="Location"
-                      value={profile.city}
-                    />
-                  )}
+                  </div>
                 </div>
-
-                {/* Bio */}
-                {profile.bio && (
-                  <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.3 }}
-                    className="text-text-secondary leading-relaxed text-sm bg-surface-muted rounded-xl p-4 border border-surface-border"
-                  >
-                    {profile.bio}
-                  </motion.p>
+                {isOwn && (
+                  <Button variant="primary" asChild>
+                    <Link to="/edit-profile"><Edit size={16} /> Edit</Link>
+                  </Button>
                 )}
-              </motion.div>
-            </div>
-          </Card>
-        </motion.div>
-
-        {/* Stats Grid */}
-        <motion.div
-          variants={staggerContainer}
-          initial="initial"
-          animate="animate"
-          className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
-        >
-          {[
-            { icon: IndianRupee, label: 'Monthly Rent', value: profile.budget ? `₹${parseInt(profile.budget).toLocaleString('en-IN')}` : '—', accent: true },
-            { icon: IndianRupee, label: 'Deposit', value: profile.deposit ? `₹${parseInt(profile.deposit).toLocaleString('en-IN')}` : '—' },
-            { icon: Home, label: 'Flat Type', value: profile.flat_type?.toUpperCase() || '—' },
-            { icon: Users, label: 'Occupants', value: profile.occupants ? `${profile.occupants}` : '—' },
-          ].map((stat, idx) => (
-            <motion.div key={idx} variants={staggerItem}>
-              <Card className="p-4">
-                <div className="flex items-start gap-3">
-                  <stat.icon
-                    className={stat.accent ? 'text-brand-primary' : 'text-text-muted'}
-                    size={20}
-                  />
-                  <div>
-                    <p className="text-xs font-semibold text-text-muted uppercase">
-                      {stat.label}
-                    </p>
-                    <p className="text-lg font-bold text-text-primary mt-1">
-                      {stat.value}
-                    </p>
-                  </div>
-                </div>
-              </Card>
-            </motion.div>
-          ))}
-        </motion.div>
-
-        {/* Lifestyle & Languages */}
-        <motion.div
-          variants={staggerContainer}
-          initial="initial"
-          animate="animate"
-          className="grid grid-cols-1 md:grid-cols-2 gap-6"
-        >
-          {/* Lifestyle Card */}
-          <motion.div variants={staggerItem}>
-            <Card className="p-6">
-              <SectionHeader
-                title="Lifestyle"
-                subtitle="Daily habits & preferences"
-                animated={false}
-              />
-
-              <div className="space-y-5">
-                {/* Progress Bars */}
-                <div>
-                  <ProgressBar
-                    label="Cleanliness"
-                    value={Math.round((profile.cleanliness || 3) * 20)}
-                    showPercent={false}
-                  />
-                </div>
-                <div>
-                  <ProgressBar
-                    label="Noise Tolerance"
-                    value={
-                      profile.noise_tolerance === 'quiet'
-                        ? 33
-                        : profile.noise_tolerance === 'moderate'
-                        ? 66
-                        : 100
-                    }
-                    showPercent={false}
-                  />
-                </div>
-
-                {/* Traits */}
-                <div className="pt-3">
-                  <p className="text-xs font-semibold text-text-muted uppercase mb-3">Traits</p>
-                  <div className="flex flex-wrap gap-2">
-                    <TraitBadge label={sleep} />
-                    <TraitBadge label={diet} color="primary" />
-                    <TraitBadge label={noise} />
-                    {profile.smoking === 'yes' && (
-                      <TraitBadge label="🚬 Smoker" color="error" />
-                    )}
-                    {profile.drinking === 'yes' && (
-                      <TraitBadge label="🍺 Drinks" color="warning" />
-                    )}
-                    {profile.partying && profile.partying !== 'low' && (
-                      <TraitBadge
-                        label={`🎉 Partying: ${profile.partying}`}
-                        color="primary"
-                      />
-                    )}
-                  </div>
-                </div>
               </div>
-            </Card>
-          </motion.div>
 
-          {/* Languages Card */}
-          <motion.div variants={staggerItem}>
-            <Card className="p-6">
-              <SectionHeader
-                title="Languages & Preferences"
-                subtitle="Communication & expectations"
-                animated={false}
-              />
+              <div className="flex items-center gap-2 mb-3">
+                <h1 className="text-3xl font-display font-bold text-text-primary">
+                  {profile.name}{profile.age ? `, ${profile.age}` : ''}
+                </h1>
+                {verified && <ShieldCheck className="text-status-success flex-shrink-0" size={22} />}
+              </div>
 
-              {/* Languages */}
-              {profile.languages?.length > 0 ? (
-                <div className="flex flex-wrap gap-2 mb-6">
-                  {profile.languages.map((lang, idx) => (
-                    <motion.div
-                      key={lang.id || lang.name}
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: idx * 0.05 }}
-                    >
-                      <Badge variant="primary">
-                        {lang.name || lang}
-                      </Badge>
-                    </motion.div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-text-muted text-sm mb-6">
-                  No languages specified yet.
+              <div className="flex flex-wrap gap-4 text-sm text-text-muted mb-4">
+                {profile.occupation && (
+                  <span className="flex items-center gap-1.5"><Briefcase size={14} /> {profile.occupation}</span>
+                )}
+                {profile.city && (
+                  <span className="flex items-center gap-1.5"><MapPin size={14} /> {profile.city}{profile.country ? `, ${profile.country}` : ''}</span>
+                )}
+              </div>
+
+              {profile.bio && (
+                <p className="text-text-secondary text-sm leading-relaxed bg-surface-bg rounded-xl p-4 border border-surface-border">
+                  {profile.bio}
                 </p>
               )}
+            </div>
+          </Card>
 
-              {/* Preferences */}
-              {(profile.preferred_gender ||
-                profile.prefers_smoking ||
-                profile.prefers_drinking ||
-                (profile.preferred_budget_min && profile.preferred_budget_max)) && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.2 }}
-                  className="pt-4 border-t border-surface-border"
-                >
-                  <p className="text-xs font-semibold text-text-muted uppercase mb-3">
-                    What They're Looking For
-                  </p>
-                  <div className="space-y-2 text-sm text-text-secondary">
-                    {profile.preferred_gender && (
-                      <p>
-                        <span className="font-semibold">Gender:</span> {profile.preferred_gender}
-                      </p>
-                    )}
-                    {profile.prefers_smoking &&
-                      profile.prefers_smoking !== 'no_preference' && (
-                        <p>
-                          <span className="font-semibold">Smoking:</span>{' '}
-                          {profile.prefers_smoking}
-                        </p>
-                      )}
-                    {profile.prefers_drinking &&
-                      profile.prefers_drinking !== 'no_preference' && (
-                        <p>
-                          <span className="font-semibold">Drinking:</span>{' '}
-                          {profile.prefers_drinking}
-                        </p>
-                      )}
-                    {profile.preferred_budget_min && profile.preferred_budget_max && (
-                      <p>
-                        <span className="font-semibold">Budget:</span> ₹
-                        {parseInt(
-                          profile.preferred_budget_min
-                        ).toLocaleString('en-IN')}{' '}
-                        – ₹
-                        {parseInt(
-                          profile.preferred_budget_max
-                        ).toLocaleString('en-IN')}
-                      </p>
-                    )}
-                  </div>
-                </motion.div>
+          <Card className="p-6">
+            <SectionHeader title="About" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <AboutItem icon={Users} label="Age" value={profile.age} color="text-brand-coral" />
+              <AboutItem icon={Briefcase} label="Occupation" value={profile.occupation} color="text-brand-teal" />
+              <AboutItem icon={MapPin} label="City" value={profile.city} color="text-brand-coral" />
+              <AboutItem icon={MapPin} label="Moving To" value={profile.moving_to} color="text-brand-amber" />
+              <AboutItem icon={Globe} label="University" value={profile.university} color="text-brand-teal" />
+              <AboutItem icon={Globe} label="Country" value={profile.country} color="text-brand-coral" />
+            </div>
+          </Card>
+
+          <Card className="p-6">
+            <SectionHeader title="Lifestyle" subtitle="Daily habits & preferences" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <AboutItem icon={Moon} label="Sleep" value={SLEEP_MAP[profile.sleep_time] || profile.sleep_time} color="text-brand-teal" />
+              <AboutItem icon={Users} label="Cleanliness" value={CLEANLINESS_MAP[profile.cleanliness] || profile.cleanliness} color="text-brand-coral" />
+              <AboutItem icon={Globe} label="Diet" value={DIET_MAP[profile.diet] || profile.diet} color="text-brand-amber" />
+              <AboutItem icon={Cigarette} label="Smoking" value={SMOKING_MAP[profile.smoking] || profile.smoking} color="text-brand-coral" />
+              <AboutItem icon={Wine} label="Drinking" value={DRINKING_MAP[profile.drinking] || profile.drinking} color="text-brand-teal" />
+              <AboutItem icon={Users} label="Social" value={SOCIAL_MAP[profile.social_level] || profile.social_level} color="text-brand-amber" />
+              {profile.pets && (
+                <AboutItem icon={Globe} label="Pets" value={profile.pets} color="text-brand-teal" />
               )}
-            </Card>
-          </motion.div>
-        </motion.div>
-      </motion.div>
-    </Layout>
-  );
-};
+            </div>
+          </Card>
 
-export default ProfilePage;
+          <Card className="p-6">
+            <SectionHeader title="Housing Preferences" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <AboutItem icon={Briefcase} label="Budget" value={profile.budget ? `\u20B9${Number(profile.budget).toLocaleString('en-IN')}/mo` : null} color="text-brand-coral" />
+              <AboutItem icon={Home} label="Flat Type" value={profile.flat_type?.replace(/_/g, ' ')} color="text-brand-teal" />
+              <AboutItem icon={Calendar} label="Move-in Date" value={profile.move_in_date} color="text-brand-amber" />
+            </div>
+          </Card>
+
+          {interests.length > 0 && (
+            <Card className="p-6">
+              <SectionHeader title="Interests" />
+              <div className="flex flex-wrap gap-2">
+                {interests.map((interest, i) => (
+                  <Badge key={i} variant="coral">{interest}</Badge>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {languages.length > 0 && (
+            <Card className="p-6">
+              <SectionHeader title="Languages" />
+              <div className="flex flex-wrap gap-2">
+                {languages.map((lang, i) => (
+                  <Badge key={lang.id || i} variant="teal">
+                    <Globe size={12} className="mr-1" />
+                    {lang.name || lang}
+                  </Badge>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {!isOwn && (
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <Button variant="secondary" asChild>
+                <Link to={`/inbox?user=${profile.id}`}>
+                  Message
+                </Link>
+              </Button>
+              <Button variant="ghost">
+                Block
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </Layout>
+  )
+}
+
+export default ProfilePage

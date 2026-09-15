@@ -1,71 +1,49 @@
-import React from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Home, MessageSquare, User, LogOut, Heart } from 'lucide-react';
-import { auth } from '../utils/api';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { Compass, Users, MessageCircle, User, LogOut, Map, Calendar } from 'lucide-react';
+import { auth } from '../lib/api';
 
-const Navbar = ({ activePage }) => {
-  const location = useLocation();
+const navItems = [
+  { to: '/discover', icon: Compass, label: 'Discover' },
+  { to: '/roommates', icon: Users, label: 'Roommates' },
+  { to: '/communities', icon: Map, label: 'Communities' },
+  { to: '/messages', icon: MessageCircle, label: 'Messages' },
+  { to: '/profile', icon: User, label: 'Profile' },
+];
+
+export default function Navbar() {
   const navigate = useNavigate();
-  const active = activePage || (() => {
-    if (location.pathname.startsWith('/inbox')) return 'inbox';
-    if (location.pathname.startsWith('/profile')) return 'profile';
-    if (location.pathname.startsWith('/shortlist')) return 'shortlist';
-    if (location.pathname.startsWith('/compare')) return 'shortlist';
-    if (location.pathname.startsWith('/agreement')) return 'shortlist';
-    return 'discover';
-  })();
-
-  const handleLogout = async () => {
-    await auth.logout();
-    navigate('/login', { replace: true });
+  const handleLogout = () => {
+    auth.logout();
+    navigate('/login');
   };
 
-  const items = [
-    { key: 'discover',  to: '/discover',  icon: Home,          label: 'Discover' },
-    { key: 'shortlist', to: '/shortlist', icon: Heart,         label: 'Shortlist' },
-    { key: 'inbox',     to: '/inbox',     icon: MessageSquare, label: 'Messages' },
-    { key: 'profile',   to: '/profile',   icon: User,          label: 'Profile'  },
-  ];
-
   return (
-    <nav className="navbar">
-      <div className="max-w-md mx-auto flex items-center justify-around px-4">
-        {items.map(({ key, to, icon, label }) => {
-          const isActive = active === key;
-          return (
-            <Link
-              key={key}
-              to={to}
-              id={`nav-${key}`}
-              className={`flex flex-col items-center gap-1 py-1 px-4 rounded-2xl transition-all ${
+    <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-surface-border z-50">
+      <div className="max-w-lg mx-auto flex items-center justify-around px-2 py-1 safe-area-inset-bottom">
+        {navItems.map(({ to, icon: Icon, label }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              `flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-all duration-200 ${
                 isActive
-                  ? 'text-brand-warm'
+                  ? 'text-brand-coral'
                   : 'text-text-muted hover:text-text-secondary'
-              }`}
-            >
-              <div className={`p-2 rounded-xl transition-all ${isActive ? 'bg-brand-secondary' : 'bg-transparent'}`}>
-                {React.createElement(icon, { size: 20, strokeWidth: isActive ? 2.5 : 1.8 })}
-              </div>
-              <span className={`text-[10px] font-semibold ${isActive ? 'opacity-100' : 'opacity-0'}`}>
-                {label}
-              </span>
-            </Link>
-          );
-        })}
-
+              }`
+            }
+          >
+            <Icon size={22} strokeWidth={isActive => isActive ? 2.5 : 1.8} />
+            <span className="text-[10px] font-semibold tracking-wide">{label}</span>
+          </NavLink>
+        ))}
         <button
           onClick={handleLogout}
-          id="nav-logout"
-          className="flex flex-col items-center gap-1 py-1 px-4 rounded-2xl text-text-muted hover:text-red-400 transition-all"
+          className="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl text-text-muted hover:text-status-error transition-colors"
         >
-          <div className="p-2 rounded-xl">
-            <LogOut size={20} strokeWidth={1.8} />
-          </div>
-          <span className="text-[10px] font-semibold opacity-0">Out</span>
+          <LogOut size={22} strokeWidth={1.8} />
+          <span className="text-[10px] font-semibold tracking-wide">Logout</span>
         </button>
       </div>
     </nav>
   );
-};
-
-export default Navbar;
+}

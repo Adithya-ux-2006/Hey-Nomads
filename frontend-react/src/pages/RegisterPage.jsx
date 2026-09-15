@@ -1,267 +1,70 @@
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Button, Card, Input, Spinner } from '../components/UI';
-import { User, Mail, Lock, Home, ArrowRight, CheckCircle, Eye, EyeOff } from 'lucide-react';
-import { auth } from '../utils/api';
+import { motion } from 'framer-motion';
+import { auth } from '../lib/api';
 
-const RegisterPage = () => {
-  const navigate = useNavigate();
-  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
+export default function RegisterPage() {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-  const [showPass, setShowPass] = useState(false);
-
-  const handleChange = e => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-    if (error) setError('');
-  };
+  const navigate = useNavigate();
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters');
-      return;
-    }
     setLoading(true);
     setError('');
     try {
-      const { data: signUpData, error: supabaseError } = await auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        name: formData.name,
-      });
-
-      if (supabaseError) {
-        throw new Error(supabaseError.message || 'Supabase signup failed');
-      }
-
-      const supabaseUser = signUpData?.user;
-      if (!supabaseUser?.id || !supabaseUser?.email) {
-        throw new Error('Supabase signup succeeded but user payload was missing');
-      }
-
-      auth.setUserId(supabaseUser.id);
-      auth.setUserName(formData.name);
-      const hasSession = !!signUpData?.session;
-      if (hasSession) {
-        localStorage.setItem('supabaseSession', 'true');
-      }
-      setSuccess(true);
-      
-      setTimeout(() => {
-        navigate(hasSession ? '/edit-profile' : '/login');
-      }, 1200);
+      const { data, error: authError } = await auth.signUp({ email, password, name });
+      if (authError) throw new Error(authError.message);
+      navigate('/onboarding', { replace: true });
     } catch (err) {
-      setError(err.message || 'Registration failed. Try again.');
+      setError(err.message || 'Registration failed');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex overflow-hidden bg-white">
-      {/* Left: Hero Image - Cinematic gradient */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.6 }}
-        className="hidden lg:flex lg:w-1/2 relative bg-gradient-to-br from-brand-warm via-brand-primary to-orange-600 overflow-hidden items-center justify-center"
-      >
-        {/* Animated gradient overlay */}
-        <motion.div
-          animate={{ 
-            rotate: [0, 5, 0],
-            scale: [1, 1.05, 1]
-          }}
-          transition={{ repeat: Infinity, duration: 8 }}
-          className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent"
-        />
-        
-        {/* Warm light rays */}
-        <motion.div
-          animate={{ opacity: [0.3, 0.6, 0.3] }}
-          transition={{ repeat: Infinity, duration: 4 }}
-          className="absolute inset-0"
-          style={{
-            backgroundImage: `radial-gradient(circle at 20% 50%, rgba(255,255,255,0.1) 0%, transparent 50%),
-                            radial-gradient(circle at 80% 80%, rgba(255,165,0,0.1) 0%, transparent 50%)`
-          }}
-        />
-
-        {/* Content */}
-        <div className="relative z-10 text-center text-white px-8">
-          <motion.div
-            initial={{ y: -20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.2, duration: 0.5 }}
-          >
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-white/20 backdrop-blur-lg border border-white/30 mb-6">
-              <Home size={40} className="text-white" />
-            </div>
-            <h2 className="text-5xl font-display font-bold mb-3">Hey Nomads</h2>
-            <p className="text-xl text-white/90 font-light">Find your perfect roommate</p>
-            <p className="text-white/70 text-sm mt-4 max-w-xs mx-auto">
-              Connect with compatible roommates based on lifestyle, budget, and living habits
-            </p>
-          </motion.div>
+    <div className="min-h-screen flex items-center justify-center bg-surface-bg px-6">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md space-y-8">
+        <div>
+          <h1 className="text-3xl font-display font-bold text-text-primary">Join Hey Nomads</h1>
+          <p className="text-text-secondary mt-1">Start your relocation journey</p>
         </div>
-      </motion.div>
 
-      {/* Right: Register Form */}
-      <motion.div
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full lg:w-1/2 flex items-center justify-center px-4 sm:px-6 lg:px-12"
-      >
-        <div className="w-full max-w-md">
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-display font-bold text-text-primary mb-2">Create account</h1>
-            <p className="text-text-muted">Join Hey Nomads today</p>
+        {error && <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm font-medium">{error}</div>}
+
+        <form onSubmit={handleRegister} className="space-y-5">
+          <div>
+            <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-1.5 block">Full Name</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} required
+              className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
+              placeholder="Your name" />
           </div>
+          <div>
+            <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-1.5 block">Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
+              className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
+              placeholder="you@example.com" />
+          </div>
+          <div>
+            <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-1.5 block">Password</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6}
+              className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
+              placeholder="Min 6 characters" />
+          </div>
+          <button type="submit" disabled={loading}
+            className="w-full bg-brand-coral hover:bg-brand-coral-dark text-white font-bold py-3.5 rounded-xl transition-all shadow-coral disabled:opacity-50">
+            {loading ? 'Creating account...' : 'Create Account'}
+          </button>
+        </form>
 
-          {/* Error */}
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-6 p-4 bg-red-50 border border-red-300 rounded-xl text-red-700 text-sm font-medium"
-            >
-              {error}
-            </motion.div>
-          )}
-
-          {/* Success State */}
-          {success && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center justify-center py-12"
-            >
-              <motion.div
-                animate={{ scale: [0.8, 1.1, 1], rotate: [0, 10, 0] }}
-                transition={{ type: 'spring', stiffness: 200 }}
-              >
-                <CheckCircle className="text-status-success" size={48} />
-              </motion.div>
-              <p className="mt-4 text-lg font-semibold text-text-primary">Account Created!</p>
-              <p className="text-text-muted text-sm mt-2">Redirecting to profile setup...</p>
-            </motion.div>
-          )}
-
-          {/* Form */}
-          {!success && (
-            <motion.form
-              onSubmit={handleRegister}
-              className="space-y-5"
-            >
-              {/* Name */}
-              <div>
-                <label className="block text-xs font-semibold text-text-secondary mb-2">Full name</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
-                  <motion.input
-                    whileFocus={{ scale: 1.02 }}
-                    type="text"
-                    name="name"
-                    className="input pl-10"
-                    placeholder="e.g. Priya Sharma"
-                    value={formData.name}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Email */}
-              <div>
-                <label className="block text-xs font-semibold text-text-secondary mb-2">Email address</label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
-                  <motion.input
-                    whileFocus={{ scale: 1.02 }}
-                    type="email"
-                    name="email"
-                    className="input pl-10"
-                    placeholder="you@example.com"
-                    value={formData.email}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Password */}
-              <div>
-                <label className="block text-xs font-semibold text-text-secondary mb-2">Password</label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
-                  <motion.input
-                    whileFocus={{ scale: 1.02 }}
-                    type={showPass ? 'text' : 'password'}
-                    name="password"
-                    className="input pl-10 pr-10"
-                    placeholder="Min. 6 characters"
-                    value={formData.password}
-                    onChange={handleChange}
-                    required
-                    minLength={6}
-                  />
-                  <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
-                    onClick={() => setShowPass(!showPass)}
-                  >
-                    {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </motion.button>
-                </div>
-              </div>
-
-              {/* Submit Button */}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                type="submit"
-                disabled={loading}
-                className="btn-primary w-full justify-center mt-6 py-3.5 text-sm font-semibold"
-              >
-                {loading ? (
-                  <>
-                    <Spinner size="sm" />
-                    Creating account…
-                  </>
-                ) : (
-                  <>
-                    Create Account
-                    <ArrowRight size={18} />
-                  </>
-                )}
-              </motion.button>
-            </motion.form>
-          )}
-
-          {/* Sign In Link */}
-          {!success && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.3 }}
-              className="mt-6 text-center text-sm text-text-muted"
-            >
-              Already have an account?{' '}
-              <Link to="/login" className="text-brand-primary font-semibold hover:text-brand-warm transition-colors">
-                Sign in
-              </Link>
-            </motion.p>
-          )}
-        </div>
+        <p className="text-center text-sm text-text-muted">
+          Already have an account? <Link to="/login" className="text-brand-coral font-semibold hover:underline">Log in</Link>
+        </p>
       </motion.div>
     </div>
   );
-};
-
-export default RegisterPage;
+}

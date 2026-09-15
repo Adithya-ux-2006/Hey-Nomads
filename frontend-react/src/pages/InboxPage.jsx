@@ -2,8 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useLocation, Link } from 'react-router-dom';
 import { Search, Send, User, MessageSquare, ArrowLeft } from 'lucide-react';
-import { auth } from '../utils/api';
-import { supabase } from '../lib/supabase';
+import { auth, apiFetch } from '../utils/api';
 import Layout from '../components/Layout';
 import UserAvatar from '../components/UserAvatar';
 import { Button, Card, EmptyState, Spinner } from '../components/UI';
@@ -120,8 +119,7 @@ const InboxPage = () => {
   const currentUserId = auth.getUserId();
 
   const loadConversations = React.useCallback(async () => {
-    const { data, error } = await supabase.rpc('get_conversations');
-    if (error) throw error;
+    const data = await apiFetch('/conversations');
     const list = Array.isArray(data) ? data : [];
     setConversations(list);
     return list;
@@ -151,23 +149,14 @@ const InboxPage = () => {
           } else {
             // Fetch target profile for brand-new conversation
             try {
-              const { data: profile, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('user_id', targetId)
-                .single();
-
-              if (error) throw error;
+              const profile = await apiFetch(`/profile/${targetId}`).catch(() => null);
 
               if (profile) {
                 // Fetch compatibility score using get_matches
                 let compatibilityScore = 0;
                 try {
-                  const { data: matches, error: matchesError } = await supabase.rpc('get_matches', {
-                    user_id: currentUserId
-                  });
-
-                  if (!matchesError && Array.isArray(matches)) {
+                  const matches = await apiFetch(`/matches/${currentUserId}`);
+                  if (Array.isArray(matches)) {
                     const targetMatch = matches.find(m => m.id === targetId);
                     if (targetMatch) {
                       compatibilityScore = targetMatch.score;
@@ -178,8 +167,8 @@ const InboxPage = () => {
                 }
 
                 const tempConvo = {
-                  id: profile.user_id,
-                  user_id: profile.user_id,
+                  id: profile.id,
+                  user_id: profile.id,
                   name: profile.name ?? 'User',
                   profile_image: profile.profile_image,
                   city: profile.city,
@@ -209,22 +198,13 @@ const InboxPage = () => {
     if (!activeChat) return;
     const load = async () => {
       try {
-        const { data, error } = await supabase.rpc('get_conversation_messages', {
-          p_other_user_id: activeChat.id,
-        });
-        if (error) throw error;
+        const data = await apiFetch(`/conversations/${activeChat.id}`);
         setMessages(Array.isArray(data) ? data : []);
 
-        const { error: readError } = await supabase.rpc('mark_conversation_read', {
-          p_other_user_id: activeChat.id,
-        });
-        if (readError) {
-          console.error('Mark read error:', readError);
-        } else {
-          setConversations(prev => prev.map(convo =>
-            convo.id === activeChat.id ? { ...convo, unread_count: 0 } : convo
-          ));
-        }
+        await apiFetch(`/conversations/${activeChat.id}/read`, { method: 'POST' });
+        setConversations(prev => prev.map(convo =>
+          convo.id === activeChat.id ? { ...convo, unread_count: 0 } : convo
+        ));
       } catch (err) {
         console.error('Messages load error:', err);
       }
@@ -252,16 +232,12 @@ const InboxPage = () => {
     setSending(true);
 
     try {
-      const { error: sendError } = await supabase.rpc('send_message', {
-        p_receiver_id: activeChat.id,
-        p_message: messageText,
+      await apiFetch('/messages', {
+        method: 'POST',
+        body: { receiver_id: activeChat.id, message: messageText },
       });
-      if (sendError) throw sendError;
 
-      const { data, error } = await supabase.rpc('get_conversation_messages', {
-        p_other_user_id: activeChat.id,
-      });
-      if (error) throw error;
+      const data = await apiFetch(`/conversations/${activeChat.id}`);
       setMessages(Array.isArray(data) ? data : []);
       await loadConversations();
     } catch (err) {
