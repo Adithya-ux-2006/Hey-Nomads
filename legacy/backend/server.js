@@ -6,6 +6,11 @@ const upload = require('./middleware/upload');
 const bcrypt = require('bcryptjs');
 const { pool, testConnection, ensureDatabaseSchema } = require('./db');
 
+function toPgParams(sql, params) {
+  let i = 0;
+  return sql.replace(/\?/g, () => `$${++i}`);
+}
+
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
