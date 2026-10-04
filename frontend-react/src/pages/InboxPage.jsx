@@ -155,11 +155,13 @@ const InboxPage = () => {
                 // Fetch compatibility score using get_matches
                 let compatibilityScore = 0;
                 try {
-                  const matches = await apiFetch(`/matches/${currentUserId}`);
+                  const matches = await apiFetch('/matches');
                   if (Array.isArray(matches)) {
-                    const targetMatch = matches.find(m => m.id === targetId);
+                    const targetMatch = matches.find(
+                      m => Number(m.partner_id) === Number(targetId)
+                    );
                     if (targetMatch) {
-                      compatibilityScore = targetMatch.score;
+                      compatibilityScore = targetMatch.compatibility_score ?? 0;
                     }
                   }
                 } catch (err) {
