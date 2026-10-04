@@ -865,16 +865,18 @@ app.get('/api/communities', authMiddleware, async (req, res) => {
     if (city) { where += ` AND LOWER(c.city) LIKE LOWER($${idx++})`; params.push(`%${city}%`); }
     if (category) { where += ` AND LOWER(c.category) = LOWER($${idx++})`; params.push(category); }
 
+    params.push(req.userId);
+    const userIdx = idx++;
     params.push(parseInt(limit), offset);
     const result = await query(
       `SELECT c.*, u.name AS creator_name,
-              EXISTS(SELECT 1 FROM community_members WHERE community_id = c.id AND user_id = $${idx}) AS is_member
+              EXISTS(SELECT 1 FROM community_members WHERE community_id = c.id AND user_id = $${userIdx}) AS is_member
        FROM communities c
        JOIN users u ON u.id = c.creator_id
        ${where}
        ORDER BY c.member_count DESC, c.created_at DESC
-       LIMIT $${idx+1} OFFSET $${idx+2}`,
-      [...params, req.userId]
+       LIMIT $${idx++} OFFSET $${idx++}`,
+      params
     );
     res.json(result.rows);
   } catch (err) {
@@ -981,18 +983,20 @@ app.get('/api/events', authMiddleware, async (req, res) => {
     if (city) { where += ` AND LOWER(e.city) LIKE LOWER($${idx++})`; params.push(`%${city}%`); }
     if (community_id) { where += ` AND e.community_id = $${idx++}`; params.push(parseInt(community_id)); }
 
+    params.push(req.userId);
+    const userIdx = idx++;
     params.push(parseInt(limit), offset);
     const result = await query(
       `SELECT e.*, u.name AS creator_name, c.name AS community_name,
-              EXISTS(SELECT 1 FROM event_rsvps WHERE event_id = e.id AND user_id = $${idx}) AS is_rsvped,
+              EXISTS(SELECT 1 FROM event_rsvps WHERE event_id = e.id AND user_id = $${userIdx}) AS is_rsvped,
               (SELECT COUNT(*) FROM event_rsvps WHERE event_id = e.id AND status = 'going') AS going_count
        FROM events e
        JOIN users u ON u.id = e.created_by
        LEFT JOIN communities c ON c.id = e.community_id
        ${where}
        ORDER BY e.start_time ASC
-       LIMIT $${idx+1} OFFSET $${idx+2}`,
-      [...params, req.userId]
+       LIMIT $${idx++} OFFSET $${idx++}`,
+      params
     );
     res.json(result.rows);
   } catch (err) {
@@ -1083,7 +1087,9 @@ app.get('/api/cities', authMiddleware, async (req, res) => {
     if (search) { where += ` AND LOWER(name) LIKE LOWER($${idx++})`; params.push(`%${search}%`); }
 
     const result = await query(
-      `SELECT c.*, (SELECT COUNT(*) FROM users WHERE LOWER(moving_to) = LOWER(c.name) OR LOWER(city) = LOWER(c.name)) AS people_count
+      `SELECT c.*, (SELECT COUNT(*) FROM users u
+                       LEFT JOIN profiles p ON p.user_id = u.id
+                     WHERE LOWER(u.moving_to) = LOWER(c.name) OR LOWER(p.city) = LOWER(c.name)) AS people_count
        FROM cities c ${where} ORDER BY c.name`, params
     );
     res.json(result.rows);
@@ -1235,7 +1241,7 @@ app.post('/api/report', authMiddleware, async (req, res) => {
 app.get('/api/discover', authMiddleware, async (req, res) => {
   try {
     const user = await query(
-      `SELECT id, name, moving_to, city, onboarding_complete FROM users u
+      `SELECT u.id, u.name, u.moving_to, p.city, u.onboarding_complete FROM users u
        LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = $1`, [req.userId]
     );
     const targetCity = user.rows[0]?.moving_to || user.rows[0]?.city;
