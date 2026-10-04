@@ -13,13 +13,13 @@ export default function MatchesPage() {
   const [openMenu, setOpenMenu] = useState(null)
 
   useEffect(() => {
-    apiFetch('/api/matches')
+    apiFetch('/matches')
       .then(setMatches)
       .finally(() => setLoading(false))
   }, [])
 
   const handleUnmatch = async (matchId) => {
-    await apiFetch(`/api/matches/${matchId}`, { method: 'DELETE' })
+    await apiFetch(`/matches/${matchId}`, { method: 'DELETE' })
     setMatches(prev => prev.filter(m => m.id !== matchId))
     setOpenMenu(null)
   }

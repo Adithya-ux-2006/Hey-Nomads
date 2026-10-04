@@ -129,7 +129,7 @@ export default function RoommatesPage() {
       if (budgetMin) params.set('budget_min', budgetMin)
       if (budgetMax) params.set('budget_max', budgetMax)
       const qs = params.toString()
-      const data = await apiFetch(`/api/roommates/recommended${qs ? `?${qs}` : ''}`)
+      const data = await apiFetch(`/roommates/recommended${qs ? `?${qs}` : ''}`)
       setRoommates(data)
       setSwipedIds(new Set())
     } catch (err) {
@@ -141,7 +141,7 @@ export default function RoommatesPage() {
 
   const fetchShortlist = useCallback(async () => {
     try {
-      const data = await apiFetch('/api/shortlist')
+      const data = await apiFetch('/shortlist')
       setShortlistedIds(new Set(data.map(u => u.id)))
     } catch {}
   }, [])
@@ -159,7 +159,7 @@ export default function RoommatesPage() {
     if (!currentRoommate) return
     setSwipedIds(prev => new Set(prev).add(currentRoommate.id))
     try {
-      await apiFetch('/api/swipe', {
+      await apiFetch('/swipe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetId: currentRoommate.id, action }),
@@ -178,7 +178,7 @@ export default function RoommatesPage() {
     })
     if (!isShortlisted) {
       try {
-        await apiFetch('/api/shortlist', {
+        await apiFetch('/shortlist', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ targetId: currentRoommate.id }),

@@ -28,13 +28,13 @@ export default function ChatPage() {
 
   useEffect(() => {
     Promise.all([
-      apiFetch(`/api/conversations/${otherUserId}`),
-      apiFetch(`/api/roommates/${otherUserId}`)
+      apiFetch(`/conversations/${otherUserId}`),
+      apiFetch(`/roommates/${otherUserId}`)
     ]).then(([convo, profile]) => {
       setMessages(convo)
       setPartner(profile)
       setLoading(false)
-      apiFetch(`/api/conversations/${otherUserId}/read`, { method: 'POST' })
+      apiFetch(`/conversations/${otherUserId}/read`, { method: 'POST' })
     }).catch(() => {
       setLoading(false)
     })
@@ -42,7 +42,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      apiFetch(`/api/conversations/${otherUserId}`)
+      apiFetch(`/conversations/${otherUserId}`)
         .then(setMessages)
         .catch(() => {})
     }, 3000)
@@ -67,7 +67,7 @@ export default function ChatPage() {
     setSending(true)
 
     try {
-      await apiFetch('/api/messages', {
+      await apiFetch('/messages', {
         method: 'POST',
         body: { receiver_id: Number(otherUserId), message: text }
       })

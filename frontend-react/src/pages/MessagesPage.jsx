@@ -30,7 +30,7 @@ export default function MessagesPage() {
   const [search, setSearch] = useState('')
 
   useEffect(() => {
-    apiFetch('/api/conversations')
+    apiFetch('/conversations')
       .then(data => setConversations(Array.isArray(data) ? data : []))
       .finally(() => setLoading(false))
   }, [])
