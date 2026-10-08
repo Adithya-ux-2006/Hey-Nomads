@@ -1,3 +1,18 @@
+-- LEGACY / SUPERSEDED — DO NOT USE.
+--
+-- This function targets the old Supabase backend: it reads `auth.users` and
+-- `public.user_languages`, and the Neon database now backing the API has no
+-- `auth` schema at all, so calling it raises `relation "auth.users" does not exist`.
+--
+-- The live matcher is `calcCompatibility()` in frontend-react/api/index.js,
+-- which scores against the current `users` + `profiles` + `match_weights`
+-- schema and is what /api/discover and /api/roommates/recommended both use.
+-- Keep this file only as a record of the original weighting; the weights below
+-- are NOT the weights in production.
+--
+-- Original Supabase-era weights, for reference only:
+--   city +30, budget proximity up to +20, cleanliness up to +20,
+--   sleep/smoking/drinking +10 each, diet +5
 create or replace function public.get_matches(
     user_id uuid,
     city text default null

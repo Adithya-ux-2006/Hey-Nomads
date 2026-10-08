@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { AlertTriangle } from 'lucide-react';
 
 export const Button = ({ variant = 'primary', size = 'md', children, className = '', ...props }) => {
   const base = 'font-semibold inline-flex items-center justify-center gap-2 transition-all rounded-full';
@@ -63,6 +64,48 @@ export const EmptyState = ({ icon: Icon, title, description, action }) => (
     {action}
   </div>
 );
+
+// Never ship a blank page that looks successful. Always say what broke and
+// offer the one action that fixes it.
+export const ErrorState = ({ what, error, onRetry, className = '' }) => (
+  <div role="alert" className={`flex flex-col items-center justify-center text-center px-4 py-12 ${className}`}>
+    <div className="mb-4 p-4 rounded-full bg-status-error/10">
+      <AlertTriangle className="text-status-error" size={28} />
+    </div>
+    <h3 className="text-lg font-bold text-text-primary mb-2">
+      We couldn't load your {what}
+    </h3>
+    <p className="text-text-muted text-sm max-w-sm mb-1">
+      {error?.message || 'Something went wrong on our end.'} Check your connection and try again.
+    </p>
+    {onRetry && (
+      <Button variant="primary" onClick={onRetry} className="mt-5">
+        Try again
+      </Button>
+    )}
+  </div>
+);
+
+// Inline variant for failed mutations, where the page itself is fine.
+export const InlineError = ({ error, onRetry }) => {
+  if (!error) return null;
+  return (
+    <div role="alert" className="flex items-center gap-2 px-4 py-3 rounded-xl bg-status-error/10 border border-status-error/20">
+      <AlertTriangle size={16} className="text-status-error flex-shrink-0" />
+      <span className="text-sm text-status-error flex-1">
+        {error.message || "That didn't save."}
+      </span>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="text-sm font-semibold text-status-error underline underline-offset-2 hover:opacity-70"
+        >
+          Retry
+        </button>
+      )}
+    </div>
+  );
+};
 
 export const SectionHeader = ({ title, subtitle, action }) => (
   <div className="flex items-center justify-between mb-4">

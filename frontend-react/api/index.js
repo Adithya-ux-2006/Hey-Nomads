@@ -3,7 +3,15 @@ import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import pg from 'pg';
+import * as Sentry from '@sentry/node';
 import { put } from '@vercel/blob';
+
+// No DSN => the SDK stays inert. Set SENTRY_DSN on Vercel to turn reporting on.
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  tracesSampleRate: 0,
+  environment: process.env.VERCEL_ENV || 'local',
+});
 
 const { Pool } = pg;
 const JWT_SECRET = process.env.JWT_SECRET || 'hey-nomads-jwt-change-me';
@@ -42,11 +50,58 @@ async function query(sql, params) {
 }
 
 const app = express();
+
+// A 500 that never reaches a log is invisible. This makes every unhandled
+// error surface in Sentry (and in the function logs) instead of vanishing.
+app.use((err, _req, res, next) => {
+  if (res.headersSent) return next(err);
+  console.error('Unhandled error:', err);
+  Sentry.captureException(err);
+  res.status(500).json({ error: 'Something went wrong on our end' });
+});
+
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 
 // ── Health ─────────────────────────────────────────────────────
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+// Tables the app cannot boot without. If any is missing the pool is
+// pointed at the wrong database and we fail loudly instead of per-request.
+const REQUIRED_TABLES = ['users', 'profiles', 'communities', 'events', 'cities', 'settlement_tasks'];
+
+function dbTarget() {
+  try {
+    const u = new URL(process.env.DATABASE_URL);
+    return { host: u.hostname, port: u.port || 5432, database: u.pathname.replace(/^\//, '') };
+  } catch {
+    return null;
+  }
+}
+
+app.get('/api/health', async (_req, res) => {
+  const started = Date.now();
+  const base = { checkedAt: new Date().toISOString(), ...dbTarget() };
+  try {
+    if (!process.env.DATABASE_URL) {
+      return res.status(503).json({ ...base, ok: false, error: 'DATABASE_URL is not set' });
+    }
+    const meta = await query('SELECT current_database() AS database, current_user AS "user"');
+    const { rows } = await query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+    );
+    const missing = REQUIRED_TABLES.filter(t => !rows.some(r => r.table_name === t));
+    res.status(missing.length ? 503 : 200).json({
+      ...base,
+      ok: missing.length === 0,
+      database: meta.rows[0].database,
+      user: meta.rows[0].user,
+      tables: { present: rows.length, required: REQUIRED_TABLES.length, missing },
+      latencyMs: Date.now() - started,
+    });
+  } catch (err) {
+    console.error('Health check failed:', err);
+    res.status(503).json({ ...base, ok: false, error: err.message, latencyMs: Date.now() - started });
+  }
+});
 
 // ══════════════════════════════════════════════════════════════
 // AUTH
@@ -356,6 +411,14 @@ async function getMatchWeights() {
   return result.rows[0] || { lifestyle_weight: 0.25, budget_weight: 0.20, location_weight: 0.20, movein_weight: 0.15, interests_weight: 0.10, habits_weight: 0.10 };
 }
 
+// Category -> its maximum attainable sub-score. These ceilings sum to 100 so a
+// perfect match on every factor is exactly 100%.
+const MATCH_CATEGORIES = { lifestyle: 25, budget: 20, location: 20, movein: 15, interests: 10, habits: 10 };
+const WEIGHT_KEYS = {
+  lifestyle: 'lifestyle_weight', budget: 'budget_weight', location: 'location_weight',
+  movein: 'movein_weight', interests: 'interests_weight', habits: 'habits_weight',
+};
+
 async function calcCompatibility(userId, candidateId, weights) {
   // Fetch both profiles
   const [meResult, themResult, meLangs, themLangs] = await Promise.all([
@@ -471,13 +534,19 @@ async function calcCompatibility(userId, candidateId, weights) {
   breakdown.habits = Math.min(10, habitsScore);
 
   // Total
+  //
+  // Each category is scored against its own ceiling, then blended by weight.
+  // Weights are re-normalised to sum to 1 so the total always lands on 0-100,
+  // even if stored weights don't add up. (The previous formula multiplied each
+  // already-weighted sub-score by its weight a second time, which capped every
+  // compatibility score at 18.5 while still being rendered as a percentage.)
+  const totalWeight = Object.values(WEIGHT_KEYS).reduce((sum, k) => sum + (Number(weights[k]) || 0), 0);
+
   const total = Math.min(100, Math.round(
-    breakdown.lifestyle * (weights.lifestyle_weight / 0.25) * 0.25 +
-    breakdown.budget * (weights.budget_weight / 0.20) * 0.20 +
-    breakdown.location * (weights.location_weight / 0.20) * 0.20 +
-    breakdown.movein * (weights.movein_weight / 0.15) * 0.15 +
-    breakdown.interests * (weights.interests_weight / 0.10) * 0.10 +
-    breakdown.habits * (weights.habits_weight / 0.10) * 0.10
+    Object.entries(MATCH_CATEGORIES).reduce((sum, [key, ceiling]) => {
+      const w = (Number(weights[WEIGHT_KEYS[key]]) || 0) / (totalWeight || 1);
+      return sum + (Number(breakdown[key]) / ceiling) * w * 100;
+    }, 0)
   ));
 
   return { score: total, breakdown, reasons };
@@ -1245,14 +1314,33 @@ app.get('/api/discover', authMiddleware, async (req, res) => {
        LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = $1`, [req.userId]
     );
     const targetCity = user.rows[0]?.moving_to || user.rows[0]?.city;
+    const weights = await getMatchWeights();
 
     const [roommates, communities, events, cities, settlement] = await Promise.all([
-      // Top 5 recommended roommates
-      query(
-        `SELECT u.id, u.name, u.age, p.profile_image, p.city, p.budget, p.occupation, p.bio
-         FROM users u LEFT JOIN profiles p ON u.id = p.user_id
-         WHERE u.id != $1 ORDER BY RANDOM() LIMIT 5`, [req.userId]
-      ),
+      // Top 5 roommates, ranked by the real weighted engine (same scoring
+      // /roommates/recommended uses) instead of a random sample.
+      (async () => {
+        const candidates = await query(
+          `SELECT u.id, u.name, u.age, u.moving_to, u.country,
+                  p.profile_image, p.city, p.budget, p.occupation, p.bio
+           FROM users u
+           LEFT JOIN profiles p ON u.id = p.user_id
+           WHERE u.id != $1
+             AND NOT EXISTS (SELECT 1 FROM swipes s
+                             WHERE s.swiper_id = $1 AND s.swiped_id = u.id AND s.action = 'pass')
+             AND NOT EXISTS (SELECT 1 FROM blocks b
+                             WHERE (b.blocker_id = $1 AND b.blocked_id = u.id)
+                                OR (b.blocker_id = u.id AND b.blocked_id = $1))
+           ORDER BY u.created_at DESC
+           LIMIT 20`, [req.userId]
+        );
+        const scored = [];
+        for (const c of candidates.rows) {
+          const { score, breakdown, reasons } = await calcCompatibility(req.userId, c.id, weights);
+          scored.push({ ...c, score, breakdown, reasons: reasons.slice(0, 3) });
+        }
+        return scored.sort((a, b) => b.score - a.score).slice(0, 5);
+      })(),
       // Top communities (optionally filtered by city)
       targetCity
         ? query(`SELECT * FROM communities WHERE LOWER(city) LIKE LOWER($1) ORDER BY member_count DESC LIMIT 5`, [`%${targetCity}%`])
@@ -1278,7 +1366,7 @@ app.get('/api/discover', authMiddleware, async (req, res) => {
 
     res.json({
       user: user.rows[0],
-      roommates: roommates.rows,
+      roommates: roommates,
       communities: communities.rows,
       events: events.rows,
       cities: cities.rows,
