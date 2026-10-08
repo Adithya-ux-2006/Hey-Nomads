@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
 import { apiFetch } from '../lib/api'
-import { Card, CompatibilityBadge, Badge, Spinner, EmptyState } from '../components/UI'
+import { Card, EmptyState } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
 import { MessageCircle, MoreVertical, UserX } from 'lucide-react'

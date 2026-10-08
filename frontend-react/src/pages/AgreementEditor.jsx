@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, FileText, Save, Download, CheckCircle, Info } from 'lucide-react';
-import { auth, apiFetch } from '../utils/api';
+import { auth, apiFetch } from '../lib/api';
 import Layout from '../components/Layout';
 
 const AgreementEditor = () => {

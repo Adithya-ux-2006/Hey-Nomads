@@ -4,6 +4,7 @@ import { AnimatePresence } from 'framer-motion';
 import { auth, clearAuth } from './lib/api';
 import { Spinner } from './components/UI';
 
+import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import OnboardingPage from './pages/OnboardingPage';
@@ -20,6 +21,8 @@ import ChatPage from './pages/ChatPage';
 import ProfilePage from './pages/ProfilePage';
 import EditProfilePage from './pages/EditProfilePage';
 import ShortlistPage from './pages/ShortlistPage';
+import ComparePage from './pages/ComparePage';
+import AgreementEditor from './pages/AgreementEditor';
 
 const PrivateRoute = ({ children }) => {
   const isAuthenticated = auth.isAuthenticated();
@@ -29,15 +32,13 @@ const PrivateRoute = ({ children }) => {
 
 function App() {
   const [authReady, setAuthReady] = useState(false);
-  const [user, setUser] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
     const init = async () => {
-      const { session, user: u } = await auth.restoreSession();
+      const { session } = await auth.restoreSession();
       if (!session) clearAuth();
       if (isMounted) {
-        setUser(u || null);
         setAuthReady(true);
       }
     };
@@ -61,6 +62,8 @@ function App() {
       <AnimatePresence mode="wait">
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/compare" element={<PrivateRoute><ComparePage /></PrivateRoute>} />
+          <Route path="/agreement/:targetId" element={<PrivateRoute><AgreementEditor /></PrivateRoute>} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/onboarding" element={<PrivateRoute><OnboardingPage /></PrivateRoute>} />
           <Route path="/discover" element={<PrivateRoute><DiscoverPage /></PrivateRoute>} />
@@ -77,8 +80,12 @@ function App() {
           <Route path="/profile/:id" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
           <Route path="/edit-profile" element={<PrivateRoute><EditProfilePage /></PrivateRoute>} />
           <Route path="/shortlist" element={<PrivateRoute><ShortlistPage /></PrivateRoute>} />
-          <Route path="/" element={<Navigate to="/discover" replace />} />
-          <Route path="*" element={<Navigate to="/discover" replace />} />
+          {/* Public. Only signed-in users are pushed into the app. */}
+          <Route
+            path="/"
+            element={auth.isAuthenticated() ? <Navigate to="/discover" replace /> : <LandingPage />}
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AnimatePresence>
     </Router>

@@ -1,11 +1,28 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Scale, AlertTriangle, FileText, Calendar, TrendingUp, TrendingDown, Zap } from 'lucide-react';
-import { resolveMediaUrl, apiFetch } from '../utils/api';
+import { resolveMediaUrl, apiFetch } from '../lib/api';
 import Layout from '../components/Layout';
-import { Button, Card, Spinner, EmptyState, ProgressBar } from '../components/UI';
-import { pageVariants, staggerContainer, staggerItem, slideInLeft, slideInRight } from '../utils/animations';
+import { Button, Card, Spinner, EmptyState } from '../components/UI';
+
+
+// Animation presets used on this page, previously a shared 299-line module
+// of which only these five were ever imported.
+const pageVariants = {
+  initial: { opacity: 0, y: 20 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
+  exit: { opacity: 0, y: -20, transition: { duration: 0.2 } },
+};
+const staggerContainer = {
+  animate: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
+};
+const staggerItem = {
+  initial: { opacity: 0, y: 10 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.3 } },
+};
+const slideInLeft = { initial: { x: -100, opacity: 0 }, animate: { x: 0, opacity: 1, transition: { duration: 0.4, ease: 'easeOut' } } };
+const slideInRight = { initial: { x: 100, opacity: 0 }, animate: { x: 0, opacity: 1, transition: { duration: 0.4, ease: 'easeOut' } } };
 
 const MetricsBar = ({ label, val1, val2, name1 = 'User 1', name2 = 'User 2', max = 5, icon: Icon }) => {
   const safeVal1 = Number(val1) || 0;

@@ -4,25 +4,14 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg: #FAF8F4;
-  --card: #FFFFFF;
-  --coral: #E86A4A;
-  --teal: #4F7C82;
-  --amber: #F2B84B;
-  --border: #E8E2D9;
-  --text: #1F2933;
-  --muted: #6B7280;
-}
-
 * { box-sizing: border-box; }
 
+/* Colours come from tailwind.config.js (surface.bg / text.primary). The old
+   :root block duplicated the same hex values here and drifted. */
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: var(--bg);
-  color: var(--text);
-  font-family: 'Inter', sans-serif;
+  @apply bg-surface-bg text-text-primary font-body;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
@@ -34,7 +23,7 @@ h1, h2, h3, h4, .font-display {
 /* Scrollbar */
 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #E8E2D9; border-radius: 2px; }
 
 /* Skeleton shimmer */
 @keyframes shimmer {
@@ -48,19 +37,13 @@ h1, h2, h3, h4, .font-display {
   border-radius: 12px;
 }
 
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.animate-fade-up { animation: fadeUp 0.4s ease forwards; }
-
 /* Range slider */
 input[type=range] {
   -webkit-appearance: none;
   width: 100%;
   height: 6px;
   border-radius: 3px;
-  background: var(--border);
+  background: #E8E2D9;
   outline: none;
 }
 input[type=range]::-webkit-slider-thumb {
@@ -68,7 +51,7 @@ input[type=range]::-webkit-slider-thumb {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: var(--coral);
+  background: #E86A4A;
   cursor: pointer;
   border: 3px solid white;
   box-shadow: 0 2px 8px rgba(232, 106, 74, 0.30);

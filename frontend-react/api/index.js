@@ -39,20 +39,21 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-async function query(sql, params) {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(sql, params);
-    return result;
-  } finally {
-    client.release();
-  }
-}
+// pg's pool already acquires, queries and releases a client per call, so this
+// is just a bound shorthand. Every route error funnels through here, which is
+// the only place that needs to report to Sentry — the Express error middleware
+// below it is unreachable now that all 43 routes catch their own errors.
+const query = (sql, params) => pool.query(sql, params).catch((err) => {
+  Sentry.captureException(err);
+  throw err;
+});
 
 const app = express();
 
 // A 500 that never reaches a log is invisible. This makes every unhandled
 // error surface in Sentry (and in the function logs) instead of vanishing.
+// Only guards middleware itself throwing (body-parser, etc.). Route errors are
+// caught per-route, and query() above reports those to Sentry.
 app.use((err, _req, res, next) => {
   if (res.headersSent) return next(err);
   console.error('Unhandled error:', err);
@@ -60,8 +61,15 @@ app.use((err, _req, res, next) => {
   res.status(500).json({ error: 'Something went wrong on our end' });
 });
 
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '10mb' }));
+// VITE_API_URL is unset on Vercel, so the browser calls same-origin /api/* and
+// the vercel.json rewrite keeps it same-origin. CORS only matters for the local
+// dev proxy, which runs on a different port.
+if (process.env.VERCEL_ENV !== 'production') {
+  app.use(cors({ origin: true, credentials: true }));
+}
+// No explicit limit: profile JSON bodies are a few KB. /api/upload bypasses this
+// parser entirely (raw stream) and Vercel caps request bodies at 4.5MB anyway.
+app.use(express.json());
 
 // ── Health ─────────────────────────────────────────────────────
 // Tables the app cannot boot without. If any is missing the pool is
@@ -215,6 +223,79 @@ app.post('/api/onboarding', authMiddleware, async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // PROFILES
 // ══════════════════════════════════════════════════════════════
+
+// ── Match weights ─────────────────────────────────────────────
+// Users adjust these instead of living with fixed hidden numbers.
+// Sliders are normalised client-side; the server re-normalises on read.
+app.get('/api/match-weights', authMiddleware, async (_req, res) => {
+  try {
+    const defaults = {
+      lifestyle_weight: 0.25, budget_weight: 0.20, location_weight: 0.20,
+      movein_weight: 0.15, interests_weight: 0.10, habits_weight: 0.10,
+    };
+    const result = await query('SELECT * FROM match_weights ORDER BY id LIMIT 1');
+    const stored = result.rows[0] || defaults;
+    res.json({ weights: { ...defaults, ...stored } });
+  } catch (err) {
+    console.error('Get match weights error:', err);
+    res.status(500).json({ error: 'Failed to load match weights' });
+  }
+});
+
+app.post('/api/match-weights', authMiddleware, async (req, res) => {
+  try {
+    const raw = req.body?.weights || {};
+    const clean = {};
+    for (const key of Object.values(WEIGHT_KEYS)) {
+      const n = Number(raw[key]);
+      clean[key] = Number.isFinite(n) && n >= 0 ? n : 0;
+    }
+    const sum = Object.values(clean).reduce((a, b) => a + b, 0);
+    if (sum <= 0) {
+      return res.status(400).json({ error: 'At least one factor must have a weight above zero' });
+    }
+
+    // Upsert the single global row that calcCompatibility reads.
+    const updated = await query(
+      `INSERT INTO match_weights
+         (lifestyle_weight, budget_weight, location_weight, movein_weight, interests_weight, habits_weight, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+       ON CONFLICT (id) DO UPDATE SET
+         lifestyle_weight = EXCLUDED.lifestyle_weight,
+         budget_weight = EXCLUDED.budget_weight,
+         location_weight = EXCLUDED.location_weight,
+         movein_weight = EXCLUDED.movein_weight,
+         interests_weight = EXCLUDED.interests_weight,
+         habits_weight = EXCLUDED.habits_weight,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [clean.lifestyle_weight, clean.budget_weight, clean.location_weight,
+       clean.movein_weight, clean.interests_weight, clean.habits_weight]
+    );
+    if (updated.rows.length === 0) {
+      // No row to conflict with yet: create id 1 explicitly.
+      await query(
+        `INSERT INTO match_weights
+           (id, lifestyle_weight, budget_weight, location_weight, movein_weight, interests_weight, habits_weight)
+         VALUES (1, $1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id) DO UPDATE SET
+           lifestyle_weight = EXCLUDED.lifestyle_weight,
+           budget_weight = EXCLUDED.budget_weight,
+           location_weight = EXCLUDED.location_weight,
+           movein_weight = EXCLUDED.movein_weight,
+           interests_weight = EXCLUDED.interests_weight,
+           habits_weight = EXCLUDED.habits_weight,
+           updated_at = CURRENT_TIMESTAMP`,
+        [clean.lifestyle_weight, clean.budget_weight, clean.location_weight,
+         clean.movein_weight, clean.interests_weight, clean.habits_weight]
+      );
+    }
+    res.json({ weights: clean });
+  } catch (err) {
+    console.error('Save match weights error:', err);
+    res.status(500).json({ error: 'Failed to save match weights' });
+  }
+});
 
 app.get('/api/profile/:userId', authMiddleware, async (req, res) => {
   try {

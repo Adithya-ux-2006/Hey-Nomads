@@ -3,14 +3,17 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import Layout from '../components/Layout'
 import { apiFetch, resolveMediaUrl, auth } from '../lib/api'
-import { Card, CompatibilityBadge, Badge, Button, Spinner, SectionHeader } from '../components/UI'
-import UserAvatar from '../components/UserAvatar'
+import { Card, CompatibilityBadge, Badge, Button, Spinner, SectionHeader, InlineError } from '../components/UI'
 import {
   ArrowLeft, BadgeCheck, Heart, ThumbsDown, Star, MessageSquare,
   Moon, Coffee, Cigarette, Wine, Users, Calendar, MapPin,
-  Home, IndianRupee, Globe, Briefcase, CheckCircle2
+  Home, IndianRupee, Globe, Briefcase, CheckCircle2, Flag, UserX
 } from 'lucide-react'
-import { pageVariants, staggerContainer, staggerItem } from '../utils/animations'
+const pageVariants = {
+  initial: { opacity: 0, y: 20 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
+  exit: { opacity: 0, y: -20, transition: { duration: 0.2 } },
+}
 
 const BREAKDOWN_LABELS = {
   lifestyle: { label: 'Lifestyle', color: 'bg-brand-teal' },
@@ -39,6 +42,50 @@ const RoommateDetailPage = () => {
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
   const [error, setError] = useState(null)
+  const [showReport, setShowReport] = useState(false)
+  const [showBlockConfirm, setShowBlockConfirm] = useState(false)
+  const [reportReason, setReportReason] = useState('Harassment or abuse')
+  const [reportDetail, setReportDetail] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [safetyError, setSafetyError] = useState(null)
+
+  const submitReport = async () => {
+    setSubmitting(true)
+    setSafetyError(null)
+    try {
+      await apiFetch('/report', {
+        method: 'POST',
+        body: {
+          reported_user_id: Number(userId),
+          type: 'user',
+          reason: reportReason,
+          description: reportDetail,
+        },
+      })
+      setShowReport(false)
+      setReportDetail('')
+      navigate('/roommates', { replace: true })
+    } catch (err) {
+      setSafetyError(err)
+      setShowReport(false)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const submitBlock = async () => {
+    setSubmitting(true)
+    setSafetyError(null)
+    try {
+      await apiFetch('/block', { method: 'POST', body: { targetId: Number(userId) } })
+      navigate('/roommates', { replace: true })
+    } catch (err) {
+      setSafetyError(err)
+      setShowBlockConfirm(false)
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   useEffect(() => {
     if (!auth.isAuthenticated()) {
@@ -402,7 +449,113 @@ const RoommateDetailPage = () => {
               </motion.button>
             )}
           </div>
+
+          {/* Drafting an agreement is only meaningful once you have matched. */}
+          {isMatched && (
+            <div className="mt-4 pt-4 border-t border-surface-border flex justify-center">
+              <Link
+                to={`/agreement/${userId}`}
+                className="inline-flex items-center gap-2 text-sm font-semibold text-brand-teal hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal rounded"
+              >
+                Draft a roommate agreement
+              </Link>
+            </div>
+          )}
         </motion.div>
+
+        {/* Report and Block. Both are one-way and irreversible for Block, so
+            Block asks first rather than firing on a single click. */}
+        <div className="mt-6 pt-4 border-t border-surface-border flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowReport(true)}
+            className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-text-muted rounded"
+          >
+            <Flag size={14} /> Report this profile
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowBlockConfirm(true)}
+            className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-status-error focus:outline-none focus-visible:ring-2 focus-visible:ring-status-error rounded"
+          >
+            <UserX size={14} /> Block
+          </button>
+        </div>
+        <InlineError error={safetyError} />
+
+        {showReport && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="report-title"
+              className="w-full max-w-md bg-white rounded-2xl p-5"
+            >
+              <h2 id="report-title" className="text-lg font-bold text-text-primary mb-1">Report this profile</h2>
+              <p className="text-sm text-text-secondary mb-4">
+                A moderator reviews every report. Tell us what is wrong.
+              </p>
+              <label htmlFor="report-reason" className="text-sm font-medium text-text-primary block mb-1.5">
+                Reason
+              </label>
+              <select
+                id="report-reason"
+                value={reportReason}
+                onChange={e => setReportReason(e.target.value)}
+                className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm mb-3 focus:outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/25"
+              >
+                <option>Harassment or abuse</option>
+                <option>Spam or scam</option>
+                <option>Fake profile or photos</option>
+                <option>Discrimination</option>
+                <option>Something else</option>
+              </select>
+              <label htmlFor="report-detail" className="text-sm font-medium text-text-primary block mb-1.5">
+                What happened <span className="text-text-muted font-normal">(optional)</span>
+              </label>
+              <textarea
+                id="report-detail"
+                rows={3}
+                value={reportDetail}
+                onChange={e => setReportDetail(e.target.value)}
+                className="w-full rounded-lg border border-surface-border px-3 py-2 text-sm mb-4 focus:outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/25"
+              />
+              <div className="flex gap-3">
+                <Button variant="secondary" onClick={() => setShowReport(false)} className="flex-1">
+                  Cancel
+                </Button>
+                <Button onClick={submitReport} disabled={submitting} className="flex-1">
+                  {submitting ? 'Sending' : 'Send report'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showBlockConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="block-title"
+              className="w-full max-w-md bg-white rounded-2xl p-5"
+            >
+              <h2 id="block-title" className="text-lg font-bold text-text-primary mb-1">Block {profile.name}?</h2>
+              <p className="text-sm text-text-secondary mb-4">
+                You will not see each other in matches again, and any existing match is
+                ended. They are not told you blocked them.
+              </p>
+              <div className="flex gap-3">
+                <Button variant="secondary" onClick={() => setShowBlockConfirm(false)} className="flex-1">
+                  Cancel
+                </Button>
+                <Button onClick={submitBlock} disabled={submitting} className="flex-1 bg-status-error hover:opacity-90 shadow-none">
+                  {submitting ? 'Blocking' : 'Block'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </motion.div>
     </Layout>
   )

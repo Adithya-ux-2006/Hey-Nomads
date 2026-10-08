@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Compass, Users, MessageCircle, User, LogOut, Map, Calendar } from 'lucide-react';
+import { Compass, Users, MessageCircle, User, LogOut, Map } from 'lucide-react';
 import { auth } from '../lib/api';
 
 const navItems = [
@@ -24,24 +24,31 @@ export default function Navbar() {
           <NavLink
             key={to}
             to={to}
-            className={({ isActive }) =>
-              `flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-all duration-200 ${
-                isActive
-                  ? 'text-brand-coral'
-                  : 'text-text-muted hover:text-text-secondary'
-              }`
-            }
-          >
-            <Icon size={22} strokeWidth={isActive => isActive ? 2.5 : 1.8} />
-            <span className="text-[10px] font-semibold tracking-wide">{label}</span>
-          </NavLink>
+            className="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral"
+            // Children-as-function gives us isActive in scope, so the icon weight
+            // can reflect state instead of being handed a function to strokeWidth.
+            children={({ isActive }) => (
+              <>
+                <Icon
+                  size={22}
+                  strokeWidth={isActive ? 2.4 : 1.8}
+                  className={isActive ? 'text-brand-coral' : 'text-text-muted'}
+                  aria-hidden="true"
+                />
+                <span className={`text-xs font-semibold ${isActive ? 'text-brand-coral' : 'text-text-muted'}`}>
+                  {label}
+                </span>
+              </>
+            )}
+          />
         ))}
         <button
+          type="button"
           onClick={handleLogout}
-          className="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl text-text-muted hover:text-status-error transition-colors"
+          className="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl text-text-muted hover:text-status-error transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-status-error"
         >
-          <LogOut size={22} strokeWidth={1.8} />
-          <span className="text-[10px] font-semibold tracking-wide">Logout</span>
+          <LogOut size={22} strokeWidth={1.8} aria-hidden="true" />
+          <span className="text-xs font-semibold">Log out</span>
         </button>
       </div>
     </nav>

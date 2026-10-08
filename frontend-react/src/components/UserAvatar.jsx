@@ -1,5 +1,5 @@
 import React from 'react';
-import { resolveMediaUrl } from '../utils/api';
+import { resolveMediaUrl } from '../lib/api';
 
 const sizeMap = {
   xs:  { outer: 'w-8 h-8',   text: 'text-xs'  },

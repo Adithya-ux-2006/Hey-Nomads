@@ -2,11 +2,10 @@ import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { apiFetch, auth } from '../lib/api'
-import { Card, Badge, Button, Spinner, SectionHeader } from '../components/UI'
+import { Card, Badge, Button, SectionHeader } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import {
-  Edit, MapPin, Briefcase, Home, Calendar, Shield,
-  Moon, Cigarette, Wine, Users, Globe, ArrowLeft, ShieldCheck
+  Edit, MapPin, Briefcase, Home, Calendar, Moon, Cigarette, Wine, Users, Globe, ArrowLeft, ShieldCheck
 } from 'lucide-react'
 
 const CLEANLINESS_MAP = { 1: 'Minimal', 2: 'Casual', 3: 'Moderate', 4: 'Tidy', 5: 'Spotless' }

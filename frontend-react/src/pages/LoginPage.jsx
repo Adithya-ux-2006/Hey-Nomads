@@ -16,7 +16,7 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      const { data, error: authError } = await auth.signIn({ email, password });
+      const { error: authError } = await auth.signIn({ email, password });
       if (authError) throw new Error(authError.message || 'Invalid credentials');
       navigate('/discover', { replace: true });
     } catch (err) {

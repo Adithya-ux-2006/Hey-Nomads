@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, Calendar, Home, Users, Music, Gamepad2, Dumbbell, Utensils, Plane, Laptop, Palette, BookOpen, Heart, ChevronLeft } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { InlineError } from '../components/UI';
 

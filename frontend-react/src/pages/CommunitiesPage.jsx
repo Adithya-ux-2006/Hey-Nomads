@@ -4,7 +4,6 @@ import { apiFetch } from '../lib/api'
 import { useAsync } from '../lib/useAsync'
 import { Card, Badge, Button, Spinner, EmptyState, ErrorState, InlineError } from '../components/UI'
 import { Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import { Users, MapPin, Plus, Search, Filter } from 'lucide-react'
 
 const categories = ['city', 'interest', 'professional', 'student', 'sports']

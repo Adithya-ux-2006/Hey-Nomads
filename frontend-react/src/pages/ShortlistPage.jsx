@@ -5,7 +5,7 @@ import { useAsync } from '../lib/useAsync'
 import { Card, Button, Spinner, EmptyState, ErrorState, InlineError } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
-import { Heart, X, MessageCircle, MapPin, Briefcase } from 'lucide-react'
+import { Heart, X, MessageCircle, MapPin, Briefcase, GitCompare } from 'lucide-react'
 
 export default function ShortlistPage() {
   const { data: shortlist, setData: setShortlist, loading, error, retry } = useAsync(
@@ -13,6 +13,17 @@ export default function ShortlistPage() {
     []
   )
   const [removeError, setRemoveError] = useState(null)
+  // Compare renders exactly two people, so cap the selection at two rather
+  // than letting the user pick a number the page can't show.
+  const [selected, setSelected] = useState([])
+
+  const toggleSelected = (id) => {
+    setSelected(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id)
+      if (prev.length >= 2) return [prev[1], id]
+      return [...prev, id]
+    })
+  }
 
   const remove = async (targetId) => {
     const snapshot = shortlist
@@ -49,9 +60,44 @@ export default function ShortlistPage() {
         )}
 
         {!loading && !error && (shortlist || []).length > 0 && (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 rounded-xl bg-surface-muted">
+              <p className="text-sm text-text-secondary">
+                {selected.length === 0
+                  ? 'Pick two people to compare them side by side'
+                  : `${selected.length} of 2 selected`}
+              </p>
+              <Link
+                to={selected.length === 2 ? `/compare?u1=${selected[0]}&u2=${selected[1]}` : '#'}
+                aria-disabled={selected.length !== 2}
+                onClick={e => { if (selected.length !== 2) e.preventDefault(); }}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal ${
+                  selected.length === 2
+                    ? 'bg-brand-teal text-white hover:bg-brand-teal-dark'
+                    : 'bg-surface-border text-text-muted cursor-not-allowed'
+                }`}
+              >
+                <GitCompare size={15} aria-hidden="true" />
+                Compare
+              </Link>
+            </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {shortlist.map((user) => (
-                <Card key={user.id} className="relative flex flex-col items-center p-5 text-center">
+                <Card
+                  key={user.id}
+                  className={`relative flex flex-col items-center p-5 text-center transition-colors ${
+                    selected.includes(user.id) ? 'border-brand-teal ring-1 ring-brand-teal' : ''
+                  }`}
+                >
+                  <label className="absolute top-3 left-3 flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(user.id)}
+                      onChange={() => toggleSelected(user.id)}
+                      aria-label={`Select ${user.name} to compare`}
+                      className="w-4 h-4 rounded border-surface-border text-brand-teal focus:ring-brand-teal cursor-pointer"
+                    />
+                  </label>
                   <button
                     onClick={() => remove(user.id)}
                     className="absolute top-3 right-3 p-1 rounded-full text-text-muted hover:text-red-500 hover:bg-red-50 transition-colors"
@@ -88,7 +134,7 @@ export default function ShortlistPage() {
                     <Link to={`/roommates/${user.id}`} className="flex-1">
                       <Button variant="primary" className="w-full text-xs py-1.5">View profile</Button>
                     </Link>
-                    <Link to={`/chat?userId=${user.id}`} className="flex-1">
+                    <Link to={`/messages/${user.id}`} className="flex-1">
                       <Button variant="secondary" className="w-full text-xs py-1.5 flex items-center justify-center gap-1">
                         <MessageCircle size={14} /> Message
                       </Button>
@@ -97,6 +143,7 @@ export default function ShortlistPage() {
                 </Card>
             ))}
           </div>
+          </>
         )}
       </div>
     </Layout>

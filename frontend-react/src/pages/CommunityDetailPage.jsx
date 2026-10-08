@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Users, MapPin, Calendar, Clock } from 'lucide-react';
+import { ArrowLeft, Users, MapPin, Clock } from 'lucide-react';
 import Layout from '../components/Layout';
 import { apiFetch } from '../lib/api';
 import { useAsync } from '../lib/useAsync';

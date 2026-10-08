@@ -19,8 +19,5 @@ jobs:
           cache: npm
           cache-dependency-path: frontend-react/package-lock.json
       - run: npm ci
-      - run: npm run build
-      # Lint is informational for now: the repo has 9 pre-existing no-unused-vars
-      # errors. Tighten this to a hard gate once they are cleared.
       - run: npm run lint
-        continue-on-error: true
+      - run: npm run build

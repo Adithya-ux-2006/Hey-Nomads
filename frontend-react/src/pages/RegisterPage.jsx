@@ -15,7 +15,7 @@ export default function RegisterPage() {
     setLoading(true);
     setError('');
     try {
-      const { data, error: authError } = await auth.signUp({ email, password, name });
+      const { error: authError } = await auth.signUp({ email, password, name });
       if (authError) throw new Error(authError.message);
       navigate('/onboarding', { replace: true });
     } catch (err) {
