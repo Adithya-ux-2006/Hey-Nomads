@@ -4,7 +4,6 @@ import { apiFetch } from '../lib/api'
 import { Card, Spinner, EmptyState } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import { MessageCircle, Search } from 'lucide-react'
 
 function relativeTime(dateStr) {
@@ -79,16 +78,10 @@ export default function MessagesPage() {
           />
         ) : (
           <div className="space-y-2">
-            {filtered.map((convo, i) => {
+            {filtered.map((convo) => {
               const unread = convo.unread_count > 0
               return (
-                <motion.div
-                  key={convo.conversation_id}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                >
-                  <Link to={`/messages/${convo.partner_id}`}>
+                  <Link key={convo.conversation_id} to={`/messages/${convo.partner_id}`}>
                     <Card
                       interactive
                       className={`p-4 flex items-center gap-3 ${
@@ -131,8 +124,7 @@ export default function MessagesPage() {
                       </div>
                     </Card>
                   </Link>
-                </motion.div>
-              )
+              );
             })}
           </div>
         )}

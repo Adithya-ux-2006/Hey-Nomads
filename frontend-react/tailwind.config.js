@@ -30,6 +30,12 @@ export default {
           muted: '#9CA3AF',
           light: '#D1D5DB',
         },
+        // Aliases so `text-primary` resolves to the brand ink instead of
+        // silently falling back to Tailwind's default grey palette.
+        primary: '#1F2933',
+        secondary: '#6B7280',
+        muted: '#9CA3AF',
+        light: '#D1D5DB',
         status: {
           success: '#22C55E',
           warning: '#F59E0B',

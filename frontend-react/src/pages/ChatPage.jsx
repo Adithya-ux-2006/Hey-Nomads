@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { apiFetch, auth } from '../lib/api'
-import { Spinner } from '../components/UI'
+import { useAsync } from '../lib/useAsync'
+import { Spinner, ErrorState } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { ArrowLeft, Send } from 'lucide-react'
 
@@ -12,11 +13,25 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([])
   const [partner, setPartner] = useState(null)
   const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState(null)
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
   const currentUserId = auth.getUserId()
+
+  const { data, loading, error, retry } = useAsync(async () => {
+    const [convo, profile] = await Promise.all([
+      apiFetch(`/conversations/${otherUserId}`),
+      apiFetch(`/roommates/${otherUserId}`),
+    ])
+    apiFetch(`/conversations/${otherUserId}/read`, { method: 'POST' }).catch(() => {})
+    return { messages: convo, partner: profile }
+  }, [otherUserId])
+
+  useEffect(() => {
+    if (!error && !loading) setMessages(data?.messages || []);
+    if (!error && !loading) setPartner(data?.partner || null);
+  }, [data, loading, error])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -26,28 +41,17 @@ export default function ChatPage() {
     scrollToBottom()
   }, [messages])
 
+  // Polling stays silent on failure: a dropped poll is not a page-level
+  // failure and must not wipe out a conversation that already rendered.
   useEffect(() => {
-    Promise.all([
-      apiFetch(`/conversations/${otherUserId}`),
-      apiFetch(`/roommates/${otherUserId}`)
-    ]).then(([convo, profile]) => {
-      setMessages(convo)
-      setPartner(profile)
-      setLoading(false)
-      apiFetch(`/conversations/${otherUserId}/read`, { method: 'POST' })
-    }).catch(() => {
-      setLoading(false)
-    })
-  }, [otherUserId])
-
-  useEffect(() => {
+    if (error || loading) return
     const interval = setInterval(() => {
       apiFetch(`/conversations/${otherUserId}`)
         .then(setMessages)
         .catch(() => {})
     }, 3000)
     return () => clearInterval(interval)
-  }, [otherUserId])
+  }, [otherUserId, error, loading])
 
   const handleSend = async () => {
     const text = input.trim()
@@ -71,8 +75,11 @@ export default function ChatPage() {
         method: 'POST',
         body: { receiver_id: Number(otherUserId), message: text }
       })
-    } catch {
+      setSendError(null)
+    } catch (err) {
       setMessages(prev => prev.filter(m => m.id !== optimistic.id))
+      setInput(text)
+      setSendError(err)
     } finally {
       setSending(false)
       inputRef.current?.focus()
@@ -96,6 +103,16 @@ export default function ChatPage() {
       <Layout>
         <div className="flex items-center justify-center h-full surface-bg">
           <Spinner />
+        </div>
+      </Layout>
+    )
+  }
+
+  if (error) {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 pt-16">
+          <ErrorState what="conversation" error={error} onRetry={retry} />
         </div>
       </Layout>
     )
@@ -155,6 +172,9 @@ export default function ChatPage() {
         </div>
 
         <div className="flex items-center gap-2 p-3 border-t surface-border surface-card">
+          {sendError && (
+            <span role="alert" className="text-xs text-status-error flex-1">Not sent — {sendError.message}</span>
+          )}
           <input
             ref={inputRef}
             type="text"

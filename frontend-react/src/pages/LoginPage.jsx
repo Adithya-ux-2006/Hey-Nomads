@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { Eye, EyeOff } from 'lucide-react';
 import { auth } from '../lib/api';
 
@@ -43,7 +42,7 @@ export default function LoginPage() {
 
       {/* Right: Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center px-6 py-12">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md space-y-8">
+        <div className="w-full max-w-md space-y-8">
           <div>
             <h1 className="text-3xl font-display font-bold text-text-primary">Welcome back</h1>
             <p className="text-text-secondary mt-1">Log in to your account</p>
@@ -55,7 +54,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-1.5 block">Email</label>
+              <label className="text-sm font-semibold text-text-primary mb-1.5 block">Email</label>
               <input
                 type="email" value={email} onChange={e => setEmail(e.target.value)} required
                 className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
@@ -63,14 +62,14 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-1.5 block">Password</label>
+              <label className="text-sm font-semibold text-text-primary mb-1.5 block">Password</label>
               <div className="relative">
                 <input
                   type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} required
                   className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 pr-10 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
-                  placeholder="••••••••"
+                placeholder="Your password"
                 />
-                <button type="button" onClick={() => setShowPass(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary">
+                <button type="button" onClick={() => setShowPass(v => !v)} aria-label={showPass ? 'Hide password' : 'Show password'} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary">
                   {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
@@ -79,15 +78,15 @@ export default function LoginPage() {
               type="submit" disabled={loading}
               className="w-full bg-brand-coral hover:bg-brand-coral-dark text-white font-bold py-3.5 rounded-xl transition-all shadow-coral disabled:opacity-50"
             >
-              {loading ? 'Logging in...' : 'Log In'}
+              {loading ? 'Logging you in' : 'Log in'}
             </button>
           </form>
 
           <p className="text-center text-sm text-text-muted">
             Don't have an account?{' '}
-            <Link to="/register" className="text-brand-coral font-semibold hover:underline">Sign up</Link>
+            <Link to="/register" className="text-brand-coral font-semibold hover:underline">Create one</Link>
           </p>
-        </motion.div>
+        </div>
       </div>
     </div>
   );

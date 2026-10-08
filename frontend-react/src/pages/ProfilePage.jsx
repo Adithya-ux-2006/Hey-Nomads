@@ -21,7 +21,7 @@ const AboutItem = ({ icon: Icon, label, value, color }) =>
     <div className="flex items-center gap-3 p-3 rounded-xl bg-surface-bg border border-surface-border">
       <Icon size={16} className={`${color} flex-shrink-0`} />
       <div>
-        <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+        <p className="text-xs font-medium text-text-muted">{label}</p>
         <p className="text-sm font-semibold text-text-primary">{value}</p>
       </div>
     </div>

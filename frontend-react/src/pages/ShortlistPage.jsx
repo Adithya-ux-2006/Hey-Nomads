@@ -1,34 +1,29 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Layout from '../components/Layout'
 import { apiFetch } from '../lib/api'
-import { Card, Button, Spinner, EmptyState } from '../components/UI'
+import { useAsync } from '../lib/useAsync'
+import { Card, Button, Spinner, EmptyState, ErrorState, InlineError } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import { Heart, X, MessageCircle, MapPin, Briefcase } from 'lucide-react'
 
-const cardVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: (i) => ({ opacity: 1, y: 0, transition: { delay: i * 0.07, duration: 0.35 } }),
-  exit: { opacity: 0, scale: 0.95, transition: { duration: 0.2 } },
-}
-
 export default function ShortlistPage() {
-  const [shortlist, setShortlist] = useState([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    apiFetch('/shortlist')
-      .then((data) => setShortlist(Array.isArray(data) ? data : []))
-      .catch(() => setShortlist([]))
-      .finally(() => setLoading(false))
-  }, [])
+  const { data: shortlist, setData: setShortlist, loading, error, retry } = useAsync(
+    () => apiFetch('/shortlist').then(d => (Array.isArray(d) ? d : [])),
+    []
+  )
+  const [removeError, setRemoveError] = useState(null)
 
   const remove = async (targetId) => {
+    const snapshot = shortlist
+    setRemoveError(null)
+    setShortlist(s => s.filter(u => u.id !== targetId))
     try {
       await apiFetch('/shortlist', { method: 'DELETE', body: { targetId } })
-      setShortlist((s) => s.filter((u) => u.id !== targetId))
-    } catch {}
+    } catch (err) {
+      setShortlist(snapshot)
+      setRemoveError(err)
+    }
   }
 
   return (
@@ -40,28 +35,23 @@ export default function ShortlistPage() {
           <div className="flex justify-center py-20"><Spinner /></div>
         )}
 
-        {!loading && shortlist.length === 0 && (
+        {error && <ErrorState what="shortlist" error={error} onRetry={retry} />}
+
+        <InlineError error={removeError} />
+
+        {!loading && !error && (shortlist || []).length === 0 && (
           <EmptyState
-            icon={<Heart size={40} />}
-            title="No one shortlisted yet."
-            message="Start exploring!"
-            action={<Link to="/discover"><Button>Go to Discover</Button></Link>}
+            icon={Heart}
+            title="No one shortlisted yet"
+            description="Tap the bookmark on anyone you like while browsing matches and they'll show up here."
+            action={<Link to="/roommates"><Button>Browse roommates</Button></Link>}
           />
         )}
 
-        {!loading && shortlist.length > 0 && (
+        {!loading && !error && (shortlist || []).length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {shortlist.map((user, i) => (
-              <motion.div
-                key={user.id}
-                custom={i}
-                variants={cardVariants}
-                initial="hidden"
-                animate="visible"
-                exit="exit"
-                layout
-              >
-                <Card className="relative flex flex-col items-center p-5 text-center">
+            {shortlist.map((user) => (
+                <Card key={user.id} className="relative flex flex-col items-center p-5 text-center">
                   <button
                     onClick={() => remove(user.id)}
                     className="absolute top-3 right-3 p-1 rounded-full text-text-muted hover:text-red-500 hover:bg-red-50 transition-colors"
@@ -96,20 +86,19 @@ export default function ShortlistPage() {
 
                   <div className="flex gap-2 mt-4 w-full">
                     <Link to={`/roommates/${user.id}`} className="flex-1">
-                      <Button variant="primary" className="w-full text-xs py-1.5">View</Button>
+                      <Button variant="primary" className="w-full text-xs py-1.5">View profile</Button>
                     </Link>
                     <Link to={`/chat?userId=${user.id}`} className="flex-1">
-                      <Button variant="outline" className="w-full text-xs py-1.5 flex items-center justify-center gap-1">
+                      <Button variant="secondary" className="w-full text-xs py-1.5 flex items-center justify-center gap-1">
                         <MessageCircle size={14} /> Message
                       </Button>
                     </Link>
                   </div>
                 </Card>
-              </motion.div>
             ))}
           </div>
         )}
       </div>
     </Layout>
-  )
+  );
 }

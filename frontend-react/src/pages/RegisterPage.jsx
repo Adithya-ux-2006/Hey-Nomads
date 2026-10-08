@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { auth } from '../lib/api';
 
 export default function RegisterPage() {
@@ -28,7 +27,7 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-surface-bg px-6">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md space-y-8">
+      <div className="w-full max-w-md space-y-8">
         <div>
           <h1 className="text-3xl font-display font-bold text-text-primary">Join Hey Nomads</h1>
           <p className="text-text-secondary mt-1">Start your relocation journey</p>
@@ -38,33 +37,33 @@ export default function RegisterPage() {
 
         <form onSubmit={handleRegister} className="space-y-5">
           <div>
-            <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-1.5 block">Full Name</label>
+            <label className="text-sm font-semibold text-text-primary mb-1.5 block">Full Name</label>
             <input type="text" value={name} onChange={e => setName(e.target.value)} required
               className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
               placeholder="Your name" />
           </div>
           <div>
-            <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-1.5 block">Email</label>
+            <label className="text-sm font-semibold text-text-primary mb-1.5 block">Email</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
               className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
               placeholder="you@example.com" />
           </div>
           <div>
-            <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-1.5 block">Password</label>
+            <label className="text-sm font-semibold text-text-primary mb-1.5 block">Password</label>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6}
               className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
               placeholder="Min 6 characters" />
           </div>
           <button type="submit" disabled={loading}
             className="w-full bg-brand-coral hover:bg-brand-coral-dark text-white font-bold py-3.5 rounded-xl transition-all shadow-coral disabled:opacity-50">
-            {loading ? 'Creating account...' : 'Create Account'}
+            {loading ? 'Creating your account' : 'Create account'}
           </button>
         </form>
 
         <p className="text-center text-sm text-text-muted">
           Already have an account? <Link to="/login" className="text-brand-coral font-semibold hover:underline">Log in</Link>
         </p>
-      </motion.div>
+      </div>
     </div>
   );
 }

@@ -252,7 +252,7 @@ const RoommateDetailPage = () => {
                   >
                     <Icon size={16} className="text-brand-coral flex-shrink-0" />
                     <div>
-                      <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+                      <p className="text-xs font-medium text-text-muted">{label}</p>
                       <p className="text-sm font-semibold text-text-primary capitalize">{display}</p>
                     </div>
                   </div>
@@ -268,7 +268,7 @@ const RoommateDetailPage = () => {
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-surface-muted border border-surface-border">
                   <IndianRupee size={16} className="text-brand-coral flex-shrink-0" />
                   <div>
-                    <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Budget</p>
+                    <p className="text-xs font-medium text-text-muted">Budget</p>
                     <p className="text-sm font-semibold text-text-primary">{'\u20B9'}{Number(profile.budget).toLocaleString('en-IN')}/mo</p>
                   </div>
                 </div>
@@ -277,7 +277,7 @@ const RoommateDetailPage = () => {
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-surface-muted border border-surface-border">
                   <Home size={16} className="text-brand-teal flex-shrink-0" />
                   <div>
-                    <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Flat Type</p>
+                    <p className="text-xs font-medium text-text-muted">Flat Type</p>
                     <p className="text-sm font-semibold text-text-primary capitalize">{profile.flat_type.replace(/_/g, ' ')}</p>
                   </div>
                 </div>
@@ -286,7 +286,7 @@ const RoommateDetailPage = () => {
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-surface-muted border border-surface-border">
                   <Calendar size={16} className="text-brand-amber flex-shrink-0" />
                   <div>
-                    <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Move-in</p>
+                    <p className="text-xs font-medium text-text-muted">Move-in</p>
                     <p className="text-sm font-semibold text-text-primary">{profile.move_in_date}</p>
                   </div>
                 </div>
@@ -295,7 +295,7 @@ const RoommateDetailPage = () => {
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-surface-muted border border-surface-border">
                   <Users size={16} className="text-violet-400 flex-shrink-0" />
                   <div>
-                    <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Occupants</p>
+                    <p className="text-xs font-medium text-text-muted">Occupants</p>
                     <p className="text-sm font-semibold text-text-primary">{profile.occupants}</p>
                   </div>
                 </div>
@@ -304,7 +304,7 @@ const RoommateDetailPage = () => {
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-surface-muted border border-surface-border">
                   <MapPin size={16} className="text-emerald-500 flex-shrink-0" />
                   <div>
-                    <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Neighbourhood</p>
+                    <p className="text-xs font-medium text-text-muted">Neighbourhood</p>
                     <p className="text-sm font-semibold text-text-primary">{profile.neighbourhood}</p>
                   </div>
                 </div>

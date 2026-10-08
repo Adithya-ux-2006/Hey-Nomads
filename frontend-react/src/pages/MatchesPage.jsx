@@ -4,7 +4,6 @@ import { apiFetch } from '../lib/api'
 import { Card, CompatibilityBadge, Badge, Spinner, EmptyState } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import { MessageCircle, MoreVertical, UserX } from 'lucide-react'
 
 export default function MatchesPage() {
@@ -40,14 +39,8 @@ export default function MatchesPage() {
           />
         ) : (
           <div className="space-y-4">
-            {matches.map((match, i) => (
-              <motion.div
-                key={match.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-              >
-                <Card className="relative p-4 flex items-center gap-4">
+            {matches.map((match) => (
+                <Card key={match.id} className="relative p-4 flex items-center gap-4">
                   <UserAvatar
                     src={match.partner_image}
                     name={match.partner_name}
@@ -61,7 +54,7 @@ export default function MatchesPage() {
                       <CompatibilityBadge score={match.compatibility_score} />
                     </div>
                     <p className="text-sm text-surface-border">
-                      {match.partner_occupation} · {match.partner_city}
+                      {[match.partner_occupation, match.partner_city].filter(Boolean).join(', ')}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -92,11 +85,10 @@ export default function MatchesPage() {
                     </div>
                   </div>
                 </Card>
-              </motion.div>
             ))}
           </div>
         )}
       </div>
     </Layout>
-  )
+  );
 }

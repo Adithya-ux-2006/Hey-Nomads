@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Layout from '../components/Layout'
 import { apiFetch } from '../lib/api'
-import { Card, Badge, Button, Spinner, EmptyState } from '../components/UI'
-import { motion } from 'framer-motion'
+import { useAsync } from '../lib/useAsync'
+import { Card, Badge, Button, Spinner, EmptyState, ErrorState, InlineError } from '../components/UI'
 import { Calendar, MapPin, Clock, Users, Plus } from 'lucide-react'
 
 const categories = ['social', 'professional', 'sports', 'culture', 'outdoor']
@@ -16,37 +16,44 @@ const categoryColors = {
 }
 
 export default function EventsPage() {
-  const [events, setEvents] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { data: events, setData: setEvents, loading, error, retry } = useAsync(
+    () => apiFetch('/events').then(d => (Array.isArray(d) ? d : [])),
+    []
+  )
   const [activeCategory, setActiveCategory] = useState(null)
   const [activeCity, setActiveCity] = useState(null)
   const [rsvping, setRsvping] = useState(null)
-
-  useEffect(() => {
-    apiFetch('/events')
-      .then(setEvents)
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
+  const [rsvpError, setRsvpError] = useState(null)
 
   const cities = [...new Set(events.map(e => e.city).filter(Boolean))]
 
   const handleRsvpToggle = async (event) => {
     setRsvping(event.id)
+    setRsvpError(null)
+    const wasGoing = event.is_rsvped
+    setEvents(prev =>
+      prev.map(e =>
+        e.id === event.id
+          ? { ...e, is_rsvped: !wasGoing, attendee_count: e.attendee_count + (wasGoing ? -1 : 1) }
+          : e
+      )
+    )
     try {
-      if (event.is_rsvped) {
+      if (wasGoing) {
         await apiFetch(`/events/${event.id}/rsvp`, { method: 'DELETE' })
       } else {
         await apiFetch(`/events/${event.id}/rsvp`, { method: 'POST', body: { status: 'going' } })
       }
+    } catch (err) {
       setEvents(prev =>
         prev.map(e =>
           e.id === event.id
-            ? { ...e, is_rsvped: !e.is_rsvped, attendee_count: e.attendee_count + (e.is_rsvped ? -1 : 1) }
+            ? { ...e, is_rsvped: wasGoing, attendee_count: e.attendee_count + (wasGoing ? 1 : -1) }
             : e
         )
       )
-    } catch {}
+      setRsvpError(err)
+    }
     setRsvping(null)
   }
 
@@ -61,13 +68,13 @@ export default function EventsPage() {
   return (
     <Layout>
       <div className="max-w-6xl mx-auto px-4 pt-6 pb-24 space-y-6">
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-text-primary">Events</h1>
-          <Button size="sm"><Plus size={16} /> Create Event</Button>
-        </motion.div>
+          <Button size="sm"><Plus size={16} /> Create event</Button>
+        </div>
 
         {cities.length > 1 && (
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
             <button
               onClick={() => setActiveCity(null)}
               className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
@@ -91,10 +98,10 @@ export default function EventsPage() {
                 {city}
               </button>
             ))}
-          </motion.div>
+        </div>
         )}
 
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
           <button
             onClick={() => setActiveCategory(null)}
             className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
@@ -118,9 +125,13 @@ export default function EventsPage() {
               {cat}
             </button>
           ))}
-        </motion.div>
+        </div>
 
-        {loading ? (
+        <InlineError error={rsvpError} />
+
+        {error ? (
+          <ErrorState what="events" error={error} onRetry={retry} />
+        ) : loading ? (
           <div className="flex justify-center py-20"><Spinner /></div>
         ) : filtered.length === 0 ? (
           <EmptyState
@@ -130,16 +141,10 @@ export default function EventsPage() {
           />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filtered.map((event, i) => {
+            {filtered.map((event) => {
               const date = new Date(event.start_time)
               return (
-                <motion.div
-                  key={event.id}
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.04 }}
-                >
-                  <Card className="overflow-hidden h-full flex flex-col">
+                <Card className="overflow-hidden h-full flex flex-col">
                     <div className="flex">
                       <div className="flex-shrink-0 w-20 bg-gradient-to-b from-brand-coral to-brand-coral-dark text-white flex flex-col items-center justify-center py-4">
                         <span className="text-xs font-semibold uppercase">{date.toLocaleDateString('en-US', { month: 'short' })}</span>
@@ -171,16 +176,19 @@ export default function EventsPage() {
                       </div>
                     </div>
                   </Card>
-                </motion.div>
-              )
+              );
             })}
           </div>
         )}
       </div>
 
-      <button className="fixed bottom-6 right-6 z-50 md:hidden w-14 h-14 rounded-full bg-brand-coral text-white shadow-lg flex items-center justify-center">
+      <button
+        type="button"
+        aria-label="Create an event"
+        className="fixed bottom-6 right-6 z-50 md:hidden w-14 h-14 rounded-full bg-brand-coral text-white shadow-lg flex items-center justify-center"
+      >
         <Plus size={24} />
       </button>
     </Layout>
-  )
+  );
 }

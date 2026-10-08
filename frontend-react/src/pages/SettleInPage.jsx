@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   CheckCircle2, Home, CreditCard, Smartphone, Bus,
   BookOpen, ShieldCheck, Map, Stethoscope, ShoppingBag,
-  Building2, GraduationCap, Briefcase, ChevronRight
+  Building2, GraduationCap, Briefcase, ExternalLink
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import { apiFetch } from '../lib/api';
-import { Card, Badge, SectionHeader } from '../components/UI';
+import { Card, Badge, SectionHeader, ErrorState } from '../components/UI';
 
 const categoryConfig = {
   housing: { icon: Home, color: 'bg-brand-coral', label: 'Housing' },
@@ -23,17 +23,6 @@ const categoryConfig = {
   neighbourhoods: { icon: Map, color: 'bg-teal-600', label: 'Neighbourhoods' },
   general: { icon: BookOpen, color: 'bg-gray-500', label: 'General' },
 };
-
-const FadeIn = ({ children, delay = 0, className = '' }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 16 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.4, delay }}
-    className={className}
-  >
-    {children}
-  </motion.div>
-);
 
 const CheckTask = ({ task, onToggle }) => (
   <motion.div
@@ -75,7 +64,7 @@ const ResourceCard = ({ resource }) => (
           <p className="text-xs text-text-muted mt-1 line-clamp-2">{resource.description}</p>
         </div>
         {resource.url && (
-          <ChevronRight size={16} className="text-text-muted flex-shrink-0 mt-1" />
+          <ExternalLink size={14} className="text-text-muted flex-shrink-0 mt-1" />
         )}
       </div>
       {resource.city && (
@@ -89,19 +78,27 @@ export default function SettleInPage() {
   const [tasks, setTasks] = useState([]);
   const [resources, setResources] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [toggling, setToggling] = useState({});
 
-  useEffect(() => {
-    Promise.all([
-      apiFetch('/settlement').catch(() => []),
-      apiFetch('/resources?city=Mumbai').catch(() => []),
-    ])
-      .then(([taskData, resourceData]) => {
-        setTasks(Array.isArray(taskData) ? taskData : []);
-        setResources(Array.isArray(resourceData) ? resourceData : []);
-      })
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [taskData, resourceData] = await Promise.all([
+        apiFetch('/settlement'),
+        apiFetch('/resources?city=Mumbai'),
+      ]);
+      setTasks(Array.isArray(taskData) ? taskData : []);
+      setResources(Array.isArray(resourceData) ? resourceData : []);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const toggleTask = async (id) => {
     const task = tasks.find(t => t.id === id);
@@ -148,25 +145,32 @@ export default function SettleInPage() {
     );
   }
 
+  if (error) {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 pt-16">
+          <ErrorState what="checklist" error={error} onRetry={load} />
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <div className="max-w-4xl mx-auto px-4 pt-6 pb-24 space-y-8">
         {/* Header */}
-        <FadeIn>
-          <SectionHeader
-            title="Settle In"
+                  <SectionHeader
+            title="Settling in"
             subtitle={totalCount
               ? `${completedCount} of ${totalCount} tasks completed`
               : 'Your settlement checklist'
             }
           />
-        </FadeIn>
 
         {/* Progress Bar */}
-        <FadeIn delay={0.1}>
-          <Card className="p-5">
+                  <Card className="p-5">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-text-primary">Progress</span>
+              <span className="text-sm font-medium text-text-primary">Done so far</span>
               <span className="text-sm font-bold text-brand-teal">{Math.round(progress)}%</span>
             </div>
             <div className="w-full h-2.5 bg-surface-muted rounded-full overflow-hidden">
@@ -178,37 +182,29 @@ export default function SettleInPage() {
               />
             </div>
           </Card>
-        </FadeIn>
 
         {/* Checklist */}
-        <FadeIn delay={0.15}>
-          <SectionHeader
+                  <SectionHeader
             title="Checklist"
             subtitle={`${completedCount} done`}
           />
           {tasks.length === 0 ? (
             <Card className="p-8 text-center">
               <CheckCircle2 size={32} className="mx-auto text-text-muted mb-3" />
-              <p className="text-text-muted text-sm">No tasks yet. Complete onboarding to see your checklist.</p>
+              <p className="text-text-muted text-sm">No tasks yet. Finish onboarding and we will build your checklist.</p>
             </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
               {tasks.map(task => (
-                <motion.div
-                  key={task.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                >
-                  <CheckTask task={task} onToggle={toggleTask} />
-                </motion.div>
+                <CheckTask task={task} onToggle={toggleTask} />
+                
               ))}
             </div>
           )}
-        </FadeIn>
 
         {/* Resources */}
         {Object.keys(groupedResources).length > 0 && (
-          <FadeIn delay={0.2}>
+          <>
             <SectionHeader
               title="Resources"
               subtitle="Helpful guides for your new city"
@@ -227,20 +223,15 @@ export default function SettleInPage() {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {items.map(r => (
-                        <motion.div
-                          key={r.id}
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                        >
-                          <ResourceCard resource={r} />
-                        </motion.div>
+                        <ResourceCard resource={r} />
+                        
                       ))}
                     </div>
                   </div>
                 );
               })}
             </div>
-          </FadeIn>
+          </>
         )}
       </div>
     </Layout>

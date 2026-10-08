@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Layout from '../components/Layout'
 import { apiFetch } from '../lib/api'
-import { Card, Badge, Button, Spinner, EmptyState } from '../components/UI'
+import { useAsync } from '../lib/useAsync'
+import { Card, Badge, Button, Spinner, EmptyState, ErrorState, InlineError } from '../components/UI'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Users, MapPin, Plus, Search, Filter } from 'lucide-react'
@@ -16,29 +17,21 @@ const categoryColors = {
   sports: 'coral',
 }
 
-const gradients = [
-  'from-brand-coral/20 to-brand-amber/10',
-  'from-brand-teal/20 to-brand-teal/5',
-  'from-brand-amber/20 to-brand-coral/10',
-  'from-brand-teal/10 to-brand-amber/10',
-]
+
 
 export default function CommunitiesPage() {
-  const [communities, setCommunities] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { data: communities, setData: setCommunities, loading, error, retry } = useAsync(
+    () => apiFetch('/communities').then(d => (Array.isArray(d) ? d : [])),
+    []
+  )
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState(null)
   const [joining, setJoining] = useState(null)
-
-  useEffect(() => {
-    apiFetch('/communities')
-      .then(setCommunities)
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
+  const [joinError, setJoinError] = useState(null)
 
   const handleJoinToggle = async (community) => {
     setJoining(community.id)
+    setJoinError(null)
     try {
       const endpoint = community.is_member
         ? `/communities/${community.id}/leave`
@@ -51,7 +44,9 @@ export default function CommunitiesPage() {
             : c
         )
       )
-    } catch {}
+    } catch (err) {
+      setJoinError(err)
+    }
     setJoining(null)
   }
 
@@ -65,29 +60,30 @@ export default function CommunitiesPage() {
     <Layout>
       <div className="max-w-6xl mx-auto px-4 pt-6 pb-24 space-y-6">
         {/* Header */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-text-primary">Communities</h1>
           <Link to="/communities/create">
             <Button size="sm"><Plus size={16} /> Create</Button>
           </Link>
-        </motion.div>
+        </div>
+
+        <InlineError error={joinError} />
 
         {/* Search */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search communities..."
-              className="w-full pl-11 pr-4 py-3 rounded-xl bg-surface-card border border-surface-border text-text-primary text-sm placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-brand-coral/30"
-            />
-          </div>
-        </motion.div>
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
+          <input
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search communities"
+            aria-label="Search communities"
+            className="w-full pl-11 pr-4 py-3 rounded-xl bg-surface-card border border-surface-border text-text-primary text-sm placeholder:text-text-muted focus:outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/25"
+          />
+        </div>
 
         {/* Category chips */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
           <button
             onClick={() => setActiveCategory(null)}
             className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
@@ -112,10 +108,12 @@ export default function CommunitiesPage() {
               {cat}
             </button>
           ))}
-        </motion.div>
+        </div>
 
         {/* Content */}
-        {loading ? (
+        {error ? (
+          <ErrorState what="communities" error={error} onRetry={retry} />
+        ) : loading ? (
           <div className="flex justify-center py-20"><Spinner /></div>
         ) : filtered.length === 0 ? (
           <EmptyState
@@ -125,20 +123,14 @@ export default function CommunitiesPage() {
           />
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {filtered.map((community, i) => (
-              <motion.div
-                key={community.id}
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.04 }}
-              >
-                <Card interactive className="overflow-hidden h-full flex flex-col">
+            {filtered.map((community) => (
+              <Card key={community.id} interactive className="overflow-hidden h-full flex flex-col">
                   <Link to={`/communities/${community.id}`} className="block">
-                    <div className={`h-32 bg-gradient-to-br ${gradients[i % gradients.length]} flex items-center justify-center overflow-hidden`}>
+                    <div className="h-32 bg-surface-muted flex items-center justify-center overflow-hidden">
                       {community.image ? (
                         <img src={community.image} alt={community.name} className="w-full h-full object-cover" />
                       ) : (
-                        <Users size={32} className="text-brand-teal/50" />
+                        <Users size={32} className="text-brand-teal/40" />
                       )}
                     </div>
                   </Link>
@@ -171,18 +163,21 @@ export default function CommunitiesPage() {
                     </div>
                   </div>
                 </Card>
-              </motion.div>
             ))}
           </div>
         )}
       </div>
 
       {/* FAB */}
-      <Link to="/communities/create" className="fixed bottom-6 right-6 z-50 md:hidden">
-        <motion.div whileTap={{ scale: 0.9 }} className="w-14 h-14 rounded-full bg-brand-coral text-white shadow-lg flex items-center justify-center">
+      <Link
+        to="/communities/create"
+        aria-label="Create a community"
+        className="fixed bottom-6 right-6 z-50 md:hidden"
+      >
+        <div className="w-14 h-14 rounded-full bg-brand-coral text-white shadow-lg flex items-center justify-center">
           <Plus size={24} />
-        </motion.div>
+        </div>
       </Link>
     </Layout>
-  )
+  );
 }

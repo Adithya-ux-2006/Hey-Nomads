@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, Calendar, Home, Users, Music, Gamepad2, Dumbbell, Utensils, Plane, Laptop, Palette, BookOpen, Heart, ChevronRight, ChevronLeft } from 'lucide-react';
+import { MapPin, Calendar, Home, Users, Music, Gamepad2, Dumbbell, Utensils, Plane, Laptop, Palette, BookOpen, Heart, ChevronLeft } from 'lucide-react';
 import { apiFetch } from '../lib/api';
+import { InlineError } from '../components/UI';
 
 const INTERESTS = [
   { id: 'sports', label: 'Sports', icon: '⚽' },
@@ -43,6 +44,7 @@ export default function OnboardingPage() {
     interests: [],
   });
   const [loading, setLoading] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
 
   const update = (key, value) => setData(prev => ({ ...prev, [key]: value }));
   const toggleInterest = (id) => {
@@ -87,18 +89,18 @@ export default function OnboardingPage() {
       content: (
         <div className="space-y-5 mt-6">
           <div>
-            <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-2 block">City</label>
+            <label className="text-sm font-semibold text-text-primary mb-2 block">City</label>
             <div className="flex flex-wrap gap-2">
               {CITIES.map(city => (
                 <button key={city} onClick={() => update('moving_to', city)}
-                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${data.moving_to === city ? 'bg-brand-coral text-white' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/30'}`}>
+                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${data.moving_to === city ? 'bg-brand-coral text-white' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral'}`}>
                   {city}
                 </button>
               ))}
             </div>
           </div>
           <div>
-            <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-2 block">Moving date</label>
+            <label className="text-sm font-semibold text-text-primary mb-2 block">Moving date</label>
             <input type="date" value={data.moving_date} onChange={e => update('moving_date', e.target.value)}
               className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral transition-all" />
           </div>
@@ -112,7 +114,7 @@ export default function OnboardingPage() {
       content: (
         <div className="space-y-6 mt-6">
           <div>
-            <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-2 block">
+            <label className="text-sm font-semibold text-text-primary mb-2 block">
               Monthly Budget: ₹{data.budget.toLocaleString()}
             </label>
             <input type="range" min={5000} max={100000} step={1000} value={data.budget}
@@ -120,11 +122,11 @@ export default function OnboardingPage() {
             <div className="flex justify-between text-xs text-text-muted mt-1"><span>₹5K</span><span>₹1L</span></div>
           </div>
           <div>
-            <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-2 block">Room type</label>
+            <label className="text-sm font-semibold text-text-primary mb-2 block">Room type</label>
             <div className="flex flex-wrap gap-2">
               {['shared', '1BHK', '2BHK', 'studio'].map(t => (
                 <button key={t} onClick={() => update('flat_type', t)}
-                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${data.flat_type === t ? 'bg-brand-coral text-white' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/30'}`}>
+                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${data.flat_type === t ? 'bg-brand-coral text-white' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral'}`}>
                   {t}
                 </button>
               ))}
@@ -148,7 +150,7 @@ export default function OnboardingPage() {
             { key: 'diet', label: 'Diet', options: [{v:'veg',l:'Vegetarian'},{v:'eggetarian',l:'Eggetarian'},{v:'nonveg',l:'Non-veg'},{v:'vegan',l:'Vegan'}], type: 'choice' },
           ].map(field => (
             <div key={field.key}>
-              <label className="text-xs font-bold tracking-wider text-text-muted uppercase mb-2 block">{field.label}</label>
+              <label className="text-sm font-semibold text-text-primary mb-2 block">{field.label}</label>
               {field.type === 'range' ? (
                 <div>
                   <input type="range" min={1} max={5} value={data[field.key]}
@@ -161,7 +163,7 @@ export default function OnboardingPage() {
                 <div className="flex flex-wrap gap-2">
                   {field.options.map(o => (
                     <button key={o.v} onClick={() => update(field.key, o.v)}
-                      className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${data[field.key] === o.v ? 'bg-brand-coral text-white' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/30'}`}>
+                      className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${data[field.key] === o.v ? 'bg-brand-coral text-white' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral'}`}>
                       {o.l}
                     </button>
                   ))}
@@ -180,7 +182,7 @@ export default function OnboardingPage() {
         <div className="flex flex-wrap gap-3 mt-6">
           {INTERESTS.map(int => (
             <button key={int.id} onClick={() => toggleInterest(int.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold transition-all ${data.interests.includes(int.id) ? 'bg-brand-coral text-white shadow-coral' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/30'}`}>
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold transition-all ${data.interests.includes(int.id) ? 'bg-brand-coral text-white' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral'}`}>
               <span>{int.icon}</span>
               <span>{int.label}</span>
             </button>
@@ -192,11 +194,12 @@ export default function OnboardingPage() {
 
   const handleSubmit = async () => {
     setLoading(true);
+    setSubmitError(null);
     try {
       await apiFetch('/onboarding', { method: 'POST', body: data });
       navigate('/discover', { replace: true });
     } catch (err) {
-      console.error('Onboarding error:', err);
+      setSubmitError(err);
     } finally {
       setLoading(false);
     }
@@ -204,42 +207,79 @@ export default function OnboardingPage() {
 
   return (
     <div className="min-h-screen bg-surface-bg flex flex-col">
-      {/* Progress */}
-      <div className="px-6 pt-8">
-        <div className="flex items-center gap-2 mb-2">
-          {steps.map((_, i) => (
-            <div key={i} className={`h-1.5 flex-1 rounded-full transition-all ${i <= step ? 'bg-brand-coral' : 'bg-surface-border'}`} />
-          ))}
+      <div className="w-full max-w-2xl mx-auto px-5 sm:px-6 flex flex-col min-h-screen">
+      {/* Progress: a plain "Step 2 of 5" line reads honestly. Segmented bars
+          plus a counter is decoration pretending to be information. */}
+      <div className="pt-7 pb-1">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-semibold text-text-primary">
+            Step {step + 1} of {steps.length}
+          </p>
+          <p className="text-sm text-text-muted">{steps[step].subtitle}</p>
         </div>
-        <p className="text-xs text-text-muted font-medium">Step {step + 1} of {steps.length}</p>
+        <div
+          className="h-1.5 bg-surface-border rounded-full overflow-hidden"
+          role="progressbar"
+          aria-valuenow={step + 1}
+          aria-valuemin={1}
+          aria-valuemax={steps.length}
+          aria-label="Onboarding progress"
+        >
+          <div
+            className="h-full bg-brand-coral rounded-full transition-[width] duration-300"
+            style={{ width: `${((step + 1) / steps.length) * 100}%` }}
+          />
+        </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 px-6 py-6">
+      {/* Content. Slide is meaningful here: it answers "did my click land?" */}
+      <div className="flex-1 py-7">
         <AnimatePresence mode="wait">
-          <motion.div key={step} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-            <h1 className="text-2xl font-display font-bold text-text-primary">{steps[step].title}</h1>
-            <p className="text-text-secondary mt-1">{steps[step].subtitle}</p>
+          <motion.div
+            key={step}
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -16 }}
+            transition={{ duration: 0.2 }}
+          >
+            <h1 className="text-2xl sm:text-3xl font-bold text-text-primary">{steps[step].title}</h1>
             {steps[step].content}
           </motion.div>
         </AnimatePresence>
       </div>
 
-      {/* Navigation */}
-      <div className="px-6 pb-8 flex gap-3">
-        {step > 0 && (
-          <button onClick={() => setStep(s => s - 1)}
-            className="flex items-center gap-2 px-6 py-3 rounded-xl border border-surface-border text-text-secondary font-semibold hover:bg-surface-muted transition-all">
-            <ChevronLeft size={18} /> Back
+      {/* Navigation. Buttons name the action; no trailing arrow. */}
+      <div className="pb-7 pt-2">
+        <InlineError error={submitError} />
+        <div className="flex gap-3 mt-3">
+          {step > 0 && (
+            <button
+              type="button"
+              onClick={() => setStep(s => s - 1)}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl border border-surface-border text-text-secondary font-semibold hover:bg-surface-muted transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral"
+            >
+              <ChevronLeft size={18} /> Back
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => step < steps.length - 1 ? setStep(s => s + 1) : handleSubmit()}
+            disabled={loading || (step === 4 && data.interests.length < 3)}
+            className="flex-1 px-5 py-3 rounded-xl bg-brand-coral hover:bg-brand-coral-dark text-white font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral focus-visible:ring-offset-2"
+          >
+            {loading
+              ? 'Saving your answers'
+              : step === steps.length - 1
+                ? 'Finish and see matches'
+                : 'Continue'}
           </button>
+        </div>
+        {step === 4 && data.interests.length < 3 && (
+          <p className="text-sm text-text-muted mt-2 text-center">
+            Pick {3 - data.interests.length} more so we can find people who share them.
+          </p>
         )}
-        <button
-          onClick={() => step < steps.length - 1 ? setStep(s => s + 1) : handleSubmit()}
-          disabled={loading || (step === 4 && data.interests.length < 3)}
-          className="flex-1 flex items-center justify-center gap-2 bg-brand-coral hover:bg-brand-coral-dark text-white font-bold py-3.5 rounded-xl transition-all shadow-coral disabled:opacity-50">
-          {loading ? 'Saving...' : step === steps.length - 1 ? 'Get Started' : 'Continue'}
-          {step < steps.length - 1 && !loading && <ChevronRight size={18} />}
-        </button>
+      </div>
       </div>
     </div>
   );

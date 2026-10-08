@@ -1,17 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Users, MapPin, Calendar, Clock, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Users, MapPin, Calendar, Clock } from 'lucide-react';
 import Layout from '../components/Layout';
 import { apiFetch } from '../lib/api';
-import { Card, Badge, Button, Spinner, SectionHeader } from '../components/UI';
+import { useAsync } from '../lib/useAsync';
+import { Card, Badge, Button, Spinner, SectionHeader, ErrorState, InlineError } from '../components/UI';
 import UserAvatar from '../components/UserAvatar';
 
-const FadeIn = ({ children, delay = 0, className = '' }) => (
+// One deliberate page-level reveal, not a fade-up per section.
+const PageReveal = ({ children, className = '' }) => (
   <motion.div
-    initial={{ opacity: 0, y: 16 }}
+    initial={{ opacity: 0, y: 8 }}
     animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.4, delay }}
+    transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
     className={className}
   >
     {children}
@@ -22,20 +24,17 @@ const categoryVariant = { city: 'teal', interest: 'coral', culture: 'amber', sup
 
 export default function CommunityDetailPage() {
   const { id } = useParams();
-  const [community, setCommunity] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { data: community, setData: setCommunity, loading, error, retry } = useAsync(
+    () => apiFetch(`/communities/${id}`),
+    [id]
+  );
   const [toggling, setToggling] = useState(false);
-
-  useEffect(() => {
-    apiFetch(`/communities/${id}`)
-      .then(setCommunity)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [id]);
+  const [toggleError, setToggleError] = useState(null);
 
   const toggleMembership = async () => {
     if (!community || toggling) return;
     setToggling(true);
+    setToggleError(null);
     try {
       const endpoint = community.is_member ? 'leave' : 'join';
       await apiFetch(`/communities/${id}/${endpoint}`, { method: 'POST' });
@@ -44,7 +43,9 @@ export default function CommunityDetailPage() {
         is_member: !prev.is_member,
         member_count: prev.is_member ? prev.member_count - 1 : prev.member_count + 1,
       }));
-    } catch {}
+    } catch (err) {
+      setToggleError(err);
+    }
     setToggling(false);
   };
 
@@ -53,6 +54,29 @@ export default function CommunityDetailPage() {
       <Layout>
         <div className="max-w-3xl mx-auto px-4 pt-8 flex justify-center py-24">
           <Spinner size="lg" />
+        </div>
+      </Layout>
+    );
+  }
+
+  if (error) {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 pt-16">
+          <ErrorState what="community" error={error} onRetry={retry} />
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!community) {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 pt-16 text-center">
+          <p className="text-text-muted">That community no longer exists.</p>
+          <Link to="/communities" className="inline-block mt-4 text-sm font-semibold text-brand-coral">
+            Back to communities
+          </Link>
         </div>
       </Layout>
     );
@@ -77,13 +101,12 @@ export default function CommunityDetailPage() {
   return (
     <Layout>
       <div className="max-w-3xl mx-auto px-4 pt-6 pb-24 space-y-8">
-        <FadeIn>
-          <Link to="/communities" className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-brand-coral transition-colors mb-4">
+        <PageReveal>
+                  <Link to="/communities" className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-brand-coral transition-colors mb-4">
             <ArrowLeft size={16} /> Back to communities
           </Link>
-        </FadeIn>
 
-        <FadeIn delay={0.05}>
+                  <InlineError error={toggleError} />
           <Card className="overflow-hidden">
             <div className="h-40 bg-gradient-to-br from-brand-teal/10 to-brand-teal/5 flex items-center justify-center">
               {community.image ? (
@@ -118,10 +141,9 @@ export default function CommunityDetailPage() {
               </Button>
             </div>
           </Card>
-        </FadeIn>
 
         {events.length > 0 && (
-          <FadeIn delay={0.15}>
+          <>
             <SectionHeader title="Upcoming events" subtitle={`${events.length} event${events.length !== 1 ? 's' : ''}`} />
             <div className="space-y-3 mt-3">
               {events.map(event => (
@@ -149,11 +171,11 @@ export default function CommunityDetailPage() {
                 </Card>
               ))}
             </div>
-          </FadeIn>
+          </>
         )}
 
         {members.length > 0 && (
-          <FadeIn delay={0.25}>
+          <>
             <SectionHeader title="Members" subtitle={`${members.length} member${members.length !== 1 ? 's' : ''}`} />
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mt-3">
               {members.map(member => (
@@ -166,15 +188,14 @@ export default function CommunityDetailPage() {
                 </Card>
               ))}
             </div>
-          </FadeIn>
+          </>
         )}
 
-        <FadeIn delay={0.35}>
-          <SectionHeader title="About" />
+        <SectionHeader title="About" />
           <Card className="p-5">
             <p className="text-text-muted text-sm leading-relaxed whitespace-pre-line">{community.description}</p>
           </Card>
-        </FadeIn>
+        </PageReveal>
       </div>
     </Layout>
   );

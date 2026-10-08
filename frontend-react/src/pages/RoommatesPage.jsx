@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
-import { apiFetch, auth } from '../lib/api'
-import { Card, CompatibilityBadge, Badge, Spinner, EmptyState } from '../components/UI'
+import { apiFetch } from '../lib/api'
+import { useAsync } from '../lib/useAsync'
+import { Card, CompatibilityBadge, Badge, Spinner, EmptyState, ErrorState, InlineError, Button } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -112,82 +113,77 @@ function RoommateCard({ roommate, onSwipe, shortlisted, onShortlist }) {
 }
 
 export default function RoommatesPage() {
-  const [roommates, setRoommates] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [swipedIds, setSwipedIds] = useState(new Set())
-  const [shortlistedIds, setShortlistedIds] = useState(new Set())
-  const [showFilters, setShowFilters] = useState(false)
-  const [city, setCity] = useState('')
-  const [budgetMin, setBudgetMin] = useState('')
-  const [budgetMax, setBudgetMax] = useState('')
+  const [swipedIds, setSwipedIds] = useState(new Set());
+  const [shortlistedIds, setShortlistedIds] = useState(new Set());
+  const [showFilters, setShowFilters] = useState(false);
+  const [city, setCity] = useState('');
+  const [budgetMin, setBudgetMin] = useState('');
+  const [budgetMax, setBudgetMax] = useState('');
+  const [actionError, setActionError] = useState(null);
 
-  const fetchRoommates = useCallback(async () => {
-    setLoading(true)
-    try {
-      const params = new URLSearchParams()
-      if (city) params.set('city', city)
-      if (budgetMin) params.set('budget_min', budgetMin)
-      if (budgetMax) params.set('budget_max', budgetMax)
-      const qs = params.toString()
-      const data = await apiFetch(`/roommates/recommended${qs ? `?${qs}` : ''}`)
-      setRoommates(data)
-      setSwipedIds(new Set())
-    } catch (err) {
-      console.error('Failed to fetch roommates', err)
-    } finally {
-      setLoading(false)
-    }
-  }, [city, budgetMin, budgetMax])
+  const params = new URLSearchParams();
+  if (city) params.set('city', city);
+  if (budgetMin) params.set('budget_min', budgetMin);
+  if (budgetMax) params.set('budget_max', budgetMax);
+  const qs = params.toString();
 
-  const fetchShortlist = useCallback(async () => {
-    try {
-      const data = await apiFetch('/shortlist')
-      setShortlistedIds(new Set(data.map(u => u.id)))
-    } catch {}
-  }, [])
+  const {
+    data: roommates, loading, error, retry,
+  } = useAsync(() => apiFetch(`/roommates/recommended${qs ? `?${qs}` : ''}`), [qs]);
+
+  const { data: initialShortlist, error: shortlistError } = useAsync(
+    () => apiFetch('/shortlist').then(d => d.map(u => u.id)),
+    []
+  );
 
   useEffect(() => {
-    if (auth.token) {
-      fetchRoommates()
-      fetchShortlist()
-    }
-  }, [fetchRoommates, fetchShortlist])
+    if (Array.isArray(initialShortlist)) setShortlistedIds(new Set(initialShortlist));
+  }, [initialShortlist]);
 
-  const currentRoommate = roommates.find(r => !swipedIds.has(r.id))
+  const list = Array.isArray(roommates) ? roommates : [];
+  const currentRoommate = list.find(r => !swipedIds.has(r.id));
 
   const handleSwipe = async (action) => {
-    if (!currentRoommate) return
-    setSwipedIds(prev => new Set(prev).add(currentRoommate.id))
+    if (!currentRoommate) return;
+    setActionError(null);
+    setSwipedIds(prev => new Set(prev).add(currentRoommate.id));
     try {
       await apiFetch('/swipe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetId: currentRoommate.id, action }),
-      })
-    } catch {}
-  }
+      });
+    } catch (err) {
+      setSwipedIds(prev => { const next = new Set(prev); next.delete(currentRoommate.id); return next; });
+      setActionError(err);
+    }
+  };
 
   const handleShortlist = async () => {
-    if (!currentRoommate) return
-    const isShortlisted = shortlistedIds.has(currentRoommate.id)
+    if (!currentRoommate) return;
+    setActionError(null);
+    const isShortlisted = shortlistedIds.has(currentRoommate.id);
     setShortlistedIds(prev => {
-      const next = new Set(prev)
-      if (isShortlisted) next.delete(currentRoommate.id)
-      else next.add(currentRoommate.id)
-      return next
-    })
-    if (!isShortlisted) {
-      try {
-        await apiFetch('/shortlist', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ targetId: currentRoommate.id }),
-        })
-      } catch {}
+      const next = new Set(prev);
+      if (isShortlisted) next.delete(currentRoommate.id); else next.add(currentRoommate.id);
+      return next;
+    });
+    try {
+      await apiFetch('/shortlist', {
+        method: isShortlisted ? 'DELETE' : 'POST',
+        body: { targetId: currentRoommate.id },
+      });
+    } catch (err) {
+      setShortlistedIds(prev => {
+        const next = new Set(prev);
+        if (isShortlisted) next.add(currentRoommate.id); else next.delete(currentRoommate.id);
+        return next;
+      });
+      setActionError(err);
     }
-  }
+  };
 
-  const cities = [...new Set(roommates.map(r => r.city).filter(Boolean))]
+  const cities = [...new Set(list.map(r => r.city).filter(Boolean))];
 
   return (
     <Layout>
@@ -251,7 +247,7 @@ export default function RoommatesPage() {
                   onClick={fetchRoommates}
                   className="w-full bg-brand-teal text-white rounded-lg py-2 text-sm font-medium hover:opacity-90 transition-opacity"
                 >
-                  Apply Filters
+                  Show matches
                 </button>
               </Card>
             </motion.div>
@@ -261,34 +257,39 @@ export default function RoommatesPage() {
             <div className="flex justify-center py-20">
               <Spinner size="lg" />
             </div>
+          ) : error ? (
+            <ErrorState what="matches" error={error} onRetry={retry} />
           ) : currentRoommate ? (
-            <AnimatePresence mode="wait">
-              <RoommateCard
-                key={currentRoommate.id}
-                roommate={currentRoommate}
-                onSwipe={handleSwipe}
-                shortlisted={shortlistedIds.has(currentRoommate.id)}
-                onShortlist={handleShortlist}
-              />
-            </AnimatePresence>
+            <>
+              <InlineError error={actionError} />
+              <AnimatePresence mode="wait">
+                <RoommateCard
+                  key={currentRoommate.id}
+                  roommate={currentRoommate}
+                  onSwipe={handleSwipe}
+                  shortlisted={shortlistedIds.has(currentRoommate.id)}
+                  onShortlist={handleShortlist}
+                />
+              </AnimatePresence>
+            </>
           ) : (
             <EmptyState
-              title="No more roommates"
-              description="You've seen everyone. Try adjusting your filters or check back later."
+              title="You've seen everyone"
+              description={shortlistError ? 'We could not load your bookmarks, so they may be out of date.' : 'Try widening your filters, or check back when more people join your city.'}
               action={
-                <button
-                  onClick={() => { setSwipedIds(new Set()); fetchRoommates() }}
-                  className="mt-4 bg-brand-coral text-white rounded-lg px-6 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
-                >
-                  Refresh
-                </button>
+                <div className="flex gap-3">
+                  <Button onClick={retry}>Load more matches</Button>
+                  <Button variant="secondary" onClick={() => { setCity(''); setBudgetMin(''); setBudgetMax(''); setSwipedIds(new Set()); }}>
+                    Clear filters and start over
+                  </Button>
+                </div>
               }
             />
           )}
 
           {currentRoommate && (
             <div className="text-center mt-6 text-sm text-muted">
-              {roommates.filter(r => !swipedIds.has(r.id)).length} roommates remaining
+              {list.filter(r => !swipedIds.has(r.id)).length} roommates remaining
             </div>
           )}
         </div>
