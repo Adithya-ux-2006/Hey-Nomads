@@ -6,7 +6,7 @@ import { Card, Spinner, EmptyState, Button } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Heart, X, Bookmark, SlidersHorizontal, ChevronDown, MapPin, Briefcase } from 'lucide-react'
+import { SlidersHorizontal } from 'lucide-react'
 
 const BREAKDOWN_LABELS = {
   lifestyle: 'Lifestyle',
@@ -67,21 +67,20 @@ export default function RoommatesPage() {
     if (!targetId) return
     setActionError(null)
     const isShortlisted = shortlistedIds.has(targetId)
-    const next = new Set(prev => {
-      // prev is injected by React; we just return the new set below
+    const addToShortlist = () => setShortlistedIds(prev => {
+      const next = new Set(prev)
+      next.add(targetId)
+      return next
+    })
+    const removeFromShortlist = () => setShortlistedIds(prev => {
+      const next = new Set(prev)
+      next.delete(targetId)
+      return next
     })
     if (isShortlisted) {
-      setShortlistedIds(prev => {
-        const newSet = new Set(prev)
-        newSet.add(targetId)
-        return newSet
-      })
+      removeFromShortlist()
     } else {
-      setShortlistedIds(prev => {
-        const newSet = new Set(prev)
-        newSet.delete(targetId)
-        return newSet
-      })
+      addToShortlist()
     }
     try {
       await apiFetch('/shortlist', {
@@ -90,17 +89,9 @@ export default function RoommatesPage() {
       })
     } catch (err) {
       if (isShortlisted) {
-        setShortlistedIds(prev => {
-          const newSet = new Set(prev)
-          newSet.add(targetId)
-          return newSet
-        })
+        addToShortlist()
       } else {
-        setShortlistedIds(prev => {
-          const newSet = new Set(prev)
-          newSet.delete(targetId)
-          return newSet
-        })
+        removeFromShortlist()
       }
       setActionError(err)
     }
@@ -125,58 +116,56 @@ export default function RoommatesPage() {
             </button>
           </div>
 
-          {showFilters && (
-            <motion
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="mb-6 overflow-hidden"
-            >
-              <Card className="p-4 space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label htmlFor="f-city" className="text-xs font-medium text-secondary block mb-1">City</label>
-                    <div className="relative">
-                      <select
-                        id="f-city"
-                        value={city}
-                        onChange={(e) => setCity(e.target.value)}
-                        className="w-full appearance-none bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-primary pr-8"
-                      >
-                        <option value="">All cities</option>
-                        {cities.map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                      <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
-                    </div>
-                  </div>
-                  <div>
-                    <label htmlFor="f-budget-min" className="text-xs font-medium text-secondary block mb-1">Min budget</label>
-                    <input
-                      id="f-budget-min"
-                      type="number"
-                      min={0}
-                      value={budgetMin}
-                      onChange={(e) => setBudgetMin(e.target.value)}
-                      placeholder="No minimum"
-                      className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-primary"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="f-budget-max" className="text-xs font-medium text-secondary block mb-1">Max budget</label>
-                    <input
-                      id="f-budget-max"
-                      type="number"
-                      min={0}
-                      value={budgetMax}
-                      onChange={(e) => setBudgetMax(e.target.value)}
-                      placeholder="No maximum"
-                      className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-primary"
-                    />
+          <motion
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="mb-6 overflow-hidden"
+          >
+            <Card className="p-4 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label htmlFor="f-city" className="text-xs font-medium text-secondary block mb-1">City</label>
+                  <div className="relative">
+                    <select
+                      id="f-city"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      className="w-full appearance-none bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-primary pr-8"
+                    >
+                      <option value="">All cities</option>
+                      {cities.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
                   </div>
                 </div>
-              </Card>
-            </motion>
-          )}
+                <div>
+                  <label htmlFor="f-budget-min" className="text-xs font-medium text-secondary block mb-1">Min budget</label>
+                  <input
+                    id="f-budget-min"
+                    type="number"
+                    min={0}
+                    value={budgetMin}
+                    onChange={(e) => setBudgetMin(e.target.value)}
+                    placeholder="No minimum"
+                    className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-primary"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="f-budget-max" className="text-xs font-medium text-secondary block mb-1">Max budget</label>
+                  <input
+                    id="f-budget-max"
+                    type="number"
+                    min={0}
+                    value={budgetMax}
+                    onChange={(e) => setBudgetMax(e.target.value)}
+                    placeholder="No maximum"
+                    className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-primary"
+                  />
+                </div>
+              </div>
+            </Card>
+          </motion>
 
           {loading ? (
             <div className="flex justify-center py-20">
