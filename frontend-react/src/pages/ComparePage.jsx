@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Scale, AlertTriangle, FileText, Calendar, TrendingUp, TrendingDown, Zap } from 'lucide-react';
-import { resolveMediaUrl, apiFetch } from '../lib/api';
+import { apiFetch } from '../lib/api';
 import Layout from '../components/Layout';
-import { Button, Card, Spinner, EmptyState } from '../components/UI';
+import { Button, ButtonLink, Card, Spinner, EmptyState } from '../components/UI';
+import UserAvatar from '../components/UserAvatar';
 
 
 // Animation presets used on this page, previously a shared 299-line module
@@ -33,7 +34,7 @@ const MetricsBar = ({ label, val1, val2, name1 = 'User 1', name2 = 'User 2', max
     <motion.div variants={staggerItem} className="space-y-3">
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-2">
-          {Icon && <Icon size={16} className="text-brand-primary" />}
+          {Icon && <Icon size={16} className="text-brand-coral" />}
           <span className="text-sm font-semibold text-text-primary">{label}</span>
         </div>
         <motion.div
@@ -54,13 +55,13 @@ const MetricsBar = ({ label, val1, val2, name1 = 'User 1', name2 = 'User 2', max
           initial={{ width: 0 }}
           animate={{ width: `${(safeVal1 / max) * 100}%` }}
           transition={{ duration: 0.8, delay: 0.1 }}
-          className="h-full bg-gradient-to-r from-brand-primary to-brand-warm"
+          className="h-full bg-gradient-to-r from-brand-coral to-brand-amber"
         />
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${(safeVal2 / max) * 100}%` }}
           transition={{ duration: 0.8, delay: 0.2 }}
-          className="h-full bg-brand-accent/60"
+          className="h-full bg-brand-teal"
         />
       </div>
 
@@ -181,6 +182,31 @@ const ComparePage = () => {
     };
   }, [userA, userB]);
 
+  // Overall fit from the same inputs the bars show. The previous copy claimed
+  // "both profiles look compatible" whatever the numbers actually were.
+  const overallScore = useMemo(() => {
+    if (!userA || !userB) return 0;
+    let total = 0;
+    let counted = 0;
+    const add = (a, b, max) => {
+      // Normalised to 0-100. Contributing raw 0-5 here against a 0-100 budget
+      // term made two identical profiles average to 53%.
+      total += 100 * (1 - Math.abs((parseInt(a, 10) || 0) - (parseInt(b, 10) || 0)) / max);
+      counted++;
+    };
+    add(userA.cleanliness, userB.cleanliness, 5);
+    if (userA.noise_level && userB.noise_level) add(userA.noise_level, userB.noise_level, 5);
+    if (userA.occupants && userB.occupants) add(userA.occupants, userB.occupants, 6);
+    const bA = parseInt(userA.budget, 10) || 0;
+    const bB = parseInt(userB.budget, 10) || 0;
+    const maxBudget = Math.max(bA, bB);
+    if (maxBudget > 0) {
+      total += 100 * (1 - Math.abs(bA - bB) / maxBudget);
+      counted++;
+    }
+    return counted ? Math.round(total / counted) : 0;
+  }, [userA, userB]);
+
   // ── Loading State ──────────────────────────────────────────────
   if (loading) {
     return (
@@ -242,7 +268,7 @@ const ComparePage = () => {
               animate={{ rotate: [0, -5, 5, 0] }}
               transition={{ repeat: Infinity, duration: 3 }}
             >
-              <Scale size={20} className="text-brand-primary" />
+              <Scale size={20} className="text-brand-coral" />
             </motion.div>
             <h1 className="font-display font-bold text-2xl text-text-primary">
               Compare Profiles
@@ -271,25 +297,26 @@ const ComparePage = () => {
                   initial={{ scale: 0.8 }}
                   animate={{ scale: 1 }}
                   transition={{ delay: idx * 0.1, type: 'spring', stiffness: 200 }}
-                  className="w-24 h-24 rounded-2xl mx-auto mb-4 overflow-hidden border-2 border-brand-primary shadow-lg"
+                  className="w-24 h-24 rounded-2xl mx-auto mb-4 overflow-hidden border-2 border-brand-coral shadow-lg"
                 >
-                  <img
-                    src={
-                      profile?.profile_image
-                        ? resolveMediaUrl(profile.profile_image)
-                        : `https://via.placeholder.com/96?text=${encodeURIComponent(profile?.name || 'User')}`
-                    }
-                    className="w-full h-full object-cover"
-                    alt={profile?.name || 'User'}
+                  {/* The shared avatar initials, not a placeholder image service. Sending
+                      real user names to a third-party host for a grey square
+                      with text on it was the wrong trade. */}
+                  <UserAvatar
+                    src={profile?.profile_image}
+                    name={profile?.name}
+                    size="xl"
                   />
                 </motion.div>
                 <h2 className="font-display font-bold text-lg text-text-primary">
                   {profile?.name || 'Unknown'}
                 </h2>
-                <p className="text-xs text-text-muted uppercase font-semibold mt-1">
-                  {profile?.occupation || 'Professional'}
-                </p>
-                <p className="text-xs text-text-muted mt-2">{profile?.city || 'Location not specified'}</p>
+                {profile?.occupation && (
+                  <p className="text-xs text-text-muted uppercase font-semibold mt-1">
+                    {profile.occupation}
+                  </p>
+                )}
+                {profile?.city && <p className="text-xs text-text-muted mt-2">{profile.city}</p>}
               </Card>
             </motion.div>
           ))}
@@ -306,7 +333,7 @@ const ComparePage = () => {
           <motion.div variants={staggerItem}>
             <Card className="p-8">
               <div className="flex items-center gap-3 mb-8">
-                <Zap size={20} className="text-brand-primary" />
+                <Zap size={20} className="text-brand-coral" />
                 <h3 className="font-display font-bold text-lg text-text-primary">
                   Lifestyle Alignment
                 </h3>
@@ -363,7 +390,7 @@ const ComparePage = () => {
                   : 'border-status-error/30 bg-status-error/5'
               }`}>
                 <div className="flex items-center gap-3 mb-6">
-                  <Calendar size={20} className="text-brand-primary" />
+                  <Calendar size={20} className="text-brand-coral" />
                   <h4 className="font-display font-bold text-text-primary">
                     Move-in Compatibility
                   </h4>
@@ -431,30 +458,31 @@ const ComparePage = () => {
 
             {/* Next Steps */}
             <motion.div variants={staggerItem}>
-              <Card className="p-8 bg-gradient-to-br from-brand-secondary/20 to-brand-primary/10 border border-brand-primary/20">
+              <Card className="p-8 bg-gradient-to-br from-brand-teal/10 to-brand-coral/5 border border-brand-coral/20">
                 <div className="flex items-center gap-3 mb-6">
-                  <FileText size={20} className="text-brand-primary" />
+                  <FileText size={20} className="text-brand-coral" />
                   <h4 className="font-display font-bold text-text-primary">
                     Next Steps
                   </h4>
                 </div>
 
                 <p className="text-sm text-text-secondary leading-relaxed mb-6">
-                  Both profiles look compatible! The next step is drafting a shared roommate agreement to establish expectations and terms.
+                  {overallScore >= 70
+                    ? `You two score ${overallScore}% overall. If you both want to go ahead, drafting a shared agreement is the next step.`
+                    : `You two score ${overallScore}% overall — worth talking first. You can still draft an agreement now if you would rather have it in writing.`}
                 </p>
 
                 <motion.div
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
-                  <Link
+                  <ButtonLink
                     to={userB?.id ? `/agreement/${userB.id}` : '/shortlist'}
-                    className="block"
+                    variant="primary"
+                    className="w-full"
                   >
-                    <Button variant="primary" className="w-full">
-                      <FileText size={16} /> Create Agreement
-                    </Button>
-                  </Link>
+                    <FileText size={16} /> Create Agreement
+                  </ButtonLink>
                 </motion.div>
 
                 <p className="text-xs text-text-muted text-center mt-4">

@@ -54,18 +54,21 @@ export default function LoginPage() {
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="text-sm font-semibold text-text-primary mb-1.5 block">Email</label>
+              <label htmlFor="login-email" className="text-sm font-semibold text-text-primary mb-1.5 block">Email</label>
               <input
-                type="email" value={email} onChange={e => setEmail(e.target.value)} required
+                id="login-email"
+                type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email"
                 className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
                 placeholder="you@example.com"
               />
             </div>
             <div>
-              <label className="text-sm font-semibold text-text-primary mb-1.5 block">Password</label>
+              <label htmlFor="login-password" className="text-sm font-semibold text-text-primary mb-1.5 block">Password</label>
               <div className="relative">
                 <input
-                  type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} required
+                  id="login-password"
+                  type={showPass ? 'text' : 'password'} value={password}
+                  onChange={e => setPassword(e.target.value)} required autoComplete="current-password"
                   className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 pr-10 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
                 placeholder="Your password"
                 />

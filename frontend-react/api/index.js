@@ -14,7 +14,12 @@ Sentry.init({
 });
 
 const { Pool } = pg;
-const JWT_SECRET = process.env.JWT_SECRET || 'hey-nomads-jwt-change-me';
+// No fallback. A hardcoded default would mean a missing env var silently
+// produces forgeable tokens, which is exactly the failure you would not notice.
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET is not set. Refusing to start: tokens would be forgeable.');
+}
 
 function signToken(userId) {
   return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '30d' });
@@ -48,6 +53,50 @@ const query = (sql, params) => pool.query(sql, params).catch((err) => {
   throw err;
 });
 
+// Rate limit for the two endpoints an attacker actually hammers.
+//
+// ponytail: in-process Map, so it resets on cold start and is per-instance.
+// That is fine for brute-force throttling on a single box but not a distributed
+// limit. Upgrade to Upstash/Redis only if you're running many instances or see
+// abuse in Sentry.
+function rateLimit({ windowMs, max, message }) {
+  const hits = new Map();
+  return (req, res, next) => {
+    // Keyed on email alone, deliberately. Locking on IP would let one attacker
+    // deny service to every user behind a shared NAT (offices, campuses, mobile
+    // carriers). Passwords are cheap to hash, so the work of guessing stays
+    // bounded by bcrypt regardless of how the attempts are keyed.
+    const key = String(req.body?.email || '').toLowerCase();
+    const now = Date.now();
+    const recent = (hits.get(key) || []).filter(t => now - t < windowMs);
+    if (recent.length >= max) {
+      res.set('Retry-After', Math.ceil(windowMs / 1000));
+      return res.status(429).json({ error: message });
+    }
+    recent.push(now);
+    hits.set(key, recent);
+    // Drop stale keys so the Map can't grow without bound.
+    if (hits.size > 5000) {
+      for (const [k, times] of hits) {
+        if (!times.some(t => now - t < windowMs)) hits.delete(k);
+      }
+    }
+    next();
+  };
+}
+
+const loginLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Too many sign-in attempts. Try again in a few minutes.',
+});
+
+const registerLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: 'Too many accounts created from this device. Try again later.',
+});
+
 const app = express();
 
 // A 500 that never reaches a log is invisible. This makes every unhandled
@@ -79,35 +128,60 @@ const REQUIRED_TABLES = ['users', 'profiles', 'communities', 'events', 'cities',
 function dbTarget() {
   try {
     const u = new URL(process.env.DATABASE_URL);
+    // Host and database name only, never the password. Enough to tell "pointed
+    // at the wrong database" from "working", which is the whole point here.
     return { host: u.hostname, port: u.port || 5432, database: u.pathname.replace(/^\//, '') };
   } catch {
     return null;
   }
 }
 
-app.get('/api/health', async (_req, res) => {
+app.get('/api/health', async (req, res) => {
   const started = Date.now();
-  const base = { checkedAt: new Date().toISOString(), ...dbTarget() };
+  // Verbose detail (host, db name, role, latency) is useful in CI and in your own
+  // browser but is reconnaissance if public. Require a token for it; the bare
+  // liveness signal stays open so external monitors and the cron still work.
+  const verbose = req.get('x-health-token') === process.env.HEALTH_TOKEN;
+  const base = verbose ? { checkedAt: new Date().toISOString(), ...dbTarget() } : {};
   try {
     if (!process.env.DATABASE_URL) {
       return res.status(503).json({ ...base, ok: false, error: 'DATABASE_URL is not set' });
     }
-    const meta = await query('SELECT current_database() AS database, current_user AS "user"');
-    const { rows } = await query(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
-    );
-    const missing = REQUIRED_TABLES.filter(t => !rows.some(r => r.table_name === t));
+    let missing = [];
+    try {
+      if (verbose) {
+        const { rows } = await query(
+          "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+        );
+        missing = REQUIRED_TABLES.filter(t => !rows.some(r => r.table_name === t));
+      } else {
+        // Without the token we still confirm the pool answers, we just don't
+        // report which database it reached or which tables exist.
+        await query('SELECT 1');
+      }
+    } catch (err) {
+      // Driver errors embed the host:port we failed to reach, which is the
+      // exact thing the token exists to withhold. Report the class of failure
+      // instead and keep the detail in the logs.
+      console.error('Health check failed:', err);
+      return res.status(503).json({
+        ...base,
+        ok: false,
+        error: 'Database unreachable',
+        ...(verbose ? { cause: err.code || err.name } : {}),
+        latencyMs: Date.now() - started,
+      });
+    }
+
     res.status(missing.length ? 503 : 200).json({
       ...base,
       ok: missing.length === 0,
-      database: meta.rows[0].database,
-      user: meta.rows[0].user,
-      tables: { present: rows.length, required: REQUIRED_TABLES.length, missing },
+      ...(verbose ? { tables: { required: REQUIRED_TABLES.length, missing } } : {}),
       latencyMs: Date.now() - started,
     });
   } catch (err) {
     console.error('Health check failed:', err);
-    res.status(503).json({ ...base, ok: false, error: err.message, latencyMs: Date.now() - started });
+    res.status(503).json({ ...base, ok: false, error: 'Database unreachable', latencyMs: Date.now() - started });
   }
 });
 
@@ -115,11 +189,21 @@ app.get('/api/health', async (_req, res) => {
 // AUTH
 // ══════════════════════════════════════════════════════════════
 
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', registerLimit, async (req, res) => {
   try {
     const { email, password, name } = req.body;
     if (!email || !password || !name) {
       return res.status(400).json({ error: 'All fields are required' });
+    }
+    if (String(email).length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email))) {
+      return res.status(400).json({ error: 'Enter a valid email address' });
+    }
+    // bcrypt truncates past 72 bytes, so anything longer is a silent collision.
+    if (typeof password !== 'string' || password.length < 8 || password.length > 72) {
+      return res.status(400).json({ error: 'Password must be 8 to 72 characters' });
+    }
+    if (String(name).length > 100) {
+      return res.status(400).json({ error: 'Name must be under 100 characters' });
     }
     const normalizedEmail = email.trim().toLowerCase();
     const existing = await query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
@@ -142,11 +226,16 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginLimit, async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
+    }
+    // Same guard on compare: a >72-char password would otherwise be silently
+    // truncated to whatever prefix hashes to, and could authenticate.
+    if (typeof password !== 'string' || password.length > 72) {
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
     const result = await query('SELECT id, name, email, password FROM users WHERE email = $1', [email.trim().toLowerCase()]);
     if (result.rows.length === 0) {
@@ -168,9 +257,11 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
   try {
     const result = await query(
-      `SELECT id, name, email, age, moving_to, moving_date, university, country,
-              verification_status, onboarding_complete, looking_for, created_at
-       FROM users WHERE id = $1`, [req.userId]
+      `SELECT u.id, u.name, u.email, u.age, u.moving_to, u.moving_date, u.university,
+              u.country, u.verification_status, u.onboarding_complete, u.looking_for,
+              u.created_at, p.city AS profile_city
+       FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = $1`, [req.userId]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
@@ -181,36 +272,93 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
   }
 });
 
+// The destination city and country, resolved from the cities table. Used to
+// scope resources, checklist links and the discover page so they follow where
+// the user is actually going instead of a hardcoded default.
+app.get('/api/me/destination', authMiddleware, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT c.name AS city, c.country, c.state, c.cost_level, c.description
+       FROM users u
+       LEFT JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN cities c
+         ON LOWER(c.name) = LOWER(COALESCE(p.city, u.moving_to))
+       WHERE u.id = $1`, [req.userId]
+    );
+    const row = result.rows[0] || {};
+    res.json({
+      city: row.city || null,
+      country: row.country || null,
+      state: row.state || null,
+      cost_level: row.cost_level ?? null,
+      description: row.description || null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get destination' });
+  }
+});
+
 // ══════════════════════════════════════════════════════════════
 // ONBOARDING
 // ══════════════════════════════════════════════════════════════
 
 app.post('/api/onboarding', authMiddleware, async (req, res) => {
   try {
-    const { looking_for, moving_to, moving_date, country, city, interests } = req.body;
-    const updates = [];
-    const params = [];
+    const {
+      looking_for, moving_to, moving_date, interests,
+      budget, flat_type, cleanliness, sleep_time, social_level,
+      smoking, drinking, diet,
+    } = req.body;
+
+    // users table: the move itself.
+    const userUpdates = [];
+    const userParams = [];
     let idx = 1;
+    const setUser = (col, val) => { userUpdates.push(`${col} = $${idx++}`); userParams.push(val); };
 
-    if (looking_for) { updates.push(`looking_for = $${idx++}`); params.push(looking_for); }
-    if (moving_to) { updates.push(`moving_to = $${idx++}`); params.push(moving_to); }
-    if (moving_date) { updates.push(`moving_date = $${idx++}`); params.push(moving_date); }
-    if (country) { updates.push(`country = $${idx++}`); params.push(country); }
-    if (interests && Array.isArray(interests)) {
-      updates.push(`interests = $${idx++}`); params.push(interests);
+    if (looking_for) setUser('looking_for', looking_for);
+    if (moving_to) setUser('moving_to', String(moving_to).trim().slice(0, 100));
+    if (moving_date) setUser('moving_date', moving_date === 'null' ? null : moving_date);
+    if (Array.isArray(interests)) setUser('interests', interests);
+
+    // Country comes from the chosen city rather than a separate question, so
+    // it can never disagree with moving_to.
+    if (moving_to) {
+      const c = await query('SELECT country FROM cities WHERE LOWER(name) = LOWER($1)', [moving_to]);
+      if (c.rows[0]) setUser('country', c.rows[0].country);
     }
 
-    if (updates.length > 0) {
-      params.push(req.userId);
-      await query(`UPDATE users SET ${updates.join(', ')} WHERE id = $${idx}`, params);
+    if (userUpdates.length) {
+      userParams.push(req.userId);
+      await query(`UPDATE users SET ${userUpdates.join(', ')} WHERE id = $${idx}`, userParams);
     }
 
-    // Update profile with city
-    if (city) {
-      await query('UPDATE profiles SET city = $1 WHERE user_id = $2', [city, req.userId]);
+    // profiles table: the lifestyle answers. These used to be collected by the
+    // form and then silently thrown away, which left everyone matching on
+    // database defaults instead of what they actually said.
+    const profileUpdates = [];
+    const profileParams = [];
+    let pidx = 1;
+    const setProfile = (col, val) => { profileUpdates.push(`${col} = $${pidx++}`); profileParams.push(val); };
+
+    if (moving_to) setProfile('city', String(moving_to).trim().slice(0, 100));
+    if (budget !== undefined && budget !== null && budget !== '') setProfile('budget', Math.max(0, Math.min(10000000, parseInt(budget, 10) || 0)));
+    if (flat_type) setProfile('flat_type', flat_type);
+    if (cleanliness !== undefined) setProfile('cleanliness', Math.max(1, Math.min(5, parseInt(cleanliness, 10) || 3)));
+    if (sleep_time) setProfile('sleep_time', sleep_time);
+    if (social_level) setProfile('social_level', social_level);
+    if (smoking) setProfile('smoking', smoking);
+    if (drinking) setProfile('drinking', drinking);
+    if (diet) setProfile('diet', diet);
+
+    if (profileUpdates.length) {
+      // Every user gets a profiles row at registration, but ON CONFLICT keeps
+      // this correct for rows created before that was true.
+      await query('INSERT INTO profiles (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING', [req.userId]);
+      profileParams.push(req.userId);
+      await query(`UPDATE profiles SET ${profileUpdates.join(', ')} WHERE user_id = $${pidx}`, profileParams);
     }
 
-    // Mark onboarding complete
     await query('UPDATE users SET onboarding_complete = TRUE WHERE id = $1', [req.userId]);
 
     res.json({ ok: true });
@@ -328,6 +476,17 @@ app.get('/api/profile/:userId', authMiddleware, async (req, res) => {
        WHERE ul.user_id = $1`, [userId]
     );
     profile.languages = langs.rows;
+
+    // Whether these two are matched. Without it the detail page's Message and
+    // "Draft agreement" actions never render, because they are gated on it.
+    const matched = await query(
+      `SELECT 1 FROM matches
+       WHERE (user_a_id = $1 AND user_b_id = $2) OR (user_a_id = $2 AND user_b_id = $1)
+       LIMIT 1`, [req.userId, userId]
+    );
+    profile.is_match = matched.rows.length > 0;
+    profile.is_self = Number(req.userId) === Number(userId);
+
     res.json(profile);
   } catch (err) {
     console.error('Get profile error:', err);
@@ -503,8 +662,8 @@ const WEIGHT_KEYS = {
 async function calcCompatibility(userId, candidateId, weights) {
   // Fetch both profiles
   const [meResult, themResult, meLangs, themLangs] = await Promise.all([
-    query(`SELECT u.interests, p.* FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = $1`, [userId]),
-    query(`SELECT u.interests, p.* FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = $1`, [candidateId]),
+    query(`SELECT u.interests, u.country, u.moving_to, p.* FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = $1`, [userId]),
+    query(`SELECT u.interests, u.country, u.moving_to, p.* FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = $1`, [candidateId]),
     query(`SELECT l.name FROM languages l JOIN user_languages ul ON l.id = ul.language_id WHERE ul.user_id = $1`, [userId]),
     query(`SELECT l.name FROM languages l JOIN user_languages ul ON l.id = ul.language_id WHERE ul.user_id = $1`, [candidateId]),
   ]);
@@ -512,6 +671,18 @@ async function calcCompatibility(userId, candidateId, weights) {
   const me = meResult.rows[0];
   const them = themResult.rows[0];
   if (!me || !them) return { score: 0, breakdown: {}, reasons: [] };
+
+  // Cost level (1-5) of the city each person is moving to, used to make
+  // budgets comparable across currencies. Missing city => level 3, the
+  // midpoint, so an unset destination does not distort the score.
+  const costRows = await query(
+    `SELECT LOWER(name) AS name, cost_level FROM cities`
+  );
+  const costByCity = new Map(costRows.rows.map(r => [r.name, r.cost_level || 3]));
+  const costOf = (row) =>
+    costByCity.get(String(row.moving_to || row.city || '').toLowerCase()) || 3;
+  const meCost = costOf(me);
+  const themCost = costOf(them);
 
   const reasons = [];
   const breakdown = {};
@@ -549,15 +720,21 @@ async function calcCompatibility(userId, candidateId, weights) {
   }
   breakdown.lifestyle = Math.min(lifestyleMax, lifestyleScore);
 
-  // Budget
-  let budgetScore = 0;
+  // Budget. Raw numbers are not comparable across countries: 28000 rupees a
+  // month in Mumbai and 1100 pounds a month in London are both ordinary, but
+  // the arithmetic says one of them is 25x richer. Normalise by the cost level
+  // of the city each person is moving to, so what gets compared is how much
+  // of their local market their budget buys.
+  let budgetScore = 10;
   const bA = parseInt(me.budget) || 0, bB = parseInt(them.budget) || 0;
-  const maxB = Math.max(bA, bB);
-  if (maxB > 0) {
-    budgetScore = Math.round(20 * (1 - Math.abs(bA - bB) / maxB));
-    if (Math.abs(bA - bB) < maxB * 0.2) reasons.push({ text: 'Similar budget range', type: 'positive' });
-  } else { budgetScore = 10; }
-  breakdown.budget = budgetScore;
+  const idxA = bA / (meCost || 1), idxB = bB / (themCost || 1);
+  const maxIdx = Math.max(idxA, idxB);
+  if (maxIdx > 0 && bA > 0 && bB > 0) {
+    const closeness = 1 - Math.abs(idxA - idxB) / maxIdx;
+    budgetScore = Math.round(20 * closeness);
+    if (closeness > 0.8) reasons.push({ text: 'Comfortable in the same price bracket', type: 'positive' });
+  }
+  breakdown.budget = Math.max(0, Math.min(20, budgetScore));
 
   // Location (city + neighbourhood)
   let locationScore = 0;
@@ -725,6 +902,17 @@ app.get('/api/roommates/:userId', authMiddleware, async (req, res) => {
     profile.score = score;
     profile.breakdown = breakdown;
     profile.reasons = reasons;
+
+    // Whether the pair is already matched. The detail page gates its Message
+    // and agreement actions on this; without it both stayed hidden forever,
+    // even for people who had already matched.
+    const matched = await query(
+      `SELECT 1 FROM matches
+       WHERE (user_a_id = $1 AND user_b_id = $2) OR (user_a_id = $2 AND user_b_id = $1)
+       LIMIT 1`, [req.userId, userId]
+    );
+    profile.is_match = matched.rows.length > 0;
+    profile.is_self = Number(req.userId) === Number(userId);
 
     res.json(profile);
   } catch (err) {
@@ -1157,13 +1345,19 @@ app.get('/api/events', authMiddleware, async (req, res) => {
 
 app.post('/api/events', authMiddleware, async (req, res) => {
   try {
-    const { title, description, community_id, location, city, start_time, end_time, capacity } = req.body;
+    const { title, description, community_id, location, city, start_time, end_time, capacity, category } = req.body;
     if (!title || !start_time) return res.status(400).json({ error: 'Title and start time required' });
+    if (isNaN(new Date(start_time).getTime())) {
+      return res.status(400).json({ error: 'Start time is not a valid date' });
+    }
 
     const result = await query(
-      `INSERT INTO events (title, description, community_id, location, city, start_time, end_time, capacity, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [title.trim(), description || '', community_id || null, location || '', city || null, start_time, end_time || null, capacity || null, req.userId]
+      `INSERT INTO events (title, description, community_id, location, city, start_time, end_time, capacity, category, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [String(title).trim().slice(0, 300), description || '', community_id || null,
+       location || '', city || null, start_time,
+       end_time || null, capacity ? parseInt(capacity, 10) : null,
+       category ? String(category).trim().slice(0, 50) : null, req.userId]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -1188,6 +1382,21 @@ app.post('/api/events/:id/rsvp', authMiddleware, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to RSVP' });
+  }
+});
+
+app.delete('/api/events/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await query(
+      'DELETE FROM events WHERE id = $1 AND created_by = $2 RETURNING id', [id, req.userId]
+    );
+    // 404 rather than 200 for someone else's event: the endpoint must not
+    // confirm that an event id exists when the caller does not own it.
+    if (deleted.rows.length === 0) return res.status(404).json({ error: 'Event not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete event' });
   }
 });
 
@@ -1277,16 +1486,35 @@ app.get('/api/cities/:id', authMiddleware, async (req, res) => {
 
 app.get('/api/resources', authMiddleware, async (req, res) => {
   try {
-    const { category, city, country } = req.query;
-    let where = 'WHERE 1=1';
+    const { category } = req.query;
     const params = [];
     let idx = 1;
+    let where = 'WHERE 1=1';
 
     if (category) { where += ` AND LOWER(category) = LOWER($${idx++})`; params.push(category); }
-    if (city) { where += ` AND (LOWER(city) = LOWER($${idx++}) OR city IS NULL)`; params.push(city); idx++; }
-    if (country) { where += ` AND (LOWER(country) = LOWER($${idx++}) OR country IS NULL)`; params.push(country); }
 
-    const result = await query(`SELECT * FROM resources ${where} ORDER BY category, title`, params);
+    // Destination is optional. Without it, return the global guides rather than
+    // every city's guides: 30 rows of "How to find a flat in Mumbai" is worse
+    // than no city-specific content.
+    const city = req.query.city || null;
+    const country = req.query.country || null;
+    if (city || country) {
+      where += ` AND (
+        (city IS NULL AND country IS NULL)
+        OR LOWER(COALESCE(city,'')) = LOWER($${idx})
+        OR LOWER(COALESCE(country,'')) = LOWER($${idx + 1})
+      )`;
+      params.push(city || '', country || '');
+      idx += 2;
+    } else {
+      // No destination known: global guides only, rather than a wall of
+      // "how to find a flat in Mumbai" for someone who never said Mumbai.
+      where += ` AND city IS NULL AND country IS NULL`;
+    }
+
+    const result = await query(
+      `SELECT * FROM resources ${where} ORDER BY category, title`, params
+    );
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: 'Failed to get resources' });
@@ -1299,6 +1527,16 @@ app.get('/api/resources', authMiddleware, async (req, res) => {
 
 app.get('/api/settlement', authMiddleware, async (req, res) => {
   try {
+    // Where the user is going. Drives the link on location-specific tasks.
+    const dest = await query(
+      `SELECT COALESCE(p.city, u.moving_to) AS city, c.country
+       FROM users u
+       LEFT JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN cities c ON LOWER(c.name) = LOWER(COALESCE(p.city, u.moving_to))
+       WHERE u.id = $1`, [req.userId]
+    );
+    const { city = null, country = null } = dest.rows[0] || {};
+
     // Ensure user has entries for all tasks
     await query(
       `INSERT INTO user_settlement_tasks (user_id, task_id, completed)
@@ -1306,12 +1544,35 @@ app.get('/api/settlement', authMiddleware, async (req, res) => {
        ON CONFLICT (user_id, task_id) DO NOTHING`, [req.userId]
     );
 
+    // A task with no url of its own borrows the best matching resource link for
+    // the reader's destination, scoped to the task's own category so a banking
+    // task can never pick up a transit map. City match beats country, country
+    // beats global. This is what makes "Open a bank account" actionable: the
+    // same task links to HDFC for someone moving to India and to the UK
+    // newcomer guide for someone moving to London.
     const result = await query(
       `SELECT st.id, st.title, st.description, st.category, st."order",
-              COALESCE(ust.completed, FALSE) AS completed, ust.completed_at
+              COALESCE(ust.completed, FALSE) AS completed, ust.completed_at,
+              COALESCE(st.url, (
+                SELECT r.url FROM resources r
+                WHERE r.url IS NOT NULL
+                  AND LOWER(r.category) = LOWER(st.category)
+                  AND (
+                    LOWER(COALESCE(r.city,''))   = LOWER(COALESCE($2,''))
+                 OR LOWER(COALESCE(r.country,'')) = LOWER(COALESCE($3,''))
+                  )
+                ORDER BY (r.city IS NULL), (r.country IS NULL), r.id
+                LIMIT 1
+              ), (
+                SELECT r.url FROM resources r
+                WHERE r.url IS NOT NULL
+                  AND LOWER(r.category) = LOWER(st.category)
+                ORDER BY r.id
+                LIMIT 1
+              )) AS url
        FROM settlement_tasks st
        LEFT JOIN user_settlement_tasks ust ON ust.task_id = st.id AND ust.user_id = $1
-       ORDER BY st."order" ASC`, [req.userId]
+       ORDER BY st."order" ASC`, [req.userId, city, country]
     );
     res.json(result.rows);
   } catch (err) {
@@ -1391,10 +1652,14 @@ app.post('/api/report', authMiddleware, async (req, res) => {
 app.get('/api/discover', authMiddleware, async (req, res) => {
   try {
     const user = await query(
-      `SELECT u.id, u.name, u.moving_to, p.city, u.onboarding_complete FROM users u
-       LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = $1`, [req.userId]
+      `SELECT u.id, u.name, u.moving_to, p.city, u.onboarding_complete, c.country
+       FROM users u
+       LEFT JOIN profiles p ON u.id = p.user_id
+       LEFT JOIN cities c ON LOWER(c.name) = LOWER(COALESCE(p.city, u.moving_to))
+       WHERE u.id = $1`, [req.userId]
     );
     const targetCity = user.rows[0]?.moving_to || user.rows[0]?.city;
+    const country = user.rows[0]?.country || null;
     const weights = await getMatchWeights();
 
     const [roommates, communities, events, cities, settlement] = await Promise.all([
@@ -1432,13 +1697,28 @@ app.get('/api/discover', authMiddleware, async (req, res) => {
         : query(`SELECT * FROM events WHERE start_time > CURRENT_TIMESTAMP ORDER BY start_time ASC LIMIT 5`),
       // Cities
       query(`SELECT * FROM cities ORDER BY name LIMIT 10`),
-      // Settlement progress
+      // Settlement progress. Same destination-aware link resolution as
+      // GET /api/settlement, so the inline checklist and the full page agree.
       query(
         `SELECT st.id, st.title, st."order",
-                COALESCE(ust.completed, FALSE) AS completed
+                COALESCE(ust.completed, FALSE) AS completed,
+                COALESCE(st.url, (
+                  SELECT r.url FROM resources r
+                  WHERE r.url IS NOT NULL
+                    AND LOWER(r.category) = LOWER(st.category)
+                    AND (LOWER(COALESCE(r.city,''))    = LOWER(COALESCE($2::text,''))
+                      OR LOWER(COALESCE(r.country,'')) = LOWER(COALESCE($3::text,'')))
+                  ORDER BY (r.city IS NULL), (r.country IS NULL), r.id
+                  LIMIT 1
+                ), (
+                  SELECT r.url FROM resources r
+                  WHERE r.url IS NOT NULL AND LOWER(r.category) = LOWER(st.category)
+                  ORDER BY r.id LIMIT 1
+                )) AS url
          FROM settlement_tasks st
          LEFT JOIN user_settlement_tasks ust ON ust.task_id = st.id AND ust.user_id = $1
-         ORDER BY st."order" ASC`, [req.userId]
+         ORDER BY st."order" ASC`,
+        [req.userId, targetCity, country]
       ),
     ]);
 
@@ -1467,7 +1747,8 @@ app.get('/api/agreement/:u1/:u2', authMiddleware, async (req, res) => {
   try {
     const { u1, u2 } = req.params;
     const existing = await query(
-      `SELECT * FROM agreements WHERE (userA_id=$1 AND userB_id=$2) OR (userA_id=$2 AND userB_id=$1)`, [u1, u2]
+      `SELECT * FROM agreements
+       WHERE (user_a_id=$1 AND user_b_id=$2) OR (user_a_id=$2 AND user_b_id=$1)`, [u1, u2]
     );
     if (existing.rows.length > 0) return res.json(existing.rows[0]);
 
@@ -1479,7 +1760,28 @@ app.get('/api/agreement/:u1/:u2', authMiddleware, async (req, res) => {
     const p2 = profiles.rows.find(p => p.id == u2);
     if (!p1 || !p2) return res.status(404).json({ error: 'Profiles not found' });
 
-    const template = `ROOMMATE AGREEMENT\n\nThis agreement is entered into by ${p1.name} and ${p2.name}.\n\n1. RENT & DEPOSIT\n- Total Rent: Rs${p1.budget + p2.budget} (Split: ${p1.name} Rs${p1.budget}, ${p2.name} Rs${p2.budget})\n- Security Deposit: Rs${p1.deposit + p2.deposit}\n\n2. CLEANING SCHEDULE\n- Shared spaces cleaned weekly.\n- Cleanliness Priority: ${p1.cleanliness >= 4 ? 'High' : 'Moderate'}\n\n3. QUIET HOURS\n- Quiet hours: 10 PM to 7 AM.\n- Noise Tolerance: ${p1.noise_tolerance}\n\n4. GUEST POLICY\n- Guests allowed with 24h notice.\n\nSIGNED:\n____________________ (${p1.name})\n____________________ (${p2.name})`;
+    // Budgets are entered in the local currency of the destination, so a London
+    // pair and a Mumbai pair get symbols that match their own figures. An
+    // agreement quoting rupees to someone paying pounds is worse than no
+    // symbol at all.
+    const city = await query(
+      `SELECT LOWER(COALESCE(p.city, u.moving_to)) AS name, c.country
+       FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN cities c ON LOWER(c.name) = LOWER(COALESCE(p.city, u.moving_to))
+       WHERE u.id = ANY($1::int[])`, [[u1, u2].map(Number)]
+    );
+    const CURRENCY = {
+      India: '₹', 'United Kingdom': '£', Australia: 'A$', Canada: 'C$',
+      Singapore: 'S$', 'United States': '$', 'New Zealand': 'NZ$',
+    };
+    const countries = new Set(city.rows.map(r => r.country).filter(Boolean));
+    const mixed = countries.size > 1;
+    // Two people with different destinations would be quoting two currencies in
+    // one document. Neither is right, so the amounts stay bare.
+    const sym = mixed ? '' : (CURRENCY[[...countries][0]] || '');
+    const money = n => `${sym}${Number(n || 0).toLocaleString('en-IN')}`;
+
+    const template = `ROOMMATE AGREEMENT\n\nThis agreement is entered into by ${p1.name} and ${p2.name}.\n\n1. RENT & DEPOSIT\n- Total Rent: ${money(p1.budget + p2.budget)} (Split: ${p1.name} ${money(p1.budget)}, ${p2.name} ${money(p2.budget)})\n- Security Deposit: ${money(p1.deposit + p2.deposit)}\n\n2. CLEANING SCHEDULE\n- Shared spaces cleaned weekly.\n- Cleanliness Priority: ${p1.cleanliness >= 4 ? 'High' : 'Moderate'}\n\n3. QUIET HOURS\n- Quiet hours: 10 PM to 7 AM.\n- Noise Tolerance: ${p1.noise_tolerance}\n\n4. GUEST POLICY\n- Guests allowed with 24h notice.\n\nSIGNED:\n____________________ (${p1.name})\n____________________ (${p2.name})`;
     res.json({ content: template, status: 'template' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to get agreement' });
@@ -1489,11 +1791,21 @@ app.get('/api/agreement/:u1/:u2', authMiddleware, async (req, res) => {
 app.post('/api/agreement', authMiddleware, async (req, res) => {
   try {
     const { userA_id, userB_id, content } = req.body;
+    if (!userA_id || !userB_id || !content) {
+      return res.status(400).json({ error: 'Both users and agreement content are required' });
+    }
+    // Ordered pair: (3,7) and (7,3) are the same agreement, so normalise to
+    // the same unique key or the second save collides with the first.
+    const [a, b] = [Number(userA_id), Number(userB_id)].sort((x, y) => x - y);
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a === b) {
+      return res.status(400).json({ error: 'Two different user ids are required' });
+    }
     await query(
-      `INSERT INTO agreements (userA_id, userB_id, content, status)
+      `INSERT INTO agreements (user_a_id, user_b_id, content, status)
        VALUES ($1, $2, $3, 'draft')
-       ON CONFLICT (userA_id, userB_id) DO UPDATE SET content = $3, status = 'draft'`,
-      [userA_id, userB_id, content]
+       ON CONFLICT (user_a_id, user_b_id)
+       DO UPDATE SET content = EXCLUDED.content, status = 'draft', updated_at = CURRENT_TIMESTAMP`,
+      [a, b, content]
     );
     res.json({ ok: true });
   } catch (err) {

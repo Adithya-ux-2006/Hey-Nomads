@@ -7,7 +7,7 @@ import { Card, CompatibilityBadge, Badge, Button, Spinner, SectionHeader, Inline
 import {
   ArrowLeft, BadgeCheck, Heart, ThumbsDown, Star, MessageSquare,
   Moon, Coffee, Cigarette, Wine, Users, Calendar, MapPin,
-  Home, IndianRupee, Globe, Briefcase, CheckCircle2, Flag, UserX
+  Home, Wallet, Globe, Briefcase, CheckCircle2, Flag, UserX
 } from 'lucide-react'
 const pageVariants = {
   initial: { opacity: 0, y: 20 },
@@ -27,10 +27,10 @@ const BREAKDOWN_LABELS = {
 const LIFESTYLE_ITEMS = [
   { key: 'sleep_time', label: 'Sleep', icon: Moon, map: { early: 'Early Bird', late: 'Night Owl', flexible: 'Flexible' } },
   { key: 'cleanliness', label: 'Cleanliness', icon: Coffee, render: (v) => `${v || 3}/5` },
-  { key: 'diet', label: 'Diet', icon: Coffee, map: { veg: 'Veg', eggetarian: 'Eggetarian', vegan: 'Vegan', non_veg: 'Non-veg' } },
+  { key: 'diet', label: 'Diet', icon: Coffee, map: { veg: 'Veg', eggetarian: 'Eggetarian', vegan: 'Vegan', nonveg: 'Non-veg' } },
   { key: 'smoking', label: 'Smoking', icon: Cigarette, map: { yes: 'Smoker', no: 'Non-smoker', occasionally: 'Occasionally' } },
   { key: 'drinking', label: 'Drinking', icon: Wine, map: { yes: 'Drinks', no: 'Non-drinker', socially: 'Socially' } },
-  { key: 'social_level', label: 'Social', icon: Users, map: { introvert: 'Introvert', ambivert: 'Ambivert', extrovert: 'Extrovert' } },
+  { key: 'social_level', label: 'Social', icon: Users, map: { introvert: 'Introvert', moderate: 'Balanced', extrovert: 'Extrovert' } },
 ]
 
 const Skeleton = ({ className = '' }) => <div className={`skeleton ${className}`} />
@@ -47,7 +47,14 @@ const RoommateDetailPage = () => {
   const [reportReason, setReportReason] = useState('Harassment or abuse')
   const [reportDetail, setReportDetail] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [shortlisted, setShortlisted] = useState(false)
   const [safetyError, setSafetyError] = useState(null)
+  const [justMatched, setJustMatched] = useState(false)
+  const [isMatched, setIsMatched] = useState(false)
+
+  // Updated by a successful like so a match created a moment ago switches the
+  // actions to Message without a reload.
+  useEffect(() => { setIsMatched(!!profile?.is_match) }, [profile?.is_match])
 
   const submitReport = async () => {
     setSubmitting(true)
@@ -109,10 +116,22 @@ const RoommateDetailPage = () => {
   const handleSwipe = async (action) => {
     try {
       setActionLoading(action)
-      await apiFetch('/swipe', { method: 'POST', body: { targetId: Number(userId), action } })
-      if (action === 'pass') navigate(-1)
+      setSafetyError(null)
+      const res = await apiFetch('/swipe', { method: 'POST', body: { targetId: Number(userId), action } })
+      if (action === 'pass') {
+        navigate(-1)
+        return
+      }
+      // A mutual like is the payoff of the whole flow. Navigating straight back
+      // to the list with no word about it is why Like felt like it did nothing.
+      if (res?.matchCreated) {
+        setIsMatched(true)
+        setJustMatched(true)
+      } else {
+        navigate(-1)
+      }
     } catch (err) {
-      console.error('Swipe failed:', err)
+      setSafetyError(err)
     } finally {
       setActionLoading(null)
     }
@@ -121,9 +140,11 @@ const RoommateDetailPage = () => {
   const handleShortlist = async () => {
     try {
       setActionLoading('shortlist')
+      setSafetyError(null)
       await apiFetch('/shortlist', { method: 'POST', body: { targetId: Number(userId) } })
+      setShortlisted(true)
     } catch (err) {
-      console.error('Shortlist failed:', err)
+      setSafetyError(err)
     } finally {
       setActionLoading(null)
     }
@@ -160,8 +181,6 @@ const RoommateDetailPage = () => {
   const reasons = profile.reasons || []
   const interests = profile.interests || []
   const languages = profile.languages || []
-  const isMatched = profile.is_match || false
-
   return (
     <Layout>
       <motion.div
@@ -313,10 +332,15 @@ const RoommateDetailPage = () => {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {profile.budget && (
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-surface-muted border border-surface-border">
-                  <IndianRupee size={16} className="text-brand-coral flex-shrink-0" />
+                  <Wallet size={16} className="text-brand-coral flex-shrink-0" />
                   <div>
                     <p className="text-xs font-medium text-text-muted">Budget</p>
-                    <p className="text-sm font-semibold text-text-primary">{'\u20B9'}{Number(profile.budget).toLocaleString('en-IN')}/mo</p>
+                    {/* No currency symbol: budgets are entered in the local
+                        currency of the destination, and the API has no
+                        currency field to render the right one. */}
+                    <p className="text-sm font-semibold text-text-primary">
+                      {Number(profile.budget).toLocaleString()}/mo
+                    </p>
                   </div>
                 </div>
               )}
@@ -424,18 +448,17 @@ const RoommateDetailPage = () => {
               disabled={!!actionLoading}
               className="flex-1 max-w-[140px] flex items-center justify-center gap-2 py-3 rounded-full border-2 border-brand-amber bg-brand-amber/10 text-amber-700 font-semibold text-sm hover:bg-brand-amber/20 transition-colors disabled:opacity-50"
             >
-              {actionLoading === 'shortlist' ? <Spinner size="sm" /> : <><Star size={18} /> Shortlist</>}
+              {actionLoading === 'shortlist' ? <Spinner size="sm" /> : <><Star size={18} fill={shortlisted ? 'currentColor' : 'none'} /> {shortlisted ? 'Shortlisted' : 'Shortlist'}</>}
             </motion.button>
 
             {isMatched ? (
-              <Link to={`/messages/${userId}`} className="flex-1 max-w-[140px]">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-full bg-brand-teal text-white font-semibold text-sm shadow-teal hover:bg-brand-teal-dark transition-colors"
-                >
-                  <MessageSquare size={18} /> Message
-                </motion.button>
+              // The link itself is the button. A <button> nested in a <Link>
+              // is invalid HTML and unreachable by keyboard.
+              <Link
+                to={`/messages/${userId}`}
+                className="flex-1 max-w-[140px] flex items-center justify-center gap-2 py-3 rounded-full bg-brand-teal text-white font-semibold text-sm shadow-teal hover:bg-brand-teal-dark transition-colors"
+              >
+                <MessageSquare size={18} /> Message
               </Link>
             ) : (
               <motion.button
@@ -451,7 +474,21 @@ const RoommateDetailPage = () => {
           </div>
 
           {/* Drafting an agreement is only meaningful once you have matched. */}
-          {isMatched && (
+          {justMatched && (
+            <Card className="mt-4 p-4 border-brand-teal/30 bg-brand-teal/5">
+              <div className="flex items-start gap-3">
+                <Heart size={18} className="text-brand-teal flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-text-primary text-sm">It&apos;s a match</p>
+                  <p className="text-sm text-text-muted mt-0.5">
+                    You both liked each other. Say hello before the moment passes.
+                  </p>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {isMatched && !justMatched && (
             <div className="mt-4 pt-4 border-t border-surface-border flex justify-center">
               <Link
                 to={`/agreement/${userId}`}

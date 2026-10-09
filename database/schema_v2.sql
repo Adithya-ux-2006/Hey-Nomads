@@ -1,8 +1,97 @@
 -- ============================================================
--- Hey Nomads v2 — Full Schema Migration
--- Extends existing INT-based schema with new tables
--- Run against Neon PostgreSQL
+-- Hey Nomads — Postgres schema
+-- Run against an empty Neon database, or re-run on an existing one
+-- (every statement is IF NOT EXISTS, so it is safe to re-apply).
+--
+-- Reference data (cities, settlement_tasks, resources) is NOT seeded here.
+-- Run scripts/seed-reference-data.mjs for that. Content in two places is how
+-- the checklist ended up with 24 tasks instead of 12.
 -- ============================================================
+
+-- ── 0. BASE TABLES ───────────────────────────────────────────
+-- These predate schema_v2.sql and had no DDL anywhere in the repo, so a fresh
+-- database could not be built from the repository alone.
+
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(254) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    is_verified BOOLEAN DEFAULT FALSE,
+    gender VARCHAR(20),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS profiles (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    bio TEXT,
+    occupation VARCHAR(200),
+    city VARCHAR(100),
+    profile_image VARCHAR(500),
+    move_in_date DATE,
+    sleep_time VARCHAR(20) NOT NULL DEFAULT 'flexible' CHECK (sleep_time IN ('early','late','flexible')),
+    cleanliness INT NOT NULL DEFAULT 3 CHECK (cleanliness BETWEEN 1 AND 5),
+    diet VARCHAR(20) NOT NULL DEFAULT 'veg' CHECK (diet IN ('veg','nonveg','eggetarian','vegan')),
+    noise_tolerance VARCHAR(20) NOT NULL DEFAULT 'moderate' CHECK (noise_tolerance IN ('quiet','moderate','loud')),
+    noise_level INT DEFAULT 3,
+    budget INT NOT NULL DEFAULT 15000,
+    tax_bracket VARCHAR(20) DEFAULT 'medium' CHECK (tax_bracket IN ('low','medium','high')),
+    deposit INT DEFAULT 5000,
+    flat_type VARCHAR(20) DEFAULT 'shared' CHECK (flat_type IN ('1BHK','2BHK','3BHK','shared','studio','other')),
+    occupants INT DEFAULT 1,
+    smoking VARCHAR(20) DEFAULT 'no' CHECK (smoking IN ('yes','no')),
+    drinking VARCHAR(20) DEFAULT 'no' CHECK (drinking IN ('yes','no')),
+    partying VARCHAR(20) DEFAULT 'low' CHECK (partying IN ('low','medium','high')),
+    is_verified BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS preferences (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    preferred_gender VARCHAR(20),
+    preferred_budget_min INT,
+    preferred_budget_max INT,
+    preferred_location_radius INT DEFAULT 10,
+    prefers_smoking VARCHAR(20) DEFAULT 'no_preference' CHECK (prefers_smoking IN ('yes','no','no_preference')),
+    prefers_drinking VARCHAR(20) DEFAULT 'no_preference' CHECK (prefers_drinking IN ('yes','no','no_preference')),
+    prefers_cleanliness_min INT DEFAULT 1,
+    prefers_sleep_schedule VARCHAR(20) DEFAULT 'no_preference' CHECK (prefers_sleep_schedule IN ('early','late','flexible','no_preference')),
+    prefers_same_diet BOOLEAN DEFAULT FALSE,
+    prefers_same_sleep BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS languages (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS user_languages (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    language_id INT NOT NULL REFERENCES languages(id) ON DELETE CASCADE,
+    UNIQUE (user_id, language_id)
+);
+
+CREATE TABLE IF NOT EXISTS shortlists (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, target_id)
+);
+
+CREATE TABLE IF NOT EXISTS agreements (
+    id SERIAL PRIMARY KEY,
+    user_a_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_b_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    status VARCHAR(20) DEFAULT 'draft',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_a_id, user_b_id)
+);
 
 -- ── 1. ALTER EXISTING TABLES ─────────────────────────────────
 
@@ -43,18 +132,9 @@ CREATE TABLE IF NOT EXISTS cities (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cities_name_country ON cities (LOWER(name), LOWER(country));
 CREATE INDEX IF NOT EXISTS idx_cities_country ON cities (LOWER(country));
 
-INSERT INTO cities (name, country, state, description, cost_level, student_friendly, expat_friendly) VALUES
-    ('Mumbai', 'India', 'Maharashtra', 'The city of dreams. Fast-paced, diverse, and full of opportunity.', 5, TRUE, TRUE),
-    ('Bangalore', 'India', 'Karnataka', 'India''s tech capital. Great weather, vibrant startup culture.', 4, TRUE, TRUE),
-    ('Delhi', 'India', 'Delhi', 'The national capital. Rich history, incredible food, bustling markets.', 4, TRUE, TRUE),
-    ('Pune', 'India', 'Maharashtra', 'Oxford of the East. Student-friendly, growing IT hub.', 3, TRUE, TRUE),
-    ('Hyderabad', 'India', 'Telangana', 'City of Pearls. Booming tech scene, amazing biryani.', 3, TRUE, TRUE),
-    ('Melbourne', 'Australia', 'Victoria', 'Liveable city, multicultural, great universities.', 4, TRUE, TRUE),
-    ('London', 'United Kingdom', 'England', 'Global city, diverse, world-class universities.', 5, TRUE, TRUE),
-    ('Toronto', 'Canada', 'Ontario', 'Multicultural hub, excellent quality of life.', 4, TRUE, TRUE),
-    ('New York', 'United States', 'New York', 'The city that never sleeps. Endless opportunities.', 5, TRUE, TRUE),
-    ('Singapore', 'Singapore', NULL, 'Business hub, clean, safe, multicultural.', 5, FALSE, TRUE)
-ON CONFLICT (LOWER(name), LOWER(country)) DO NOTHING;
+-- Cities, settlement tasks and resources are seeded by
+-- scripts/seed-reference-data.mjs, not here. Seeding content in two places is
+-- how the checklist ended up with 24 tasks instead of 12.
 
 -- ── 3. MATCHES (replaces shortlists with proper matching) ────
 
@@ -196,13 +276,21 @@ CREATE TABLE IF NOT EXISTS events (
     end_time TIMESTAMP,
     capacity INT,
     attendee_count INT DEFAULT 0,
+    -- Free-form on purpose: the community/event taxonomy is content, not
+    -- schema. A CHECK list here is what made the UI's category filter match
+    -- nothing.
+    category VARCHAR(50),
     created_by INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Also applied by ALTER for databases created before this column existed.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS category VARCHAR(50);
+
 CREATE INDEX IF NOT EXISTS idx_events_city ON events (LOWER(city));
 CREATE INDEX IF NOT EXISTS idx_events_start ON events (start_time);
 CREATE INDEX IF NOT EXISTS idx_events_community ON events (community_id);
+CREATE INDEX IF NOT EXISTS idx_events_category ON events (LOWER(category));
 
 CREATE TABLE IF NOT EXISTS event_rsvps (
     id SERIAL PRIMARY KEY,
@@ -232,6 +320,7 @@ CREATE TABLE IF NOT EXISTS resources (
 
 CREATE INDEX IF NOT EXISTS idx_resources_category ON resources (LOWER(category));
 CREATE INDEX IF NOT EXISTS idx_resources_city ON resources (LOWER(city));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resources_title ON resources (LOWER(title));
 
 -- ── 10. SETTLEMENT CHECKLIST ─────────────────────────────────
 
@@ -242,8 +331,19 @@ CREATE TABLE IF NOT EXISTS settlement_tasks (
     category VARCHAR(50) NOT NULL,
     city VARCHAR(100),
     country VARCHAR(100),
+    -- Where the user actually goes to do this ("apply for NRE account").
+    -- Without it a task like "open a bank account" is a to-do with nowhere to
+    -- go, which is the whole point of the checklist.
+    url TEXT,
     "order" INT DEFAULT 0
 );
+
+-- Also applied by ALTER for databases created before the url column existed.
+ALTER TABLE settlement_tasks ADD COLUMN IF NOT EXISTS url TEXT;
+
+-- Tasks and resources are keyed on their natural title so re-running the
+-- seeder updates in place instead of appending a second copy of everything.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_settlement_tasks_title ON settlement_tasks (LOWER(title));
 
 CREATE TABLE IF NOT EXISTS user_settlement_tasks (
     id SERIAL PRIMARY KEY,
@@ -274,43 +374,7 @@ INSERT INTO match_weights (lifestyle_weight, budget_weight, location_weight, mov
 SELECT 0.25, 0.20, 0.20, 0.15, 0.10, 0.10
 WHERE NOT EXISTS (SELECT 1 FROM match_weights);
 
--- ── 12. SEED SETTLEMENT TASKS ────────────────────────────────
-
-INSERT INTO settlement_tasks (title, description, category, "order") VALUES
-    ('Complete your profile', 'Fill in your profile details so others can find you.', 'general', 1),
-    ('Set your preferences', 'Tell us what you''re looking for in a roommate or community.', 'general', 2),
-    ('Find a roommate', 'Browse compatible roommates and start a conversation.', 'housing', 3),
-    ('Find your home', 'Search for housing options in your target city.', 'housing', 4),
-    ('Join a community', 'Find people with shared interests in your new city.', 'general', 5),
-    ('Attend an event', 'Meet people in person at local events.', 'general', 6),
-    ('Set up banking', 'Open a local bank account or set up digital payments.', 'banking', 7),
-    ('Get a SIM card', 'Get a local SIM for calls and data.', 'sim', 8),
-    ('Learn about transport', 'Figure out public transport, metro routes, and commute options.', 'transport', 9),
-    ('Explore your neighbourhood', 'Discover nearby groceries, pharmacies, and essential services.', 'neighbourhoods', 10),
-    ('Verify your identity', 'Verify your profile for increased trust.', 'general', 11),
-    ('Know local safety tips', 'Learn about safety norms and emergency contacts.', 'safety', 12)
-ON CONFLICT DO NOTHING;
-
--- ── 13. SEED COMMUNITIES ─────────────────────────────────────
-
--- We'll seed via the API rather than SQL to use proper user references
-
--- ── 14. SEED RESOURCES ───────────────────────────────────────
-
-INSERT INTO resources (title, description, category, city, country, url) VALUES
-    ('Mumbai Metro Guide', 'Complete guide to Mumbai Metro lines, stations, and fares.', 'transport', 'Mumbai', 'India', NULL),
-    ('How to Find an Apartment in Mumbai', 'Tips on finding flats, dealing with brokers, and what to expect.', 'housing', 'Mumbai', 'India', NULL),
-    ('Best Neighbourhoods in Bangalore for Young Professionals', 'A curated list of areas with good connectivity and nightlife.', 'neighbourhoods', 'Bangalore', 'India', NULL),
-    ('Opening a Bank Account in India as a Foreigner', 'Step-by-step guide to opening an NRE/NRO or savings account.', 'banking', NULL, 'India', NULL),
-    ('Best SIM Cards for International Students in India', 'Compare Jio, Airtel, and Vi for data and calling plans.', 'sim', NULL, 'India', NULL),
-    ('Melbourne Public Transport Guide', 'Myki cards, tram networks, and train lines explained.', 'transport', 'Melbourne', 'Australia', NULL),
-    ('Finding Housing in London', 'Rightmove, SpareRoom, and the rental process in the UK.', 'housing', 'London', 'United Kingdom', NULL),
-    ('Toronto Essentials for Newcomers', 'Healthcare, SIN number, banking, and transit in Toronto.', 'general', 'Toronto', 'Canada', NULL),
-    ('New York City Subway Guide', 'OMNY, MetroCards, and navigating the 5 boroughs.', 'transport', 'New York', 'United States', NULL),
-    ('Healthcare System in Australia for Students', 'Medicare, OSHC, and finding a GP in Melbourne.', 'healthcare', 'Melbourne', 'Australia', NULL)
-ON CONFLICT DO NOTHING;
-
--- ── 15. TRIGGER: auto-update timestamps ──────────────────────
+-- ── 12. TRIGGER: auto-update timestamps ──────────────────────
 
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$

@@ -24,43 +24,62 @@ const categoryConfig = {
   general: { icon: BookOpen, color: 'bg-gray-500', label: 'General' },
 };
 
+// A checklist item you cannot act on is a dead end, so a task with a link
+// shows it. The row itself toggles; the link is a separate target so clicking
+// "how" does not tick the box off for you.
 const CheckTask = ({ task, onToggle }) => (
   <motion.div
     whileTap={{ scale: 0.98 }}
-    onClick={() => onToggle(task.id)}
-    className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+    className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
       task.completed
         ? 'bg-status-success/5 border-status-success/20'
         : 'bg-white border-surface-border hover:border-brand-coral/30'
     }`}
   >
-    <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
-      task.completed ? 'bg-status-success text-white' : 'border-2 border-surface-border'
-    }`}>
-      {task.completed && <CheckCircle2 size={14} />}
-    </div>
-    <div className="flex-1 min-w-0">
-      <span className={`text-sm font-medium ${task.completed ? 'text-text-muted line-through' : 'text-text-primary'}`}>
-        {task.title}
+    {/* A real button, so the checklist is reachable by keyboard. This was
+        onClick on a div with no role, tabIndex or key handler. */}
+    <button
+      type="button"
+      onClick={() => onToggle(task.id)}
+      aria-pressed={task.completed}
+      className="flex items-center gap-3 flex-1 min-w-0 text-left rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral"
+    >
+      <span className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
+        task.completed ? 'bg-status-success text-white' : 'border-2 border-surface-border'
+      }`}>
+        {task.completed && <CheckCircle2 size={14} />}
       </span>
-      {task.description && (
-        <p className="text-xs text-text-muted mt-0.5 line-clamp-1">{task.description}</p>
-      )}
-    </div>
+      <span className="flex-1 min-w-0">
+        <span className={`block text-sm font-medium ${task.completed ? 'text-text-muted line-through' : 'text-text-primary'}`}>
+          {task.title}
+        </span>
+        {task.description && (
+          <span className="block text-xs text-text-muted mt-0.5 line-clamp-2">{task.description}</span>
+        )}
+      </span>
+    </button>
+    {task.url && (
+      <a
+        href={task.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-1 flex-shrink-0 text-xs font-semibold text-brand-teal hover:underline"
+      >
+        Guide
+        <ExternalLink size={12} />
+      </a>
+    )}
   </motion.div>
 );
 
-const ResourceCard = ({ resource }) => (
-  <a
-    href={resource.url || '#'}
-    target={resource.url ? '_blank' : undefined}
-    rel={resource.url ? 'noopener noreferrer' : undefined}
-    className="block"
-  >
-    <Card interactive className="p-4 h-full">
+// Without a url this renders as a plain card, not an <a href="#"> that jumps
+// the page to the top and looks broken.
+const ResourceCard = ({ resource }) => {
+  const body = (
+    <Card interactive={!!resource.url} className="p-4 h-full">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <h4 className="font-semibold text-sm text-text-primary truncate">{resource.title}</h4>
+          <h4 className="font-semibold text-sm text-text-primary">{resource.title}</h4>
           <p className="text-xs text-text-muted mt-1 line-clamp-2">{resource.description}</p>
         </div>
         {resource.url && (
@@ -71,12 +90,20 @@ const ResourceCard = ({ resource }) => (
         <Badge variant="muted" className="mt-3">{resource.city}</Badge>
       )}
     </Card>
-  </a>
-);
+  );
+
+  if (!resource.url) return body;
+  return (
+    <a href={resource.url} target="_blank" rel="noopener noreferrer" className="block">
+      {body}
+    </a>
+  );
+};
 
 export default function SettleInPage() {
   const [tasks, setTasks] = useState([]);
   const [resources, setResources] = useState([]);
+  const [destination, setDestination] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [toggling, setToggling] = useState({});
@@ -85,12 +112,22 @@ export default function SettleInPage() {
     setLoading(true);
     setError(null);
     try {
+      // Destination first, then both lists in parallel against it. Two round
+      // trips instead of three, and the resources match the checklist.
+      const dest = await apiFetch('/me/destination');
+      const scoped = dest.city || dest.country;
+      const qs = scoped
+        ? `?city=${encodeURIComponent(dest.city || '')}&country=${encodeURIComponent(dest.country || '')}`
+        : '';
+
       const [taskData, resourceData] = await Promise.all([
         apiFetch('/settlement'),
-        apiFetch('/resources?city=Mumbai'),
+        apiFetch(`/resources${qs}`),
       ]);
+
       setTasks(Array.isArray(taskData) ? taskData : []);
       setResources(Array.isArray(resourceData) ? resourceData : []);
+      setDestination(dest.city ? { city: dest.city, country: dest.country } : null);
     } catch (err) {
       setError(err);
     } finally {
@@ -159,13 +196,13 @@ export default function SettleInPage() {
     <Layout>
       <div className="max-w-4xl mx-auto px-4 pt-6 pb-24 space-y-8">
         {/* Header */}
-                  <SectionHeader
-            title="Settling in"
-            subtitle={totalCount
-              ? `${completedCount} of ${totalCount} tasks completed`
-              : 'Your settlement checklist'
-            }
-          />
+        <SectionHeader
+          title={destination ? `Settling in to ${destination.city}` : 'Settling in'}
+          subtitle={totalCount
+            ? `${completedCount} of ${totalCount} tasks completed`
+            : 'Your settlement checklist'
+          }
+        />
 
         {/* Progress Bar */}
                   <Card className="p-5">
@@ -185,9 +222,9 @@ export default function SettleInPage() {
 
         {/* Checklist */}
                   <SectionHeader
-            title="Checklist"
-            subtitle={`${completedCount} done`}
-          />
+          title="Checklist"
+          subtitle={`${completedCount} done`}
+        />
           {tasks.length === 0 ? (
             <Card className="p-8 text-center">
               <CheckCircle2 size={32} className="mx-auto text-text-muted mb-3" />
@@ -196,8 +233,7 @@ export default function SettleInPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
               {tasks.map(task => (
-                <CheckTask task={task} onToggle={toggleTask} />
-                
+                <CheckTask key={task.id} task={task} onToggle={toggleTask} />
               ))}
             </div>
           )}
@@ -207,7 +243,10 @@ export default function SettleInPage() {
           <>
             <SectionHeader
               title="Resources"
-              subtitle="Helpful guides for your new city"
+              subtitle={destination
+                ? `Guides for ${destination.city}`
+                : 'General guides for settling in'
+              }
             />
             <div className="space-y-6 mt-4">
               {Object.entries(groupedResources).map(([cat, items]) => {
@@ -223,8 +262,7 @@ export default function SettleInPage() {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {items.map(r => (
-                        <ResourceCard resource={r} />
-                        
+                        <ResourceCard key={r.id} resource={r} />
                       ))}
                     </div>
                   </div>

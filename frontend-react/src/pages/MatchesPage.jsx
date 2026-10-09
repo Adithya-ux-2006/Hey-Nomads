@@ -1,26 +1,33 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Layout from '../components/Layout'
 import { apiFetch } from '../lib/api'
-import { Card, EmptyState } from '../components/UI'
+import { useAsync } from '../lib/useAsync'
+import { Card, EmptyState, Spinner, CompatibilityBadge, ErrorState, InlineError } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
 import { MessageCircle, MoreVertical, UserX } from 'lucide-react'
 
 export default function MatchesPage() {
-  const [matches, setMatches] = useState([])
-  const [loading, setLoading] = useState(true)
+  // A failed fetch used to drop through to "No matches yet / Start swiping!",
+  // which reported an outage as an empty account.
+  const { data, setData, loading, error, retry } = useAsync(
+    () => apiFetch('/matches').then(d => (Array.isArray(d) ? d : [])),
+    []
+  )
+  const matches = data || []
   const [openMenu, setOpenMenu] = useState(null)
-
-  useEffect(() => {
-    apiFetch('/matches')
-      .then(setMatches)
-      .finally(() => setLoading(false))
-  }, [])
+  const [actionError, setActionError] = useState(null)
 
   const handleUnmatch = async (matchId) => {
-    await apiFetch(`/matches/${matchId}`, { method: 'DELETE' })
-    setMatches(prev => prev.filter(m => m.id !== matchId))
-    setOpenMenu(null)
+    setActionError(null)
+    try {
+      await apiFetch(`/matches/${matchId}`, { method: 'DELETE' })
+      setData(prev => prev.filter(m => m.id !== matchId))
+    } catch (err) {
+      setActionError(err)
+    } finally {
+      setOpenMenu(null)
+    }
   }
 
   return (
@@ -28,14 +35,18 @@ export default function MatchesPage() {
       <div className="max-w-2xl mx-auto px-4 py-6">
         <h1 className="text-2xl font-bold text-brand-coral mb-6">Your Matches</h1>
 
+        <InlineError error={actionError} />
+
         {loading ? (
           <div className="flex justify-center py-12">
             <Spinner size="lg" />
           </div>
+        ) : error ? (
+          <ErrorState what="matches" error={error} onRetry={retry} />
         ) : matches.length === 0 ? (
           <EmptyState
             title="No matches yet"
-            description="Start swiping!"
+            description="Like someone who likes you back and the conversation starts here."
           />
         ) : (
           <div className="space-y-4">
@@ -48,32 +59,37 @@ export default function MatchesPage() {
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-surface-bg truncate">
+                      <h3 className="font-semibold text-text-primary truncate">
                         {match.partner_name}
                       </h3>
                       <CompatibilityBadge score={match.compatibility_score} />
                     </div>
-                    <p className="text-sm text-surface-border">
+                    <p className="text-sm text-text-muted">
                       {[match.partner_occupation, match.partner_city].filter(Boolean).join(', ')}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Link
                       to={`/messages/${match.partner_id}`}
+                      aria-label={`Message ${match.partner_name}`}
                       className="p-2 rounded-full bg-brand-teal text-white hover:opacity-90 transition"
                     >
                       <MessageCircle size={18} />
                     </Link>
                     <div className="relative">
                       <button
+                        type="button"
+                        aria-label={`More options for ${match.partner_name}`}
+                        aria-expanded={openMenu === match.id}
                         onClick={() => setOpenMenu(openMenu === match.id ? null : match.id)}
                         className="p-2 rounded-full hover:bg-surface-card transition"
                       >
-                        <MoreVertical size={18} className="text-surface-border" />
+                        <MoreVertical size={18} className="text-text-muted" />
                       </button>
                       {openMenu === match.id && (
                         <div className="absolute right-0 top-full mt-1 bg-surface-card border border-surface-border rounded-lg shadow-lg z-10 min-w-[120px]">
                           <button
+                            type="button"
                             onClick={() => handleUnmatch(match.id)}
                             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-500 hover:bg-surface-bg rounded-lg"
                           >

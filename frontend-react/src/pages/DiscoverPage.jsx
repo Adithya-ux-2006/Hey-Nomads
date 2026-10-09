@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Search, MapPin, Users, CheckCircle2, Globe, Clock, ArrowRight, ChevronRight } from 'lucide-react';
+import { Search, MapPin, Users, CheckCircle2, Globe, Clock, ArrowRight, ChevronRight, ExternalLink } from 'lucide-react';
 import Layout from '../components/Layout';
 import { apiFetch } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
-import { Card, Button, EmptyState, Badge, ErrorState, InlineError } from '../components/UI';
+import { Card, Button, ButtonLink, EmptyState, Badge, ErrorState, InlineError } from '../components/UI';
 import UserAvatar from '../components/UserAvatar';
 import { Link } from 'react-router-dom';
 
@@ -157,7 +157,10 @@ function EventRow({ event }) {
   const time = t => new Date(t).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' });
   return (
     <Link
-      to={`/events/${event.id}`}
+      // There is no per-event page, and the catch-all route silently redirected these
+      // to /discover, so an event link looked like it worked and went nowhere
+      // useful. A row run by a community belongs to that community.
+      to={event.community_id ? `/communities/${event.community_id}` : '/events'}
       className="flex items-center gap-4 py-3 border-b border-surface-border last:border-0 hover:bg-surface-muted/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral -mx-2 px-2 rounded-lg"
     >
       <div className="w-12 text-center flex-shrink-0">
@@ -179,27 +182,45 @@ function EventRow({ event }) {
   );
 }
 
+// The row toggles, the guide link is a separate target. Nested interactive
+// elements inside a <button> are invalid HTML and break keyboard use, so this
+// is a flex row with a real button, not a button with a link in it.
 function SettlementTask({ task, onToggle }) {
   return (
-    <button
-      type="button"
-      onClick={() => onToggle(task)}
-      aria-pressed={task.completed}
-      className={`flex items-center gap-3 p-3 rounded-xl border text-left w-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral ${
+    <div
+      className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
         task.completed
           ? 'bg-status-success/5 border-status-success/20'
           : 'bg-white border-surface-border hover:border-brand-coral/40'
       }`}
     >
-      <span className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-        task.completed ? 'bg-status-success text-white' : 'border-2 border-surface-border'
-      }`}>
-        {task.completed && <CheckCircle2 size={12} />}
-      </span>
-      <span className={`text-sm ${task.completed ? 'text-text-muted line-through' : 'text-text-primary'}`}>
-        {task.title}
-      </span>
-    </button>
+      <button
+        type="button"
+        onClick={() => onToggle(task)}
+        aria-pressed={task.completed}
+        className="flex items-center gap-3 flex-1 min-w-0 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral rounded-lg"
+      >
+        <span className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
+          task.completed ? 'bg-status-success text-white' : 'border-2 border-surface-border'
+        }`}>
+          {task.completed && <CheckCircle2 size={12} />}
+        </span>
+        <span className={`text-sm truncate ${task.completed ? 'text-text-muted line-through' : 'text-text-primary'}`}>
+          {task.title}
+        </span>
+      </button>
+      {task.url && (
+        <a
+          href={task.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1 flex-shrink-0 text-xs font-semibold text-brand-teal hover:underline"
+        >
+          Guide
+          <ExternalLink size={12} />
+        </a>
+      )}
+    </div>
   );
 }
 
@@ -267,7 +288,13 @@ export default function DiscoverPage() {
   const events = (data?.events || []).filter(e => !q || has(e.title, e.location, e.city, e.community_name));
   const noResults = q && !roommates.length && !communities.length && !events.length;
 
-  const cityInfo = cities.find(c => c.name === user.moving_to) || cities[0];
+  // Only ever a city the user actually said. Falling back to cities[0] put the
+// first city alphabetically under "Where you're headed" for anyone who had not
+// finished onboarding.
+  const destinationName = user.moving_to || user.city || null;
+  const cityInfo = destinationName
+    ? cities.find(c => c.name === destinationName) || null
+    : null;
   const [lead, ...restMatches] = roommates;
   const progress = settlement.total ? Math.round((settlement.completed / settlement.total) * 100) : 0;
 
@@ -329,7 +356,7 @@ export default function DiscoverPage() {
                     icon={Users}
                     title="No matches yet"
                     description="Fill in your budget and lifestyle on your profile and we'll start ranking people for you."
-                    action={<Link to="/edit-profile"><Button>Complete your profile</Button></Link>}
+                    action={<ButtonLink to="/edit-profile">Complete your profile</ButtonLink>}
                   />
                 ) : (
                   <div className="space-y-4">
@@ -374,17 +401,37 @@ export default function DiscoverPage() {
                             </dd>
                           </div>
                           <div>
-                            <dt className="text-[10px] text-text-muted">Your matches here</dt>
+                            <dt className="text-[10px] text-text-muted">Top matches</dt>
                             <dd className="text-sm font-bold text-text-primary">{roommates.length}</dd>
                           </div>
                         </dl>
                         <Link
-                          to={`/cities/${cityInfo.id}`}
+                          to="/settle"
                           className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-teal hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal rounded"
                         >
-                          City details <ArrowRight size={14} />
+                          Guide for {cityInfo.name} <ArrowRight size={14} />
                         </Link>
                       </div>
+                    </Card>
+                  </section>
+                )}
+
+                {!cityInfo && (
+                  <section className="lg:col-span-2" aria-labelledby="city-heading">
+                    <h2 id="city-heading" className="text-lg font-bold text-text-primary mb-3">Where you're headed</h2>
+                    <Card className="p-5 h-full flex flex-col items-center text-center">
+                      <MapPin size={28} className="text-brand-teal/40 mb-3" />
+                      <p className="text-sm text-text-primary font-semibold">You have not picked a city yet</p>
+                      <p className="text-xs text-text-muted mt-1.5">
+                        Choose where you are moving and your checklist, guides and nearby people follow that
+                        instead of a default.
+                      </p>
+                      <Link
+                        to="/profile"
+                        className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand-teal hover:underline"
+                      >
+                        Set your destination <ArrowRight size={14} />
+                      </Link>
                     </Card>
                   </section>
                 )}

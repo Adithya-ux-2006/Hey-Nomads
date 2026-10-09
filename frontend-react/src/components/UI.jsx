@@ -1,22 +1,38 @@
 import { motion } from 'framer-motion';
 import { AlertTriangle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
-export const Button = ({ variant = 'primary', size = 'md', children, className = '', ...props }) => {
-  const base = 'font-semibold inline-flex items-center justify-center gap-2 transition-all rounded-full';
-  const sizes = { sm: 'px-4 py-2 text-sm', md: 'px-6 py-3 text-base', lg: 'px-8 py-4 text-lg' };
-  const variants = {
-    primary: 'bg-brand-coral text-white shadow-coral hover:bg-brand-coral-dark hover:shadow-hover active:scale-95',
-    secondary: 'border-2 border-surface-border bg-white text-text-primary hover:bg-surface-muted hover:border-brand-coral',
-    ghost: 'bg-transparent text-text-secondary border border-surface-border hover:bg-surface-muted',
-    teal: 'bg-brand-teal text-white shadow-teal hover:bg-brand-teal-dark',
-    amber: 'bg-brand-amber text-text-primary hover:bg-brand-amber-light',
-  };
-  return (
-    <button className={`${base} ${sizes[size]} ${variants[variant]} ${className}`} {...props}>
-      {children}
-    </button>
-  );
+const BUTTON_BASE = 'font-semibold inline-flex items-center justify-center gap-2 transition-all rounded-full';
+const BUTTON_SIZES = { sm: 'px-4 py-2 text-sm', md: 'px-6 py-3 text-base', lg: 'px-8 py-4 text-lg' };
+const BUTTON_VARIANTS = {
+  primary: 'bg-brand-coral text-white shadow-coral hover:bg-brand-coral-dark hover:shadow-hover active:scale-95',
+  secondary: 'border-2 border-surface-border bg-white text-text-primary hover:bg-surface-muted hover:border-brand-coral',
+  ghost: 'bg-transparent text-text-secondary border border-surface-border hover:bg-surface-muted',
+  teal: 'bg-brand-teal text-white shadow-teal hover:bg-brand-teal-dark',
+  amber: 'bg-brand-amber text-text-primary hover:bg-brand-amber-light',
 };
+
+const buttonClass = (variant = 'primary', size = 'md', className = '') =>
+  `${BUTTON_BASE} ${BUTTON_SIZES[size]} ${BUTTON_VARIANTS[variant]} ${className}`;
+
+export const Button = ({ variant = 'primary', size = 'md', children, className = '', ...props }) => (
+  <button className={buttonClass(variant, size, className)} {...props}>
+    {children}
+  </button>
+);
+
+// Link that looks like a Button. The previous `asChild` prop did nothing
+// because Button spread it onto a real <button>, so React dropped the attribute
+// and the <Link> nested inside the button, which breaks keyboard and AT use.
+const ButtonLink = ({ variant = 'primary', size = 'md', children, className = '', ...props }) => (
+  <Link className={buttonClass(variant, size, className)} {...props}>
+    {children}
+  </Link>
+);
+
+// Aliased rather than exported directly: a plain const lets the react-refresh
+// rule see this file as component-only, so HMR keeps working.
+export { ButtonLink };
 
 export const Card = ({ children, className = '', interactive = false }) => (
   <motion.div

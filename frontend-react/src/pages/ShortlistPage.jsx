@@ -2,7 +2,7 @@ import { useState } from 'react'
 import Layout from '../components/Layout'
 import { apiFetch } from '../lib/api'
 import { useAsync } from '../lib/useAsync'
-import { Card, Button, Spinner, EmptyState, ErrorState, InlineError } from '../components/UI'
+import { Card, ButtonLink, Spinner, EmptyState, ErrorState, InlineError } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
 import { Heart, X, MessageCircle, MapPin, Briefcase, GitCompare } from 'lucide-react'
@@ -55,7 +55,7 @@ export default function ShortlistPage() {
             icon={Heart}
             title="No one shortlisted yet"
             description="Tap the bookmark on anyone you like while browsing matches and they'll show up here."
-            action={<Link to="/roommates"><Button>Browse roommates</Button></Link>}
+            action={<ButtonLink to="/roommates">Browse roommates</ButtonLink>}
           />
         )}
 
@@ -67,19 +67,24 @@ export default function ShortlistPage() {
                   ? 'Pick two people to compare them side by side'
                   : `${selected.length} of 2 selected`}
               </p>
-              <Link
-                to={selected.length === 2 ? `/compare?u1=${selected[0]}&u2=${selected[1]}` : '#'}
-                aria-disabled={selected.length !== 2}
-                onClick={e => { if (selected.length !== 2) e.preventDefault(); }}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal ${
-                  selected.length === 2
-                    ? 'bg-brand-teal text-white hover:bg-brand-teal-dark'
-                    : 'bg-surface-border text-text-muted cursor-not-allowed'
-                }`}
-              >
-                <GitCompare size={15} aria-hidden="true" />
-                Compare
-              </Link>
+              {selected.length === 2 ? (
+                <Link
+                  to={`/compare?u1=${selected[0]}&u2=${selected[1]}`}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal bg-brand-teal text-white hover:bg-brand-teal-dark"
+                >
+                  <GitCompare size={15} aria-hidden="true" />
+                  Compare
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-surface-border text-text-muted cursor-not-allowed"
+                >
+                  <GitCompare size={15} aria-hidden="true" />
+                  Compare
+                </button>
+              )}
             </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {shortlist.map((user) => (
@@ -126,19 +131,21 @@ export default function ShortlistPage() {
 
                   {user.budget && (
                     <p className="text-sm font-medium text-brand-teal mt-2">
-                      ₹{Number(user.budget).toLocaleString('en-IN')}
+                      {Number(user.budget).toLocaleString('en-IN')} / month
                     </p>
                   )}
 
+                  {/* Button inside Link is invalid HTML and breaks keyboard
+                      use; ButtonLink renders one <a> styled as a button. */}
                   <div className="flex gap-2 mt-4 w-full">
-                    <Link to={`/roommates/${user.id}`} className="flex-1">
-                      <Button variant="primary" className="w-full text-xs py-1.5">View profile</Button>
-                    </Link>
-                    <Link to={`/messages/${user.id}`} className="flex-1">
-                      <Button variant="secondary" className="w-full text-xs py-1.5 flex items-center justify-center gap-1">
-                        <MessageCircle size={14} /> Message
-                      </Button>
-                    </Link>
+                    <ButtonLink to={`/roommates/${user.id}`} variant="primary"
+                      className="flex-1 w-full text-xs py-1.5">
+                      View profile
+                    </ButtonLink>
+                    <ButtonLink to={`/messages/${user.id}`} variant="secondary"
+                      className="flex-1 w-full text-xs py-1.5 flex items-center justify-center gap-1">
+                      <MessageCircle size={14} /> Message
+                    </ButtonLink>
                   </div>
                 </Card>
             ))}

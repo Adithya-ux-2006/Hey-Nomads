@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { apiFetch, auth } from '../lib/api'
 import { useAsync } from '../lib/useAsync'
@@ -101,7 +101,7 @@ export default function ChatPage() {
   if (loading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center h-full surface-bg">
+        <div className="flex items-center justify-center h-full bg-surface-bg">
           <Spinner />
         </div>
       </Layout>
@@ -120,9 +120,11 @@ export default function ChatPage() {
 
   return (
     <Layout>
-      <div className="flex flex-col h-full surface-bg" style={{ height: '100dvh' }}>
-        <header className="flex items-center gap-3 p-3 border-b surface-border surface-card">
+      <div className="flex flex-col h-full bg-surface-bg" style={{ height: '100dvh' }}>
+        <header className="flex items-center gap-3 p-3 border-b border-surface-border bg-surface-card">
           <button
+            type="button"
+            aria-label="Back"
             onClick={() => navigate(-1)}
             className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
           >
@@ -130,20 +132,35 @@ export default function ChatPage() {
           </button>
           {partner && (
             <>
-              <UserAvatar user={partner} size={40} />
+              {/* Props are src/name, so the old <UserAvatar user={partner} />
+                  rendered "?" for every single chat partner. */}
+              <UserAvatar src={partner.profile_image} name={partner.name} size="sm" />
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-primary truncate">
-                  {partner.name || partner.first_name}
-                </p>
-                <p className="text-xs text-teal-500">Online</p>
+                <p className="font-semibold text-primary truncate">{partner.name}</p>
+                <Link
+                  to={`/roommates/${partner.id}`}
+                  className="text-xs text-brand-teal hover:underline"
+                >
+                  View profile
+                </Link>
               </div>
             </>
           )}
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {messages.map((msg) => {
-            const isSender = msg.sender_id === currentUserId
+          {messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center py-16">
+              <p className="text-sm font-semibold text-text-primary">No messages yet</p>
+              <p className="text-xs text-text-muted mt-1 max-w-xs">
+                {partner?.name ? `Say hello to ${partner.name.split(' ')[0]} — most conversations start with the city.` : 'Send the first message.'}
+              </p>
+            </div>
+          ) : messages.map((msg) => {
+            // sender_id is a Postgres int, the stored id is a string. Strict
+            // === never matched, so every one of your own messages rendered on
+            // the other person's side once the optimistic copy was replaced.
+            const isSender = Number(msg.sender_id) === Number(currentUserId)
             return (
               <div
                 key={msg.id}
@@ -153,7 +170,7 @@ export default function ChatPage() {
                   className={`max-w-[75%] px-4 py-2 rounded-2xl ${
                     isSender
                       ? 'bg-brand-coral text-white rounded-br-md'
-                      : 'surface-muted text-primary rounded-bl-md'
+                      : 'bg-surface-muted text-text-primary rounded-bl-md'
                   }`}
                 >
                   <p className="break-words">{msg.content}</p>
@@ -171,7 +188,7 @@ export default function ChatPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="flex items-center gap-2 p-3 border-t surface-border surface-card">
+        <div className="flex items-center gap-2 p-3 border-t border-surface-border bg-surface-card">
           {sendError && (
             <span role="alert" className="text-xs text-status-error flex-1">Not sent — {sendError.message}</span>
           )}
@@ -182,11 +199,14 @@ export default function ChatPage() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
-            className="flex-1 px-4 py-2 rounded-full border surface-border bg-white text-primary focus:outline-none focus:ring-2 focus:ring-brand-teal"
+            aria-label="Message"
+            className="flex-1 px-4 py-2 rounded-full border border-surface-border bg-white text-primary focus:outline-none focus:ring-2 focus:ring-brand-teal"
           />
           <button
+            type="button"
             onClick={handleSend}
             disabled={!input.trim() || sending}
+            aria-label="Send message"
             className="p-3 rounded-full bg-brand-coral text-white disabled:opacity-50 transition-opacity"
           >
             <Send size={18} />

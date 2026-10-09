@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft } from 'lucide-react';
@@ -24,11 +24,14 @@ const INTERESTS = [
   { id: 'volunteering', label: 'Volunteering', icon: '🤝' },
 ];
 
-const CITIES = ['Mumbai', 'Bangalore', 'Delhi', 'Pune', 'Hyderabad', 'Melbourne', 'London', 'Toronto', 'New York', 'Singapore'];
-
 export default function OnboardingPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
+  // Served by the API so the list here cannot drift from the cities table.
+  // A hardcoded copy had already gone out of sync and was missing a city the
+  // rest of the app knew about.
+  const [cities, setCities] = useState([]);
+  const [citiesLoading, setCitiesLoading] = useState(true);
   const [data, setData] = useState({
     looking_for: 'both',
     moving_to: '',
@@ -45,6 +48,15 @@ export default function OnboardingPage() {
   });
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    apiFetch('/cities')
+      .then(rows => { if (live) setCities(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (live) setCities([]); })
+      .finally(() => { if (live) setCitiesLoading(false); });
+    return () => { live = false; };
+  }, []);
 
   const update = (key, value) => setData(prev => ({ ...prev, [key]: value }));
   const toggleInterest = (id) => {
@@ -90,18 +102,27 @@ export default function OnboardingPage() {
         <div className="space-y-5 mt-6">
           <div>
             <label className="text-sm font-semibold text-text-primary mb-2 block">City</label>
-            <div className="flex flex-wrap gap-2">
-              {CITIES.map(city => (
-                <button key={city} onClick={() => update('moving_to', city)}
-                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${data.moving_to === city ? 'bg-brand-coral text-white' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral'}`}>
-                  {city}
-                </button>
-              ))}
-            </div>
+            {citiesLoading ? (
+              <div className="flex flex-wrap gap-2">
+                {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="skeleton h-9 w-24 rounded-full" />)}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {cities.map(city => (
+                  <button key={city.id} type="button" onClick={() => update('moving_to', city.name)}
+                    className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${data.moving_to === city.name ? 'bg-brand-coral text-white' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral'}`}>
+                    {city.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-text-muted mt-2">
+              Resources and guides on your checklist are matched to this city.
+            </p>
           </div>
           <div>
-            <label className="text-sm font-semibold text-text-primary mb-2 block">Moving date</label>
-            <input type="date" value={data.moving_date} onChange={e => update('moving_date', e.target.value)}
+            <label htmlFor="ob-date" className="text-sm font-semibold text-text-primary mb-2 block">Moving date</label>
+            <input id="ob-date" type="date" value={data.moving_date} onChange={e => update('moving_date', e.target.value)}
               className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral transition-all" />
           </div>
         </div>
@@ -114,12 +135,17 @@ export default function OnboardingPage() {
       content: (
         <div className="space-y-6 mt-6">
           <div>
-            <label className="text-sm font-semibold text-text-primary mb-2 block">
-              Monthly Budget: ₹{data.budget.toLocaleString()}
+            {/* A plain number, not a rupee-pinned slider. min=5000/max=100000
+                made every non-Indian budget unselectable. */}
+            <label htmlFor="ob-budget" className="text-sm font-semibold text-text-primary mb-2 block">
+              Monthly budget: {data.budget.toLocaleString()}
             </label>
-            <input type="range" min={5000} max={100000} step={1000} value={data.budget}
-              onChange={e => update('budget', parseInt(e.target.value))} className="w-full" />
-            <div className="flex justify-between text-xs text-text-muted mt-1"><span>₹5K</span><span>₹1L</span></div>
+            <input id="ob-budget" type="number" min={0} step={50} value={data.budget}
+              onChange={e => update('budget', parseInt(e.target.value, 10) || 0)}
+              className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral transition-all" />
+            <p className="text-xs text-text-muted mt-1.5">
+              In the currency you will spend in. We use it to rank people on a similar budget.
+            </p>
           </div>
           <div>
             <label className="text-sm font-semibold text-text-primary mb-2 block">Room type</label>
@@ -150,17 +176,17 @@ export default function OnboardingPage() {
             { key: 'diet', label: 'Diet', options: [{v:'veg',l:'Vegetarian'},{v:'eggetarian',l:'Eggetarian'},{v:'nonveg',l:'Non-veg'},{v:'vegan',l:'Vegan'}], type: 'choice' },
           ].map(field => (
             <div key={field.key}>
-              <label className="text-sm font-semibold text-text-primary mb-2 block">{field.label}</label>
+              <label id={`ob-${field.key}`} className="text-sm font-semibold text-text-primary mb-2 block">{field.label}</label>
               {field.type === 'range' ? (
                 <div>
-                  <input type="range" min={1} max={5} value={data[field.key]}
+                  <input type="range" aria-labelledby={`ob-${field.key}`} min={1} max={5} value={data[field.key]}
                     onChange={e => update(field.key, parseInt(e.target.value))} className="w-full" />
                   <div className="flex justify-between text-xs text-text-muted mt-1">
                     {field.options.map(o => <span key={o.v}>{o.l}</span>)}
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-2">
+                <div role="group" aria-labelledby={`ob-${field.key}`} className="flex flex-wrap gap-2">
                   {field.options.map(o => (
                     <button key={o.v} onClick={() => update(field.key, o.v)}
                       className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${data[field.key] === o.v ? 'bg-brand-coral text-white' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral'}`}>

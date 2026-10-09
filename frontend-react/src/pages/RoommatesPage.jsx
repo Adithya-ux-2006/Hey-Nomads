@@ -6,7 +6,7 @@ import { Card, CompatibilityBadge, Badge, Spinner, EmptyState, ErrorState, Inlin
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Heart, X, Bookmark, SlidersHorizontal, ChevronDown, MapPin, Briefcase, IndianRupee } from 'lucide-react'
+import { Heart, X, Bookmark, SlidersHorizontal, ChevronDown, MapPin, Briefcase } from 'lucide-react'
 
 const BREAKDOWN_LABELS = {
   lifestyle: 'Lifestyle',
@@ -55,7 +55,7 @@ function RoommateCard({ roommate, onSwipe, shortlisted, onShortlist }) {
                 <MapPin size={14} /> {roommate.city}
               </span>
               <span className="flex items-center gap-1">
-                <IndianRupee size={14} /> {roommate.budget?.toLocaleString()}/mo
+                {roommate.budget?.toLocaleString()}/mo
               </span>
             </div>
 
@@ -76,7 +76,7 @@ function RoommateCard({ roommate, onSwipe, shortlisted, onShortlist }) {
             {roommate.breakdown && (
               <div className="flex flex-wrap gap-1.5 pt-1">
                 {Object.entries(roommate.breakdown).map(([key, val]) => (
-                  <Badge key={key} variant="neutral" className="text-xs">
+                  <Badge key={key} variant="muted" className="text-xs">
                     {BREAKDOWN_LABELS[key] || key}: {val}
                   </Badge>
                 ))}
@@ -88,12 +88,17 @@ function RoommateCard({ roommate, onSwipe, shortlisted, onShortlist }) {
 
       <div className="flex justify-center gap-4 mt-4">
         <button
+          type="button"
+          aria-label={`Pass on ${roommate.name}`}
           onClick={(e) => { e.stopPropagation(); setDragDir('left'); onSwipe('pass') }}
           className="w-14 h-14 rounded-full bg-surface-card border border-surface-border flex items-center justify-center text-secondary hover:text-brand-coral hover:border-brand-coral transition-colors shadow-sm"
         >
           <X size={24} />
         </button>
         <button
+          type="button"
+          aria-label={shortlisted ? `Remove ${roommate.name} from shortlist` : `Shortlist ${roommate.name}`}
+          aria-pressed={shortlisted}
           onClick={(e) => { e.stopPropagation(); onShortlist() }}
           className={`w-14 h-14 rounded-full bg-surface-card border border-surface-border flex items-center justify-center transition-colors shadow-sm ${
             shortlisted ? 'text-brand-amber border-brand-amber' : 'text-secondary hover:text-brand-amber hover:border-brand-amber'
@@ -102,6 +107,8 @@ function RoommateCard({ roommate, onSwipe, shortlisted, onShortlist }) {
           <Bookmark size={24} fill={shortlisted ? 'currentColor' : 'none'} />
         </button>
         <button
+          type="button"
+          aria-label={`Like ${roommate.name}`}
           onClick={(e) => { e.stopPropagation(); setDragDir('right'); onSwipe('like') }}
           className="w-14 h-14 rounded-full bg-surface-card border border-surface-border flex items-center justify-center text-secondary hover:text-brand-teal hover:border-brand-teal transition-colors shadow-sm"
         >
@@ -192,6 +199,9 @@ export default function RoommatesPage() {
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-2xl font-bold text-primary">Recommended Roommates</h1>
             <button
+              type="button"
+              aria-label="Filters"
+              aria-expanded={showFilters}
               onClick={() => setShowFilters(!showFilters)}
               className="p-2 rounded-lg border border-surface-border bg-surface-card text-secondary hover:text-primary transition-colors"
             >
@@ -209,9 +219,10 @@ export default function RoommatesPage() {
               <Card className="p-4 space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-secondary block mb-1">City</label>
+                    <label htmlFor="f-city" className="text-xs font-medium text-secondary block mb-1">City</label>
                     <div className="relative">
                       <select
+                        id="f-city"
                         value={city}
                         onChange={(e) => setCity(e.target.value)}
                         className="w-full appearance-none bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-primary pr-8"
@@ -223,32 +234,30 @@ export default function RoommatesPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-secondary block mb-1">Min Budget</label>
+                    <label htmlFor="f-budget-min" className="text-xs font-medium text-secondary block mb-1">Min budget</label>
                     <input
+                      id="f-budget-min"
                       type="number"
+                      min={0}
                       value={budgetMin}
                       onChange={(e) => setBudgetMin(e.target.value)}
-                      placeholder="₹0"
+                      placeholder="No minimum"
                       className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-primary"
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-secondary block mb-1">Max Budget</label>
+                    <label htmlFor="f-budget-max" className="text-xs font-medium text-secondary block mb-1">Max budget</label>
                     <input
+                      id="f-budget-max"
                       type="number"
+                      min={0}
                       value={budgetMax}
                       onChange={(e) => setBudgetMax(e.target.value)}
-                      placeholder="₹50,000"
+                      placeholder="No maximum"
                       className="w-full bg-surface-bg border border-surface-border rounded-lg px-3 py-2 text-sm text-primary"
                     />
                   </div>
                 </div>
-                <button
-                  onClick={fetchRoommates}
-                  className="w-full bg-brand-teal text-white rounded-lg py-2 text-sm font-medium hover:opacity-90 transition-opacity"
-                >
-                  Show matches
-                </button>
               </Card>
             </motion.div>
           )}
@@ -272,6 +281,14 @@ export default function RoommatesPage() {
                 />
               </AnimatePresence>
             </>
+          ) : list.length === 0 ? (
+            // Distinguish "nothing matched your filters" from "you have been
+            // through everyone". A brand-new account was told it had already
+            // seen every person in the app.
+            <EmptyState
+              title="No matches in your filters"
+              description="Widen the city or budget, or check back when more people join."
+            />
           ) : (
             <EmptyState
               title="You've seen everyone"

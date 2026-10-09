@@ -21,3 +21,6 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+      # Needs no database and no running server: it boots the API in-process
+      # and asserts the security boundaries that are easy to regress.
+      - run: npm run verify:security

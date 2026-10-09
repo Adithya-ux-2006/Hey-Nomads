@@ -7,7 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "schema:apply": "node --import ./scripts/dns-shim.mjs scripts/apply-schema.mjs",
+    "seed:reference": "node --import ./scripts/dns-shim.mjs scripts/seed-reference-data.mjs",
+    "seed:demo": "node --import ./scripts/dns-shim.mjs scripts/seed-test-data.mjs",
+    "verify:security": "node scripts/verify-security.mjs",
+    "verify:fixtures": "node --import ./scripts/dns-shim.mjs scripts/verify-checklist-fixtures.mjs",
+    "verify:api": "node --import ./scripts/dns-shim.mjs scripts/verify-api-flows.mjs",
+    "verify": "npm run lint && npm run verify:security && npm run verify:fixtures && npm run verify:api"
   },
   "dependencies": {
     "@sentry/node": "^11.4.0",

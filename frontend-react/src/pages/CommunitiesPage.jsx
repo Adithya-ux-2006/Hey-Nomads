@@ -6,17 +6,17 @@ import { Card, Badge, Button, Spinner, EmptyState, ErrorState, InlineError } fro
 import { Link } from 'react-router-dom'
 import { Users, MapPin, Plus, Search, Filter } from 'lucide-react'
 
-const categories = ['city', 'interest', 'professional', 'student', 'sports']
-
 const categoryColors = {
   city: 'teal',
   interest: 'coral',
   professional: 'amber',
   student: 'teal',
   sports: 'coral',
+  housing: 'teal',
+  social: 'coral',
+  outdoor: 'teal',
+  food: 'amber',
 }
-
-
 
 export default function CommunitiesPage() {
   const { data: communities, setData: setCommunities, loading, error, retry } = useAsync(
@@ -27,6 +27,39 @@ export default function CommunitiesPage() {
   const [activeCategory, setActiveCategory] = useState(null)
   const [joining, setJoining] = useState(null)
   const [joinError, setJoinError] = useState(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [form, setForm] = useState({ name: '', description: '', category: '', city: '' })
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState(null)
+
+  // Derived from the communities themselves. The previous hardcoded list had
+  // three values no seeded community used, so those chips emptied the page.
+  const categories = [...new Set((communities || []).map(c => c.category).filter(Boolean))]
+
+  const handleCreate = async (e) => {
+    e.preventDefault()
+    if (!form.name.trim()) return
+    setCreating(true)
+    setCreateError(null)
+    try {
+      await apiFetch('/communities', {
+        method: 'POST',
+        body: {
+          name: form.name,
+          description: form.description,
+          category: form.category || null,
+          city: form.city || null,
+        },
+      })
+      setForm({ name: '', description: '', category: '', city: '' })
+      setShowCreate(false)
+      retry()
+    } catch (err) {
+      setCreateError(err)
+    } finally {
+      setCreating(false)
+    }
+  }
 
   const handleJoinToggle = async (community) => {
     setJoining(community.id)
@@ -49,7 +82,7 @@ export default function CommunitiesPage() {
     setJoining(null)
   }
 
-  const filtered = communities.filter(c => {
+  const filtered = (communities || []).filter(c => {
     const matchesSearch = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.description?.toLowerCase().includes(search.toLowerCase())
     const matchesCategory = !activeCategory || c.category === activeCategory
     return matchesSearch && matchesCategory
@@ -61,10 +94,52 @@ export default function CommunitiesPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-text-primary">Communities</h1>
-          <Link to="/communities/create">
-            <Button size="sm"><Plus size={16} /> Create</Button>
-          </Link>
+          <Button size="sm" onClick={() => setShowCreate(v => !v)} aria-expanded={showCreate}>
+            <Plus size={16} /> Create
+          </Button>
         </div>
+
+        {showCreate && (
+          <Card className="p-4">
+            <form onSubmit={handleCreate} className="space-y-3">
+              <InlineError error={createError} />
+              <div>
+                <label htmlFor="c-name" className="text-xs font-medium text-text-secondary block mb-1">Name</label>
+                <input id="c-name" required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
+                  className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-sm text-text-primary outline-none focus:border-brand-coral transition-all"
+                  placeholder="Mumbai Food Crawl" />
+              </div>
+              <div>
+                <label htmlFor="c-desc" className="text-xs font-medium text-text-secondary block mb-1">What is it</label>
+                <textarea id="c-desc" rows={2} value={form.description}
+                  onChange={e => setForm({ ...form, description: e.target.value })}
+                  className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-sm text-text-primary outline-none focus:border-brand-coral transition-all resize-none"
+                  placeholder="Weekend food tours for people who just moved here." />
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="c-category" className="text-xs font-medium text-text-secondary block mb-1">Type</label>
+                  <input id="c-category" value={form.category}
+                    onChange={e => setForm({ ...form, category: e.target.value })}
+                    className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-sm text-text-primary outline-none focus:border-brand-coral transition-all"
+                    placeholder="food, social, outdoor..." />
+                </div>
+                <div>
+                  <label htmlFor="c-city" className="text-xs font-medium text-text-secondary block mb-1">City</label>
+                  <input id="c-city" value={form.city} onChange={e => setForm({ ...form, city: e.target.value })}
+                    className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-sm text-text-primary outline-none focus:border-brand-coral transition-all"
+                    placeholder="Mumbai" />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button type="submit" disabled={creating || !form.name.trim()}>
+                  {creating ? 'Creating...' : 'Create community'}
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => setShowCreate(false)}>Cancel</Button>
+              </div>
+            </form>
+          </Card>
+        )}
 
         <InlineError error={joinError} />
 
@@ -118,7 +193,9 @@ export default function CommunitiesPage() {
           <EmptyState
             icon={Users}
             title="No communities found"
-            description={search || activeCategory ? "Try a different search or filter." : "Be the first to create a community!"}
+            description={search || activeCategory
+              ? "Try a different search or filter."
+              : "Nothing here yet. Start one and you become its first member."}
           />
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -135,7 +212,9 @@ export default function CommunitiesPage() {
                   </Link>
                   <div className="p-4 flex flex-col flex-1">
                     <div className="flex items-center gap-2 mb-2">
-                      <Badge variant={categoryColors[community.category] || 'teal'}>{community.category}</Badge>
+                      {community.category && (
+                        <Badge variant={categoryColors[community.category] || 'muted'}>{community.category}</Badge>
+                      )}
                       {community.city && (
                         <span className="flex items-center gap-1 text-text-muted text-xs">
                           <MapPin size={11} /> {community.city}
@@ -167,16 +246,16 @@ export default function CommunitiesPage() {
         )}
       </div>
 
-      {/* FAB */}
-      <Link
-        to="/communities/create"
+      {/* Was a link to /communities/create, a route that does not exist. */}
+      <button
+        type="button"
+        onClick={() => setShowCreate(true)}
         aria-label="Create a community"
-        className="fixed bottom-6 right-6 z-50 md:hidden"
+        aria-expanded={showCreate}
+        className="fixed bottom-6 right-6 z-50 md:hidden w-14 h-14 rounded-full bg-brand-coral text-white shadow-lg flex items-center justify-center"
       >
-        <div className="w-14 h-14 rounded-full bg-brand-coral text-white shadow-lg flex items-center justify-center">
-          <Plus size={24} />
-        </div>
-      </Link>
+        <Plus size={24} />
+      </button>
     </Layout>
   );
 }

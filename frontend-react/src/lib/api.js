@@ -20,7 +20,11 @@ export async function apiFetch(path, options = {}) {
   const headers = { ...options.headers };
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  if (options.body && !(options.body instanceof FormData)) {
+  // A File is not FormData, so this used to JSON.stringify the upload into the
+  // literal string "{}" and the server stored a broken image URL from a 2-byte
+  // body. /api/upload streams the raw body and reads the type off the header.
+  const isBinary = options.body instanceof Blob;
+  if (options.body && !(options.body instanceof FormData) && !isBinary) {
     headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(options.body);
   }

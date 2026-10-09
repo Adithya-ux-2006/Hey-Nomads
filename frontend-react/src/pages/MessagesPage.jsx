@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Layout from '../components/Layout'
 import { apiFetch } from '../lib/api'
-import { Card, Spinner, EmptyState } from '../components/UI'
+import { useAsync } from '../lib/useAsync'
+import { Card, Spinner, EmptyState, ErrorState } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
 import { MessageCircle, Search } from 'lucide-react'
@@ -24,15 +25,14 @@ function truncate(str, len = 50) {
 }
 
 export default function MessagesPage() {
-  const [conversations, setConversations] = useState([])
-  const [loading, setLoading] = useState(true)
+  // useAsync rather than a bare .then: a failed fetch previously fell through
+  // to the empty state, so an outage was reported as "no conversations yet".
+  const { data, loading, error, retry } = useAsync(
+    () => apiFetch('/conversations').then(d => (Array.isArray(d) ? d : [])),
+    []
+  )
+  const conversations = data || []
   const [search, setSearch] = useState('')
-
-  useEffect(() => {
-    apiFetch('/conversations')
-      .then(data => setConversations(Array.isArray(data) ? data : []))
-      .finally(() => setLoading(false))
-  }, [])
 
   const filtered = conversations.filter(c => {
     if (!search.trim()) return true
@@ -56,7 +56,8 @@ export default function MessagesPage() {
               size={18}
             />
             <input
-              type="text"
+              type="search"
+              aria-label="Search conversations"
               placeholder="Search conversations…"
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -70,6 +71,8 @@ export default function MessagesPage() {
           <div className="flex justify-center py-12">
             <Spinner size="lg" />
           </div>
+        ) : error ? (
+          <ErrorState what="conversations" error={error} onRetry={retry} />
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={MessageCircle}

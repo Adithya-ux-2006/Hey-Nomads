@@ -1,19 +1,19 @@
-import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useState, useEffect, useCallback } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { apiFetch, auth } from '../lib/api'
-import { Card, Badge, Button, SectionHeader } from '../components/UI'
+import { Card, Badge, Button, ButtonLink, SectionHeader, ErrorState, InlineError } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import {
   Edit, MapPin, Briefcase, Home, Calendar, Moon, Cigarette, Wine, Users, Globe, ArrowLeft, ShieldCheck
 } from 'lucide-react'
 
 const CLEANLINESS_MAP = { 1: 'Minimal', 2: 'Casual', 3: 'Moderate', 4: 'Tidy', 5: 'Spotless' }
-const DIET_MAP = { veg: 'Vegetarian', eggetarian: 'Eggetarian', vegan: 'Vegan', non_veg: 'Non-veg' }
+const DIET_MAP = { veg: 'Vegetarian', eggetarian: 'Eggetarian', vegan: 'Vegan', nonveg: 'Non-veg' }
 const SLEEP_MAP = { early: 'Early Bird', late: 'Night Owl', flexible: 'Flexible' }
 const SMOKING_MAP = { yes: 'Smoker', no: 'Non-smoker', occasionally: 'Occasionally' }
 const DRINKING_MAP = { yes: 'Drinks', no: 'Non-drinker', socially: 'Socially' }
-const SOCIAL_MAP = { introvert: 'Introvert', ambivert: 'Ambivert', extrovert: 'Extrovert' }
+const SOCIAL_MAP = { introvert: 'Introvert', moderate: 'Balanced', extrovert: 'Extrovert' }
 
 const AboutItem = ({ icon: Icon, label, value, color }) =>
   value ? (
@@ -28,6 +28,7 @@ const AboutItem = ({ icon: Icon, label, value, color }) =>
 
 const ProfilePage = () => {
   const { id } = useParams()
+  const navigate = useNavigate()
   const currentUserId = auth.getUserId()
   const viewingId = id || currentUserId
   const isOwn = !id || id === currentUserId
@@ -35,32 +36,53 @@ const ProfilePage = () => {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [showBlockConfirm, setShowBlockConfirm] = useState(false)
+  const [safetyError, setSafetyError] = useState(null)
 
   useEffect(() => {
-    if (!currentUserId) return
-    let cancelled = false
-
-    const loadProfile = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        if (isOwn) {
-          const me = await apiFetch('/auth/me')
-          if (!cancelled) setProfile(me)
-        } else {
-          const data = await apiFetch(`/profile/${viewingId}`)
-          if (!cancelled) setProfile(data)
-        }
-      } catch (err) {
-        if (!cancelled) setError(err.message || 'Failed to load profile')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+    if (!currentUserId) {
+      navigate('/login', { replace: true })
+      return
     }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
 
-    loadProfile()
+    // /profile/:userId returns every field this page renders. /auth/me returns
+    // only user columns, so asking it for "my profile" produced a nearly blank
+    // page: no bio, no lifestyle, no budget, no languages.
+    const id = isOwn ? currentUserId : viewingId
+    apiFetch(`/profile/${id}`)
+      .then(data => { if (!cancelled) setProfile(data) })
+      .catch(err => { if (!cancelled) setError(err) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+
     return () => { cancelled = true }
-  }, [viewingId, isOwn, currentUserId])
+  }, [viewingId, isOwn, currentUserId, navigate])
+
+  const reload = useCallback(() => {
+    setLoading(true)
+    setError(null)
+    apiFetch(`/profile/${isOwn ? currentUserId : viewingId}`)
+      .then(setProfile)
+      .catch(setError)
+      .finally(() => setLoading(false))
+  }, [isOwn, currentUserId, viewingId])
+
+  const submitBlock = async () => {
+    setSubmitting(true)
+    setSafetyError(null)
+    try {
+      await apiFetch('/block', { method: 'POST', body: { targetId: Number(id) } })
+      navigate('/roommates', { replace: true })
+    } catch (err) {
+      setSafetyError(err)
+      setShowBlockConfirm(false)
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -78,14 +100,22 @@ const ProfilePage = () => {
     )
   }
 
-  if (error || !profile) {
+  if (error) {
     return (
       <Layout>
-        <div className="max-w-3xl mx-auto px-4 pt-6 pb-24 text-center py-24">
-          <p className="text-text-muted mb-4">{error || 'Profile not found'}</p>
-          <Button variant="secondary" asChild>
-            <Link to="/discover">Back to Discover</Link>
-          </Button>
+        <div className="max-w-2xl mx-auto px-4 pt-16">
+          <ErrorState what="profile" error={error} onRetry={reload} />
+        </div>
+      </Layout>
+    )
+  }
+
+  if (!profile) {
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto px-4 pt-16 text-center">
+          <p className="text-text-muted mb-5">That profile no longer exists.</p>
+          <ButtonLink to="/discover" variant="secondary">Back to Discover</ButtonLink>
         </div>
       </Layout>
     )
@@ -100,8 +130,10 @@ const ProfilePage = () => {
       <div className="max-w-3xl mx-auto px-4 pt-4 pb-28">
         {!isOwn && (
           <div className="mb-4">
-            <Button variant="ghost" size="sm" asChild>
-              <Link to={-1}><ArrowLeft size={16} /> Back</Link>
+            {/* A real button, not <Link to={-1}>: React Router v6 treats a
+                numeric `to` as a URL path, so the link went nowhere. */}
+            <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
+              <ArrowLeft size={16} /> Back
             </Button>
           </div>
         )}
@@ -122,9 +154,9 @@ const ProfilePage = () => {
                   </div>
                 </div>
                 {isOwn && (
-                  <Button variant="primary" asChild>
-                    <Link to="/edit-profile"><Edit size={16} /> Edit</Link>
-                  </Button>
+                  <ButtonLink to="/edit-profile" variant="primary">
+                    <Edit size={16} /> Edit profile
+                  </ButtonLink>
                 )}
               </div>
 
@@ -182,7 +214,7 @@ const ProfilePage = () => {
           <Card className="p-6">
             <SectionHeader title="Housing Preferences" />
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <AboutItem icon={Briefcase} label="Budget" value={profile.budget ? `\u20B9${Number(profile.budget).toLocaleString('en-IN')}/mo` : null} color="text-brand-coral" />
+              <AboutItem icon={Briefcase} label="Budget" value={profile.budget ? `${Number(profile.budget).toLocaleString('en-IN')}/mo` : null} color="text-brand-coral" />
               <AboutItem icon={Home} label="Flat Type" value={profile.flat_type?.replace(/_/g, ' ')} color="text-brand-teal" />
               <AboutItem icon={Calendar} label="Move-in Date" value={profile.move_in_date} color="text-brand-amber" />
             </div>
@@ -214,15 +246,51 @@ const ProfilePage = () => {
           )}
 
           {!isOwn && (
-            <div className="flex items-center justify-center gap-3 pt-2">
-              <Button variant="secondary" asChild>
-                <Link to={`/inbox?user=${profile.id}`}>
-                  Message
-                </Link>
-              </Button>
-              <Button variant="ghost">
-                Block
-              </Button>
+            <div className="space-y-3 pt-2">
+              <InlineError error={safetyError} />
+              <div className="flex items-center justify-center gap-3">
+                {/* POST /api/messages 403s unless the pair is matched, so
+                    offering this to a non-match opened a chat that could not
+                    send. Shortlist instead, which always works. */}
+                {profile.is_match ? (
+                  <ButtonLink to={`/messages/${profile.id}`} variant="secondary">
+                    Message {profile.name?.split(' ')[0]}
+                  </ButtonLink>
+                ) : (
+                  <ButtonLink to="/roommates" variant="secondary">
+                    Find a match
+                  </ButtonLink>
+                )}
+                <Button variant="ghost" onClick={() => setShowBlockConfirm(true)}>
+                  Block
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {showBlockConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+              <div role="dialog" aria-modal="true" aria-labelledby="pblock-title" className="w-full max-w-md bg-white rounded-2xl p-5">
+                <h2 id="pblock-title" className="text-lg font-bold text-text-primary mb-1">
+                  Block {profile.name}?
+                </h2>
+                <p className="text-sm text-text-secondary mb-4">
+                  You won't see each other in matches again, and any existing match is
+                  ended. They are not told you blocked them.
+                </p>
+                <div className="flex gap-3">
+                  <Button variant="secondary" onClick={() => setShowBlockConfirm(false)} className="flex-1">
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={submitBlock}
+                    disabled={submitting}
+                    className="flex-1 bg-status-error hover:opacity-90 shadow-none"
+                  >
+                    {submitting ? 'Blocking' : 'Block'}
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </div>

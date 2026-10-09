@@ -37,22 +37,26 @@ export default function RegisterPage() {
 
         <form onSubmit={handleRegister} className="space-y-5">
           <div>
-            <label className="text-sm font-semibold text-text-primary mb-1.5 block">Full Name</label>
-            <input type="text" value={name} onChange={e => setName(e.target.value)} required
+            <label htmlFor="reg-name" className="text-sm font-semibold text-text-primary mb-1.5 block">Full Name</label>
+            <input id="reg-name" type="text" value={name} onChange={e => setName(e.target.value)} required maxLength={100}
               className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
               placeholder="Your name" />
           </div>
           <div>
-            <label className="text-sm font-semibold text-text-primary mb-1.5 block">Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
+            <label htmlFor="reg-email" className="text-sm font-semibold text-text-primary mb-1.5 block">Email</label>
+            <input id="reg-email" type="email" value={email} onChange={e => setEmail(e.target.value)} required
               className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
               placeholder="you@example.com" />
           </div>
           <div>
-            <label className="text-sm font-semibold text-text-primary mb-1.5 block">Password</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6}
+            <label htmlFor="reg-password" className="text-sm font-semibold text-text-primary mb-1.5 block">Password</label>
+            {/* 8, not 6: the API rejects anything shorter, so the form used to pass
+                validation and then fail on submit. bcrypt also truncates past
+                72 bytes, so the upper bound matters. */}
+            <input id="reg-password" type="password" value={password} onChange={e => setPassword(e.target.value)}
+              required minLength={8} maxLength={72}
               className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral focus:ring-2 focus:ring-brand-coral/20 transition-all"
-              placeholder="Min 6 characters" />
+              placeholder="8 to 72 characters" />
           </div>
           <button type="submit" disabled={loading}
             className="w-full bg-brand-coral hover:bg-brand-coral-dark text-white font-bold py-3.5 rounded-xl transition-all shadow-coral disabled:opacity-50">
