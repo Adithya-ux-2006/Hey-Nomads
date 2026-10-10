@@ -518,6 +518,110 @@ await step('demo interaction creates no real match, message or agreement', async
   return `matches/messages/agreements unchanged at ${before.m}/${before.msg}/${before.a}`;
 });
 
+// ── demo accounts are unreachable as real candidates ─────────
+// DemoModePage keeps its interactions in component state, but that only proves
+// the page does not write. It says nothing about whether the API would accept
+// a hand-crafted request against a demo user id. These probe the boundary
+// directly.
+await step('the API refuses a swipe against a demo account', async () => {
+  const demos = await call('GET', '/api/demo/profiles', token);
+  assert.equal(demos.status, 200, demos.body?.error);
+  assert.ok(demos.body.length > 0, 'no demo profiles are seeded');
+  const demoId = demos.body[0].id;
+
+  const r = await call('POST', '/api/swipe', token, { targetId: demoId, action: 'like' });
+  assert.ok(r.status === 403 || r.status === 400,
+    `the API accepted a like against demo account ${demoId} (${r.status}); a hand-crafted ` +
+    'request would create a real swipe row pointing at a robot');
+  return `POST /api/swipe on a demo target -> ${r.status}`;
+});
+
+await step('the API refuses to shortlist a demo account', async () => {
+  const demos = await call('GET', '/api/demo/profiles', token);
+  const demoId = demos.body[0].id;
+
+  const r = await call('POST', '/api/shortlist', token, { targetId: demoId });
+  assert.ok(r.status === 403 || r.status === 400,
+    `the API shortlisted demo account ${demoId} (${r.status})`);
+  return `POST /api/shortlist on a demo target -> ${r.status}`;
+});
+
+await step('a refused demo swipe leaves no swipe row behind', async () => {
+  const pg = (await import('pg')).default;
+  const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  await db.connect();
+  const demos = await db.query(`SELECT id FROM users WHERE email LIKE '%@heynomads.app' LIMIT 1`);
+  const demoId = demos.rows[0].id;
+
+  const before = await db.query('SELECT count(*)::int n FROM swipes WHERE swiped_id = $1', [demoId]);
+  await call('POST', '/api/swipe', token, { targetId: demoId, action: 'like' });
+  const after = await db.query('SELECT count(*)::int n FROM swipes WHERE swiped_id = $1', [demoId]);
+  assert.equal(after.rows[0].n, before.rows[0].n,
+    'a rejected demo swipe still wrote a row');
+  await db.end();
+  return `swipes pointing at the demo account stayed at ${before.rows[0].n}`;
+});
+
+// L8 in the ledger is a render claim. This proves the contract the render
+// branches on: matchCreated is true exactly when a match row exists. If that
+// signal were wrong the banner would either claim a match that did not happen
+// or hide a match that did.
+await step('matchCreated is true exactly when a match row exists', async () => {
+  const demos = await call('GET', '/api/demo/profiles', token);
+  assert.equal(demos.status, 200);
+  const demoId = demos.body[0].id;
+
+  // A like on an unreachable demo target is refused outright, so it cannot be
+  // the source of a false positive.
+  const refused = await call('POST', '/api/swipe', token, { targetId: demoId, action: 'like' });
+  assert.ok(refused.status === 403 || refused.status === 400, `demo swipe returned ${refused.status}`);
+
+  // A one-sided like must not claim a match.
+  const rec = await call('GET', '/api/roommates/recommended', token);
+  const list = Array.isArray(rec.body) ? rec.body : (rec.body.roommates || []);
+  assert.ok(list.length > 0, 'no candidates remain');
+  const oneSided = await call('POST', '/api/swipe', token, {
+    targetId: list[0].id, action: 'like',
+  });
+  assert.equal(oneSided.body.matchCreated, false,
+    'a one-sided like reported a match, so the UI would offer Message and Agreement links that 403');
+
+  const matches = await call('GET', '/api/matches', token);
+  assert.ok(!matches.body.some(m => m.partner_id === list[0].id),
+    'a one-sided like created a match row');
+
+  // A mutual like must claim one. It has to be a pair whose two sides we hold
+  // tokens for: other <-> outsider have not matched yet at this point.
+  await call('POST', '/api/swipe', other.token, { targetId: outsider.id, action: 'like' });
+  const mutual = await call('POST', '/api/swipe', outsider.token, { targetId: other.id, action: 'like' });
+  assert.equal(mutual.body.matchCreated, true,
+    'a mutual like did not report a match, so the UI would never offer Message or Agreement');
+
+  const after = await call('GET', '/api/matches', outsider.token);
+  assert.ok(after.body.some(m => m.partner_id === other.id),
+    'matchCreated was true but no match row exists');
+  return 'matchCreated agrees with the matches table in both directions';
+});
+
+await step('no real swipe row points at a demo account', async () => {
+  // Guards against residue from a period when the API did accept demo targets.
+  const pg = (await import('pg')).default;
+  const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  await db.connect();
+  const leaked = await db.query(
+    `SELECT s.swiper_id, su.email AS swiper, s.swiped_id, du.email AS target
+     FROM swipes s
+     JOIN users su ON su.id = s.swiper_id
+     JOIN users du ON du.id = s.swiped_id
+     WHERE du.email LIKE '%@heynomads.app' AND su.email NOT LIKE '%@heynomads.app'
+     LIMIT 5`
+  );
+  assert.equal(leaked.rows.length, 0,
+    `real users have swiped demo accounts: ${leaked.rows.map(r => `${r.swiper}->${r.target}`).join(', ')}`);
+  await db.end();
+  return 'no cross-contamination in the swipes table';
+});
+
 await step('unauthenticated requests are rejected', async () => {
   for (const p of ['/api/settlement', '/api/discover', '/api/me/destination', '/api/resources']) {
     const r = await call('GET', p, null);

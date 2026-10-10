@@ -962,9 +962,14 @@ app.post('/api/swipe', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Cannot swipe on yourself' });
     }
 
-    // Check target exists
-    const target = await query('SELECT id FROM users WHERE id = $1', [targetId]);
+    // Check target exists, and is not a seeded demo account. Demo Mode is
+    // client-side only; without this guard a hand-crafted request could still
+    // create a real swipe row pointing at a robot.
+    const target = await query('SELECT id, email FROM users WHERE id = $1', [targetId]);
     if (target.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    if (target.rows[0].email.endsWith('@heynomads.app')) {
+      return res.status(403).json({ error: 'Demo profiles cannot be liked or passed' });
+    }
 
     // Upsert swipe
     await query(
@@ -1203,6 +1208,11 @@ app.post('/api/shortlist', authMiddleware, async (req, res) => {
   try {
     const { targetId } = req.body;
     if (!targetId) return res.status(400).json({ error: 'targetId required' });
+    // Same boundary as /api/swipe: a demo account is not a real candidate.
+    const target = await query('SELECT email FROM users WHERE id = $1', [targetId]);
+    if (target.rows.length > 0 && target.rows[0].email.endsWith('@heynomads.app')) {
+      return res.status(403).json({ error: 'Demo profiles cannot be shortlisted' });
+    }
     await query('INSERT INTO shortlists (user_id, target_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.userId, targetId]);
     res.json({ ok: true });
   } catch (err) {
