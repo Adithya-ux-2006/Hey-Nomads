@@ -15,6 +15,7 @@
     "verify:fixtures": "node --import ./scripts/dns-shim.mjs scripts/verify-checklist-fixtures.mjs",
     "verify:api": "node --import ./scripts/dns-shim.mjs scripts/verify-api-flows.mjs",
     "verify:deploy": "node scripts/verify-deploy-contract.mjs",
+    "qa:browser": "node scripts/browser-qa.mjs",
     "verify": "npm run lint && npm run verify:security && npm run verify:fixtures && npm run verify:api && npm run verify:deploy"
   },
   "dependencies": {
@@ -43,6 +44,7 @@
     "eslint-plugin-react": "^7.34.1",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.6",
+    "playwright": "^1.64.0",
     "vite": "^5.2.0"
   }
 }

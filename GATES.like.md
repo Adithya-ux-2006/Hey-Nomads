@@ -56,14 +56,21 @@ OWNS: frontend-react/api/index.js, frontend-react/src/pages/RoommatesPage.jsx,
   CWD: frontend-react
   EVIDENCE: automatic-evidence=v1; definition-sha256=acf3681434a4a6e2a68cbcea16cde8261da01f1915dacad18c96112b91d2b20e; exit=0; EXPECT=matched; output-sha256=7b0edefd4608220cc22b53a3ff4edba4b98b0c14f848c15bba8a26811b9d9ab8; output-bytes=5673; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
-- [ ] L8: A like on a mutual partner shows a matched state with working Message
-      and Agreement links, and a plain like does not claim a match
-  EVIDENCE: pending
+- [x] L8: A like on a mutual partner shows a matched state with working Message
+      and Agreement links, a plain like does not claim a match, a failed like
+      restores the card without claiming success, Demo Mode is labelled and
+      writes nothing, and Agreements survives refresh and Back
+  CHECK: node scripts/browser-qa.mjs
+  EXPECT: browser qa passed
+  CWD: frontend-react
+  EVIDENCE: automatic-evidence=v1; definition-sha256=b2abeab6c45a3c98c69295512ed64f397bd97fe99e77c78800dd02aeefe241bf; exit=0; EXPECT=matched; output-sha256=0e1eabd2811960eac5ad2c5b4f8606101987300aa324cbe0b4713c11c493e19a; output-bytes=1316; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 <!--
-L8 is manual: it needs a signed-in browser session and a live like interaction.
-L1 and L2 prove the request and persistence; L8 is the only proof the rendered
-outcome distinguishes like, match and failure.
+L8 drives the deployed app in a real Chromium session with two throwaway
+accounts, so the assertions are observed from the rendered UI rather than
+inferred from the API contract. It is a live test: it registers accounts and
+exercises swipes, matches and an agreement against the deployed instance, so it
+is not part of `npm run verify`.
 
 L1 through L4 share one CHECK on purpose. npm run verify:api is a single command
 whose suite contains all four assertions, so one run proves the whole contract
