@@ -30,3 +30,8 @@ Thumbs.db
 backend/uploads/*
 .vercel
 .env*
+
+# Agent tooling installed per-clone; not part of the shipped app.
+.opencode/
+.unlazy/
+.unlazy-hook-state.json

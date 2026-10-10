@@ -24,3 +24,6 @@ jobs:
       # Needs no database and no running server: it boots the API in-process
       # and asserts the security boundaries that are easy to regress.
       - run: npm run verify:security
+      # Guards the static-host contract: a wrong /api/* redirect order ships a
+      # frontend that loads but cannot authenticate, which looks fine locally.
+      - run: npm run verify:deploy
