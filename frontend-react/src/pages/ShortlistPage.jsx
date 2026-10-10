@@ -135,18 +135,27 @@ export default function ShortlistPage() {
                     </p>
                   )}
 
-                  {/* Button inside Link is invalid HTML and breaks keyboard
-                      use; ButtonLink renders one <a> styled as a button. */}
+                  {/* POST /api/messages refuses any pair that is not matched, so
+                      a Message button here sent people to a chat that could
+                      never accept input. Show it only where the server will
+                      actually let them write. */}
                   <div className="flex gap-2 mt-4 w-full">
                     <ButtonLink to={`/roommates/${user.id}`} variant="primary"
-                      className="flex-1 w-full text-xs py-1.5">
+                      className={`text-xs py-1.5 ${user.is_match ? 'flex-1 w-full' : 'w-full'}`}>
                       View profile
                     </ButtonLink>
-                    <ButtonLink to={`/messages/${user.id}`} variant="secondary"
-                      className="flex-1 w-full text-xs py-1.5 flex items-center justify-center gap-1">
-                      <MessageCircle size={14} /> Message
-                    </ButtonLink>
+                    {user.is_match && (
+                      <ButtonLink to={`/messages/${user.id}`} variant="secondary"
+                        className="flex-1 w-full text-xs py-1.5 flex items-center justify-center gap-1">
+                        <MessageCircle size={14} /> Message
+                      </ButtonLink>
+                    )}
                   </div>
+                  {!user.is_match && (
+                    <p className="text-xs text-text-muted text-center mt-2">
+                      Message once you match
+                    </p>
+                  )}
                 </Card>
             ))}
           </div>

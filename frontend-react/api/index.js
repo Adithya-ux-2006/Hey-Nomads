@@ -1153,7 +1153,11 @@ app.post('/api/messages', authMiddleware, async (req, res) => {
 app.get('/api/shortlist', authMiddleware, async (req, res) => {
   try {
     const result = await query(
-      `SELECT u.id, u.name, u.age, p.profile_image, p.city, p.budget, p.move_in_date, p.occupation
+      `SELECT u.id, u.name, u.age, p.profile_image, p.city, p.budget, p.move_in_date, p.occupation,
+              EXISTS(SELECT 1 FROM matches m
+                     WHERE m.status = 'matched'
+                       AND ((m.user_a_id = $1 AND m.user_b_id = u.id)
+                         OR (m.user_b_id = $1 AND m.user_a_id = u.id))) AS is_match
        FROM users u
        JOIN shortlists s ON u.id = s.target_id
        LEFT JOIN profiles p ON u.id = p.user_id
@@ -1746,6 +1750,16 @@ app.get('/api/discover', authMiddleware, async (req, res) => {
 app.get('/api/agreement/:u1/:u2', authMiddleware, async (req, res) => {
   try {
     const { u1, u2 } = req.params;
+    // An agreement is private to its two parties and quotes their rent and
+    // deposit. Neither route used to check this, so any signed-in account could
+    // read or overwrite anyone's agreement by supplying two ids.
+    const a = Number(u1), b = Number(u2);
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a === b) {
+      return res.status(400).json({ error: 'Two different user ids are required' });
+    }
+    if (Number(req.userId) !== a && Number(req.userId) !== b) {
+      return res.status(403).json({ error: 'This agreement is not yours' });
+    }
     const existing = await query(
       `SELECT * FROM agreements
        WHERE (user_a_id=$1 AND user_b_id=$2) OR (user_a_id=$2 AND user_b_id=$1)`, [u1, u2]
@@ -1799,6 +1813,10 @@ app.post('/api/agreement', authMiddleware, async (req, res) => {
     const [a, b] = [Number(userA_id), Number(userB_id)].sort((x, y) => x - y);
     if (!Number.isInteger(a) || !Number.isInteger(b) || a === b) {
       return res.status(400).json({ error: 'Two different user ids are required' });
+    }
+    // Only the two named parties may create or edit their own agreement.
+    if (Number(req.userId) !== a && Number(req.userId) !== b) {
+      return res.status(403).json({ error: 'This agreement is not yours' });
     }
     await query(
       `INSERT INTO agreements (user_a_id, user_b_id, content, status)

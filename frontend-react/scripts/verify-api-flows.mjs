@@ -210,6 +210,95 @@ await step('register the counterpart account', async () => {
   return `id=${other.id}`;
 });
 
+// ── messaging authorization ──────────────────────────────────
+// The shortlist used to link to /messages/:id for anyone it held, but
+// POST /api/messages refuses unmatched pairs, so that path always dead-ended
+// on a 403. These checks pin both halves: the refusal is real, and a genuine
+// match can actually write.
+await step('messaging an unmatched user is refused', async () => {
+  const r = await call('POST', '/api/messages', token, {
+    receiver_id: other.id, message: 'hello before we match',
+  });
+  assert.equal(r.status, 403, `expected 403 for an unmatched pair, got ${r.status}`);
+  return '403 for unmatched pair';
+});
+
+await step('a mutual like allows a message', async () => {
+  // Both directions, which is what POST /api/swipe requires to create the match.
+  await call('POST', '/api/swipe', token, { targetId: other.id, action: 'like' });
+  await call('POST', '/api/swipe', other.token, { targetId: userId, action: 'like' });
+
+  const send = await call('POST', '/api/messages', token, {
+    receiver_id: other.id, message: 'now that we match, hello',
+  });
+  assert.equal(send.status, 201, `matched send returned ${send.status}: ${JSON.stringify(send.body)}`);
+
+  const convo = await call('GET', `/api/conversations/${other.id}`, token);
+  assert.equal(convo.status, 200);
+  assert.ok(convo.body.some(m => m.content === 'now that we match, hello'),
+    'the sent message did not appear in the conversation');
+  return `conversation has ${convo.body.length} message(s)`;
+});
+
+await step('shortlist reports match state so the UI can gate the action', async () => {
+  const r = await call('POST', '/api/shortlist', token, { targetId: other.id });
+  assert.equal(r.status, 200);
+
+  const list = await call('GET', '/api/shortlist', token);
+  assert.equal(list.status, 200);
+  const row = list.body.find(u => u.id === other.id);
+  assert.ok(row, 'shortlisted user is missing from the shortlist response');
+  assert.equal(typeof row.is_match, 'boolean',
+    `shortlist row has no is_match field, so the client cannot gate Message (got ${typeof row.is_match})`);
+  assert.equal(row.is_match, true, 'a matched user must report is_match=true');
+
+  await call('DELETE', '/api/shortlist', token, { targetId: other.id });
+  return `is_match=${row.is_match}`;
+});
+
+// ── agreement authorization ───────────────────────────────────
+// An agreement is private to its two parties and quotes their rent and deposit.
+// Neither route compared req.userId against the pair, so any signed-in account
+// could read or overwrite anyone's agreement by supplying their ids.
+const outsider = { id: null, token: null };
+await step('register an unrelated account', async () => {
+  const r = await call('POST', '/api/auth/register', null, {
+    email: `verify3.${Date.now()}@heynomads.test`, password: 'Verify12345!', name: 'Unrelated Third Party',
+  });
+  assert.equal(r.status, 201, r.body?.error);
+  outsider.id = r.body.user.id;
+  outsider.token = r.body.token;
+  return `id=${outsider.id}`;
+});
+
+await step('a third party cannot read an agreement they are not part of', async () => {
+  const r = await call('GET', `/api/agreement/${userId}/${other.id}`, outsider.token);
+  assert.equal(r.status, 403,
+    `expected 403 for an unrelated reader, got ${r.status} (leaks rent and deposit)`);
+  return '403 for unrelated reader';
+});
+
+await step('a third party cannot write an agreement for other people', async () => {
+  const r = await call('POST', '/api/agreement', outsider.token, {
+    userA_id: userId, userB_id: other.id, content: 'injected by someone who is not a party',
+  });
+  assert.equal(r.status, 403, `expected 403 for an unrelated writer, got ${r.status}`);
+
+  // Confirm the document itself was not modified, not merely that the call
+  // was refused: a route can reject and still have written.
+  const after = await call('GET', `/api/agreement/${userId}/${other.id}`, token);
+  assert.ok(!/injected by someone/.test(after.body.content || ''),
+    'the rejected write still modified the agreement');
+  return '403 and the stored document is unchanged';
+});
+
+await step('a party can still read their own agreement', async () => {
+  const r = await call('GET', `/api/agreement/${userId}/${other.id}`, token);
+  assert.equal(r.status, 200, r.body?.error);
+  assert.ok(/ROOMMATE AGREEMENT/.test(r.body.content), 'a party lost access to their own agreement');
+  return 'parties keep access';
+});
+
 // ── matching ─────────────────────────────────────────────────
 await step('compatibility score stays 0-100 with a full breakdown', async () => {
   const r = await call('GET', '/api/roommates/recommended', token);
