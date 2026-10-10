@@ -13,6 +13,7 @@ const navItems = [
 const secondaryItems = [
   { to: '/matches', label: 'Matches' },
   { to: '/shortlist', label: 'Shortlist' },
+  { to: '/agreements', label: 'Agreements' },
   { to: '/events', label: 'Events' },
   { to: '/settle', label: 'Checklist' },
 ];

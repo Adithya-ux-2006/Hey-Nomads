@@ -472,22 +472,17 @@ const ComparePage = () => {
                     : `You two score ${overallScore}% overall — worth talking first. You can still draft an agreement now if you would rather have it in writing.`}
                 </p>
 
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <ButtonLink
-                    to={userB?.id ? `/agreement/${userB.id}` : '/shortlist'}
-                    variant="primary"
-                    className="w-full"
-                  >
-                    <FileText size={16} /> Create Agreement
+                {/* Compare is read-only. Agreements are their own feature under
+                    /agreements, so this card points there instead of offering a
+                    second, competing way to start one. */}
+                <div className="flex flex-col items-center">
+                  <ButtonLink to="/agreements" variant="primary" className="w-full">
+                    <FileText size={16} /> Go to Agreements
                   </ButtonLink>
-                </motion.div>
-
-                <p className="text-xs text-text-muted text-center mt-4">
-                  You can always adjust terms later during discussions.
-                </p>
+                  <p className="text-xs text-text-muted text-center mt-4">
+                    Draft shared terms with a roommate once you have matched.
+                  </p>
+                </div>
               </Card>
             </motion.div>
           </motion.div>

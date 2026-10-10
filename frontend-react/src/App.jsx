@@ -23,6 +23,8 @@ import EditProfilePage from './pages/EditProfilePage';
 import ShortlistPage from './pages/ShortlistPage';
 import ComparePage from './pages/ComparePage';
 import AgreementEditor from './pages/AgreementEditor';
+import AgreementsPage from './pages/AgreementsPage';
+import DemoModePage from './pages/DemoModePage';
 
 const PrivateRoute = ({ children }) => {
   const isAuthenticated = auth.isAuthenticated();
@@ -80,6 +82,8 @@ function App() {
           <Route path="/profile/:id" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
           <Route path="/edit-profile" element={<PrivateRoute><EditProfilePage /></PrivateRoute>} />
           <Route path="/shortlist" element={<PrivateRoute><ShortlistPage /></PrivateRoute>} />
+          <Route path="/agreements" element={<PrivateRoute><AgreementsPage /></PrivateRoute>} />
+          <Route path="/demo" element={<PrivateRoute><DemoModePage /></PrivateRoute>} />
           {/* Public. Only signed-in users are pushed into the app. */}
           <Route
             path="/"

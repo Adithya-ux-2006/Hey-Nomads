@@ -24,6 +24,9 @@ export default function RoommatesPage() {
   const [budgetMin, setBudgetMin] = useState('')
   const [budgetMax, setBudgetMax] = useState('')
   const [actionError, setActionError] = useState(null)
+  // The API answers { ok, matchCreated }. Discarding it made a successful like
+  // look identical to a broken one, so the outcome is surfaced instead.
+  const [feedback, setFeedback] = useState(null)
 
   const params = new URLSearchParams()
   if (city) params.set('city', city)
@@ -50,15 +53,24 @@ export default function RoommatesPage() {
   // here rather than leaving the button state silently wrong.
   const bannerError = actionError || shortlistError
 
-  const handleSwipe = async (targetId, action) => {
+const handleSwipe = async (targetId, action, name) => {
     if (!targetId) return
     setActionError(null)
+    setFeedback(null)
     setSwipedIds(prev => new Set(prev).add(targetId))
     try {
-      await apiFetch('/swipe', {
+      // Pass the object. apiFetch owns JSON encoding; stringifying here made it
+      // encode twice, so /api/swipe received a JSON *string*, targetId was
+      // undefined, and every like returned 400.
+      const res = await apiFetch('/swipe', {
         method: 'POST',
-        body: JSON.stringify({ targetId, action }),
+        body: { targetId: Number(targetId), action },
       })
+      if (action === 'like') {
+        setFeedback(res?.matchCreated
+          ? { kind: 'match', id: targetId, name }
+          : { kind: 'like', name })
+      }
     } catch (err) {
       setSwipedIds(prev => { const next = new Set(prev); next.delete(targetId); return next; })
       setActionError(err)
@@ -166,6 +178,43 @@ export default function RoommatesPage() {
 
           <InlineError error={bannerError} />
 
+          {/* A match and a plain like are different outcomes and used to look
+              identical: the card just disappeared. Message and Agreement only
+              appear on a real match, because the server refuses both otherwise. */}
+          {feedback && (
+            <div
+              role="status"
+              className={`mb-4 p-4 rounded-xl border text-sm flex flex-wrap items-center gap-3 ${
+                feedback.kind === 'match'
+                  ? 'bg-status-success/10 border-status-success/30 text-status-success'
+                  : 'bg-surface-card border-surface-border text-text-secondary'
+              }`}
+            >
+              {feedback.kind === 'match' ? (
+                <>
+                  <span className="font-semibold">You matched with {feedback.name}</span>
+                  <span className="text-text-muted">Start a conversation and agree the details.</span>
+                  <span className="ml-auto flex gap-2">
+                    <Link
+                      to={`/messages/${feedback.id}`}
+                      className="px-3 py-1.5 rounded-lg bg-brand-teal text-white font-semibold text-xs hover:opacity-90"
+                    >
+                      Message
+                    </Link>
+                    <Link
+                      to={`/agreement/${feedback.id}`}
+                      className="px-3 py-1.5 rounded-lg border border-surface-border text-text-primary font-semibold text-xs hover:border-brand-coral"
+                    >
+                      Agreement
+                    </Link>
+                  </span>
+                </>
+              ) : (
+                <span>Liked {feedback.name}. You'll get a message option here once they like you back.</span>
+              )}
+            </div>
+          )}
+
           {loading ? (
             <div className="flex justify-center py-20">
               <Spinner size="lg" />
@@ -178,7 +227,22 @@ export default function RoommatesPage() {
               description="Widen the city or budget, or check back when more people join."
             />
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <>
+              {/* A new account has nobody who liked it first, so it cannot match
+                  anything. Demo Mode shows the flow without pretending the
+                  samples are real people. */}
+              <div className="mb-4 p-3 rounded-xl bg-surface-card border border-surface-border flex flex-wrap items-center gap-3">
+                <span className="text-sm text-text-secondary flex-1 min-w-[200px]">
+                  New here? A match needs a mutual like, so nobody appears until someone likes you first.
+                </span>
+                <Link
+                  to="/demo"
+                  className="px-3 py-2 rounded-lg bg-brand-amber text-white text-xs font-semibold hover:opacity-90 transition-opacity"
+                >
+                  Try Demo Mode
+                </Link>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {visible.map(roommate => (
                 <Card key={roommate.id} className="overflow-hidden cursor-pointer hover:shadow-lg transition-shadow">
                   <Link to={`/roommates/${roommate.id}`}>
@@ -242,7 +306,7 @@ export default function RoommatesPage() {
                     <button
                       type="button"
                       aria-label={`Pass on ${roommate.name}`}
-                      onClick={() => handleSwipe(roommate.id, 'pass')}
+                      onClick={() => handleSwipe(roommate.id, 'pass', roommate.name)}
                       className="w-12 h-12 rounded-full bg-surface-card border border-surface-border flex items-center justify-center text-secondary hover:text-brand-coral hover:border-brand-coral transition-colors"
                     >
                       <X size={20} />
@@ -263,7 +327,7 @@ export default function RoommatesPage() {
                     <button
                       type="button"
                       aria-label={`Like ${roommate.name}`}
-                      onClick={() => handleSwipe(roommate.id, 'like')}
+                      onClick={() => handleSwipe(roommate.id, 'like', roommate.name)}
                       className="w-12 h-12 rounded-full bg-surface-card border border-surface-border flex items-center justify-center text-secondary hover:text-brand-teal hover:border-brand-teal transition-colors"
                     >
                       <Heart size={20} />
@@ -271,7 +335,8 @@ export default function RoommatesPage() {
                   </div>
                 </Card>
               ))}
-            </div>
+              </div>
+            </>
           )}
 
           {visible.length > 0 && (

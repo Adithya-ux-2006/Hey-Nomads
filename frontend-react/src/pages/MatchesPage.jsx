@@ -5,7 +5,7 @@ import { useAsync } from '../lib/useAsync'
 import { Card, EmptyState, Spinner, CompatibilityBadge, ErrorState, InlineError } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
-import { MessageCircle, MoreVertical, UserX } from 'lucide-react'
+import { MessageCircle, MoreVertical, UserX, FileText } from 'lucide-react'
 
 export default function MatchesPage() {
   // A failed fetch used to drop through to "No matches yet / Start swiping!",
@@ -75,6 +75,15 @@ export default function MatchesPage() {
                       className="p-2 rounded-full bg-brand-teal text-white hover:opacity-90 transition"
                     >
                       <MessageCircle size={18} />
+                    </Link>
+                    {/* Agreements are their own feature now, but this stays as the
+                        shortcut from the one place you already are: your matches. */}
+                    <Link
+                      to={`/agreement/${match.partner_id}`}
+                      aria-label={`Agreement with ${match.partner_name}`}
+                      className="p-2 rounded-full border border-surface-border text-text-secondary hover:border-brand-coral hover:text-brand-coral transition"
+                    >
+                      <FileText size={18} />
                     </Link>
                     <div className="relative">
                       <button

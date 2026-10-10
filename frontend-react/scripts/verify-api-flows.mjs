@@ -256,10 +256,13 @@ await step('shortlist reports match state so the UI can gate the action', async 
   return `is_match=${row.is_match}`;
 });
 
-// ── agreement authorization ───────────────────────────────────
-// An agreement is private to its two parties and quotes their rent and deposit.
-// Neither route compared req.userId against the pair, so any signed-in account
-// could read or overwrite anyone's agreement by supplying their ids.
+// ── the like path that shipped broken ─────────────────────────
+// RoommatesPage handed apiFetch an already-stringified body, so the server
+// received a JSON string instead of an object and targetId was undefined.
+// These assert the body parses as an object and that the write persists.
+//
+// The unrelated account is created first: a fresh mutual like needs a partner
+// who has not already been matched in an earlier step.
 const outsider = { id: null, token: null };
 await step('register an unrelated account', async () => {
   const r = await call('POST', '/api/auth/register', null, {
@@ -271,6 +274,43 @@ await step('register an unrelated account', async () => {
   return `id=${outsider.id}`;
 });
 
+await step('a like is accepted and the swipe is persisted', async () => {
+  const before = await call('GET', '/api/roommates/recommended', token);
+  const list = Array.isArray(before.body) ? before.body : (before.body.roommates || []);
+  assert.ok(list.length > 0, 'no candidates to like');
+
+  const r = await call('POST', '/api/swipe', token, {
+    targetId: list[0].id, action: 'like',
+  });
+  assert.equal(r.status, 200, `like returned ${r.status}: ${JSON.stringify(r.body)}`);
+  assert.equal(r.body.ok, true, 'like did not report ok');
+
+  const after = await call('GET', '/api/roommates/recommended', token);
+  const afterList = Array.isArray(after.body) ? after.body : (after.body.roommates || []);
+  assert.ok(!afterList.some(c => c.id === list[0].id),
+    'the liked person is still recommended, so the swipe did not persist');
+  return `${list[0].name} liked and removed from recommendations`;
+});
+
+await step('a mutual like persists a match row', async () => {
+  // `other` was already matched in the messaging step above, so use the
+  // unrelated account to exercise a genuine first-time mutual like.
+  await call('POST', '/api/swipe', outsider.token, { targetId: userId, action: 'like' });
+  const r = await call('POST', '/api/swipe', token, { targetId: outsider.id, action: 'like' });
+  assert.equal(r.status, 200, r.body?.error);
+  assert.equal(r.body.matchCreated, true, 'a mutual like did not report a match');
+
+  const matches = await call('GET', '/api/matches', token);
+  assert.equal(matches.status, 200);
+  assert.ok(matches.body.some(m => m.partner_id === outsider.id),
+    'the match is absent from GET /api/matches after a mutual like');
+  return 'match row exists and is listed';
+});
+
+// ── agreement authorization ───────────────────────────────────
+// An agreement is private to its two parties and quotes their rent and deposit.
+// Neither route compared req.userId against the pair, so any signed-in account
+// could read or overwrite anyone's agreement by supplying their ids.
 await step('a third party cannot read an agreement they are not part of', async () => {
   const r = await call('GET', `/api/agreement/${userId}/${other.id}`, outsider.token);
   assert.equal(r.status, 403,
@@ -379,6 +419,24 @@ await step('agreement saves under the snake_case columns and round-trips', async
   return `id=${read.body.id} status=${read.body.status}`;
 });
 
+// ── agreement list ownership ──────────────────────────────────
+// Scoped by req.userId rather than a caller-supplied pair, so it cannot
+// enumerate other people's agreements. Runs after an agreement exists.
+await step('the agreements list returns only agreements you are party to', async () => {
+  const mine = await call('GET', '/api/agreements', token);
+  assert.equal(mine.status, 200, mine.body?.error);
+  const row = mine.body.find(a => a.partner_id === other.id);
+  assert.ok(row, 'your own agreement is missing from the list');
+  assert.equal(row.partner_id, other.id, 'the list resolved the wrong partner');
+  assert.ok(row.partner_name, 'the list has no partner name to render');
+
+  const theirs = await call('GET', '/api/agreements', outsider.token);
+  assert.equal(theirs.status, 200);
+  assert.ok(!theirs.body.some(a => a.partner_id === other.id || a.partner_id === userId),
+    'an unrelated account sees an agreement it is not party to');
+  return `party sees ${mine.body.length}, unrelated sees ${theirs.body.length}`;
+});
+
 await step('agreement rejects a missing counterpart', async () => {
   const r = await call('POST', '/api/agreement', token, { userA_id: userId, content: 'x' });
   assert.equal(r.status, 400);
@@ -390,6 +448,76 @@ await step('agreement rejects self-agreements', async () => {
 });
 
 // ── auth boundary ─────────────────────────────────────────────
+// ── Demo Mode isolation ──────────────────────────────────────
+// Demo accounts exist in the same users table as real people, so the only thing
+// keeping them honest is the recommendation query excluding them and the demo
+// routes offering no write path at all.
+await step('real recommendations never include demo accounts', async () => {
+  const rec = await call('GET', '/api/roommates/recommended', token);
+  const list = Array.isArray(rec.body) ? rec.body : (rec.body.roommates || []);
+  assert.equal(rec.status, 200, rec.body?.error);
+
+  const demos = await call('GET', '/api/demo/profiles', token);
+  assert.equal(demos.status, 200, demos.body?.error);
+  assert.ok(demos.body.length > 0, 'no demo profiles are seeded');
+
+  const demoIds = new Set(demos.body.map(d => d.id));
+  const leaked = list.filter(c => demoIds.has(c.id));
+  assert.equal(leaked.length, 0,
+    `real recommendations contain demo accounts: ${leaked.map(c => c.name).join(', ')}`);
+
+  // Same exclusion on the dashboard feed.
+  const disc = await call('GET', '/api/discover', token);
+  assert.equal(disc.status, 200);
+  const discRoommates = disc.body.roommates || [];
+  assert.ok(!discRoommates.some(r => demoIds.has(r.id)),
+    'discover exposes a demo account as a real recommendation');
+  return `${list.length} real candidates, ${demos.body.length} demo profiles, no overlap`;
+});
+
+await step('demo profiles are labelled and exclude real accounts', async () => {
+  const r = await call('GET', '/api/demo/profiles', token);
+  assert.equal(r.status, 200);
+  assert.ok(r.body.length > 0, 'no demo profiles returned');
+  assert.ok(r.body.every(p => p.is_demo === true),
+    'a demo profile is missing the is_demo flag, so a client cannot label it');
+  assert.ok(!r.body.some(p => p.email), 'the demo endpoint leaks an email address');
+  return `${r.body.length} profiles, all flagged is_demo`;
+});
+
+await step('demo mode exposes no write path', async () => {
+  // There is intentionally no POST /api/demo/* route. Assert that a write
+  // attempt against the demo namespace fails rather than silently persisting.
+  for (const method of ['POST', 'DELETE']) {
+    const r = await call(method, '/api/demo/profiles', token, { targetId: other.id });
+    assert.ok(r.status === 404 || r.status === 405,
+      `${method} /api/demo/profiles returned ${r.status}, expected 404 or 405`);
+  }
+  return 'no writable demo routes';
+});
+
+await step('demo interaction creates no real match, message or agreement', async () => {
+  const pg = (await import('pg')).default;
+  const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  await db.connect();
+  const snapshot = async () => (await db.query(
+    `SELECT (SELECT count(*) FROM matches) AS m,
+            (SELECT count(*) FROM messages) AS msg,
+            (SELECT count(*) FROM agreements) AS a`
+  )).rows[0];
+  const before = await snapshot();
+
+  // Browse the demo list the way the page does: read only. Nothing below may
+  // change a row, which is what makes the mode safe.
+  await call('GET', '/api/demo/profiles', token);
+
+  const after = await snapshot();
+  assert.deepEqual(after, before,
+    `browsing demo profiles changed real rows: ${JSON.stringify({ before, after })}`);
+  await db.end();
+  return `matches/messages/agreements unchanged at ${before.m}/${before.msg}/${before.a}`;
+});
+
 await step('unauthenticated requests are rejected', async () => {
   for (const p of ['/api/settlement', '/api/discover', '/api/me/destination', '/api/resources']) {
     const r = await call('GET', p, null);

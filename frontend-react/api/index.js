@@ -810,6 +810,34 @@ async function calcCompatibility(userId, candidateId, weights) {
   return { score: total, breakdown, reasons };
 }
 
+// Seeded demo accounts live at this domain. They must never appear in a real
+// person's recommendations, or a genuine user matches with a robot and thinks
+// a real person liked them back.
+const DEMO_EMAIL_SUFFIX = '%@heynomads.app';
+
+// ── Demo Mode ────────────────────────────────────────────────
+// Read-only. Deliberately exposes no write path: demo liking, chatting and
+// agreeing happen in the client so a demo interaction can never create a real
+// match, message or agreement row that some other user would later believe.
+app.get('/api/demo/profiles', authMiddleware, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT u.id, u.name, u.age, u.interests,
+              p.occupation, p.city, p.budget, p.bio, p.profile_image,
+              p.cleanliness, p.sleep_time, p.diet, p.flat_type
+       FROM users u
+       JOIN profiles p ON p.user_id = u.id
+       WHERE u.email LIKE $1
+       ORDER BY u.name`, [DEMO_EMAIL_SUFFIX]
+    );
+    // The flag is the contract: a client must be able to label these without
+    // inferring it from the email domain.
+    res.json(result.rows.map(r => ({ ...r, is_demo: true })));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get demo profiles' });
+  }
+});
+
 // ── Roommates / Discovery ──────────────────────────────────────
 
 app.get('/api/roommates/recommended', authMiddleware, async (req, res) => {
@@ -826,7 +854,8 @@ app.get('/api/roommates/recommended', authMiddleware, async (req, res) => {
     );
     const blockedIds = blocked.rows.map(r => r.blocked_id);
 
-    let where = 'WHERE u.id != $1';
+    // The demo suffix is declared near the demo routes below.
+let where = `WHERE u.id != $1 AND u.email NOT LIKE '${DEMO_EMAIL_SUFFIX}'`;
     const params = [req.userId];
     let idx = 2;
 
@@ -1675,9 +1704,10 @@ app.get('/api/discover', authMiddleware, async (req, res) => {
                   p.profile_image, p.city, p.budget, p.occupation, p.bio
            FROM users u
            LEFT JOIN profiles p ON u.id = p.user_id
-           WHERE u.id != $1
-             AND NOT EXISTS (SELECT 1 FROM swipes s
-                             WHERE s.swiper_id = $1 AND s.swiped_id = u.id AND s.action = 'pass')
+WHERE u.id != $1
+              AND u.email NOT LIKE '${DEMO_EMAIL_SUFFIX}'
+              AND NOT EXISTS (SELECT 1 FROM swipes s
+                              WHERE s.swiper_id = $1 AND s.swiped_id = u.id AND s.action = 'pass')
              AND NOT EXISTS (SELECT 1 FROM blocks b
                              WHERE (b.blocker_id = $1 AND b.blocked_id = u.id)
                                 OR (b.blocker_id = u.id AND b.blocked_id = $1))
@@ -1746,6 +1776,26 @@ app.get('/api/discover', authMiddleware, async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // AGREEMENTS
 // ══════════════════════════════════════════════════════════════
+
+// Every agreement the caller is a party to. Scoped by req.userId rather than
+// by a caller-supplied pair, so it cannot be used to enumerate other people's
+// agreements.
+app.get('/api/agreements', authMiddleware, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT a.id, a.user_a_id, a.user_b_id, a.content, a.status, a.updated_at,
+              u.id AS partner_id, u.name AS partner_name, p.profile_image AS partner_image
+       FROM agreements a
+       JOIN users u ON u.id = CASE WHEN a.user_a_id = $1 THEN a.user_b_id ELSE a.user_a_id END
+       LEFT JOIN profiles p ON p.user_id = u.id
+       WHERE a.user_a_id = $1 OR a.user_b_id = $1
+       ORDER BY a.updated_at DESC`, [req.userId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get agreements' });
+  }
+});
 
 app.get('/api/agreement/:u1/:u2', authMiddleware, async (req, res) => {
   try {
