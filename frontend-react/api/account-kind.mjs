@@ -16,6 +16,8 @@ export const KIND = {
   DEMO: 'demo',
   QA: 'qa',
   WALKTHROUGH: 'walkthrough',
+  // Not classifiable. Never treated as a person.
+  UNKNOWN: 'unknown',
 };
 
 // Seeded sample profiles. seed-test-data.mjs owns this domain.
@@ -26,9 +28,16 @@ const QA_LOCAL_PREFIXES = ['qa.', 'verify', 'walkthrough'];
 const WALKTHROUGH_PREFIX = 'walkthrough.';
 
 export function classifyEmail(email) {
-  if (!email || typeof email !== 'string') return KIND.REAL;
+  // Fail closed. A missing or malformed address is not evidence that the account
+  // is a person, and the feed must never surface an unclassifiable account to a
+  // real user. `users.email` is NOT NULL today, so this is defence in depth for
+  // a future column default or a partially-migrated row.
+  if (typeof email !== 'string') return KIND.UNKNOWN;
   const e = email.trim().toLowerCase();
+  if (!e || !e.includes('@') || e.startsWith('@') || e.endsWith('@')) return KIND.UNKNOWN;
+
   const [local, domain] = e.split('@');
+  if (!local || !domain) return KIND.UNKNOWN;
 
   if (domain === DEMO_DOMAIN) return KIND.DEMO;
   if (local.startsWith(WALKTHROUGH_PREFIX)) return KIND.WALKTHROUGH;

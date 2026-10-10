@@ -649,6 +649,81 @@ await step('a QA account cannot be swiped or shortlisted as a person', async () 
   return `swipe ${sw.status}, shortlist ${sl.status}`;
 });
 
+// ── actor-side isolation ─────────────────────────────────────
+// The pre-existing guards only inspected the counterparty, so a demo or test
+// account acting on its own could still create real rows against a genuine user.
+await step('a demo account cannot swipe or shortlist as an actor', async () => {
+  const demo = await call('POST', '/api/auth/login', null, {
+    email: 'priya.sharma@heynomads.app', password: 'HeyNomads2026!',
+  });
+  if (demo.status !== 200) return `skipped: demo login returned ${demo.status}`;
+  const demoToken = demo.body.token;
+  const demoId = demo.body.user.id;
+
+  const probe = await call('POST', '/api/auth/register', null, {
+    email: `actorprobe.${Date.now()}@gmail.com`, password: 'Verify12345!', name: 'Actor Probe',
+  });
+  assert.equal(probe.status, 201, probe.body?.error);
+
+  const sw = await call('POST', '/api/swipe', demoToken, { targetId: probe.body.user.id, action: 'like' });
+  assert.equal(sw.status, 403, `a demo account swiped a real user (${sw.status})`);
+
+  const sl = await call('POST', '/api/shortlist', demoToken, { targetId: probe.body.user.id });
+  assert.equal(sl.status, 403, `a demo account shortlisted a real user (${sl.status})`);
+
+  const slAfter = await call('GET', '/api/shortlist', probe.body.token);
+  assert.equal(slAfter.status, 200);
+  assert.ok(!slAfter.body.some(u => u.id === demoId), 'the refused shortlist still wrote a row');
+  return 'swipe 403, shortlist 403, nothing written';
+});
+
+await step('an agreement needs two matched, genuine accounts', async () => {
+  const demo = await call('POST', '/api/auth/login', null, {
+    email: 'priya.sharma@heynomads.app', password: 'HeyNomads2026!',
+  });
+  if (demo.status !== 200) return `skipped: demo login returned ${demo.status}`;
+  const demoToken = demo.body.token;
+  const demoId = demo.body.user.id;
+
+  // Two real accounts that have NOT matched: drafting must be refused.
+  const a = await call('POST', '/api/auth/register', null, {
+    email: `agr.${Date.now()}.a@gmail.com`, password: 'Verify12345!', name: 'Agree A',
+  });
+  const b = await call('POST', '/api/auth/register', null, {
+    email: `agr.${Date.now()}.b@gmail.com`, password: 'Verify12345!', name: 'Agree B',
+  });
+  assert.equal(a.status, 201, a.body?.error);
+  assert.equal(b.status, 201, b.body?.error);
+
+  const unmatched = await call('POST', '/api/agreement', a.body.token, {
+    userA_id: a.body.user.id, userB_id: b.body.user.id, content: 'ROOMMATE AGREEMENT\n\nunmatched',
+  });
+  assert.equal(unmatched.status, 403,
+    `an agreement was created between two unmatched accounts (${unmatched.status})`);
+
+  // A demo account must not be able to open one with a real user either.
+  const withDemo = await call('POST', '/api/agreement', demoToken, {
+    userA_id: demoId, userB_id: a.body.user.id, content: 'ROOMMATE AGREEMENT\n\nfrom a demo account',
+  });
+  assert.equal(withDemo.status, 403,
+    `a demo account created an agreement with a real user (${withDemo.status})`);
+
+  // And the read side must not hand back a real user's budget to a demo account.
+  const readBack = await call('GET', `/api/agreement/${demoId}/${a.body.user.id}`, demoToken);
+  assert.equal(readBack.status, 403, `demo read an agreement template (${readBack.status})`);
+  return 'unmatched 403, demo actor 403, demo read 403';
+});
+
+await step('classification fails closed on a missing address', async () => {
+  const { classifyEmail } = await import('../api/account-kind.mjs');
+  // A null, empty or malformed address must never be treated as a real person.
+  for (const bad of [null, undefined, '', '   ', 'no-at-sign', 42, {}]) {
+    assert.notEqual(classifyEmail(bad), 'real',
+      `classifyEmail(${JSON.stringify(bad)}) returned 'real'; it must fail closed`);
+  }
+  return 'null, empty and malformed addresses are not classified real';
+});
+
 await step('matchCreated is true exactly when a match row exists', async () => {
   const demos = await call('GET', '/api/demo/profiles', token);
   assert.equal(demos.status, 200);

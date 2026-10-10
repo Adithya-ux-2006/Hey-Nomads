@@ -341,6 +341,7 @@ const handleSwipe = async (targetId, action, name) => {
                     </button>
                     <button
                       type="button"
+                      data-roommate-id={roommate.id}
                       aria-label={`Like ${roommate.name}`}
                       onClick={() => handleSwipe(roommate.id, 'like', roommate.name)}
                       className="w-12 h-12 rounded-full bg-surface-card border border-surface-border flex items-center justify-center text-secondary hover:text-brand-teal hover:border-brand-teal transition-colors"

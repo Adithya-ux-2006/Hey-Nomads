@@ -14,22 +14,22 @@ OWNS: frontend-react/api/account-kind.mjs, frontend-react/api/index.js,
 
 - [x] F1: Real recommendations exclude seeded demo profiles
   CHECK: npm run verify:api
-  EXPECT: all 43 checks passed
+  EXPECT: all 46 checks passed
   CWD: frontend-react
-  EVIDENCE: automatic-evidence=v1; definition-sha256=d41f6e7e0e229e36ac8d4f8230782d28cbcea13aa427dad7b9369a81cbe83f3a; exit=0; EXPECT=matched; output-sha256=44f693f2aeaeb222911fdae5f1ab313368be4a095e67414cc736ff8ec50dc0fe; output-bytes=4511; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=b7848a1cfbb1a9ddaa970b89ba452b5ad50483005649b7c37accfe2d39d7f682; exit=0; EXPECT=matched; output-sha256=e4e91c48955c9cb637026499db2cdc8ef4d78ecefaa3396da8c15705b96a7940; output-bytes=4838; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 - [x] F2: Real recommendations exclude QA and walkthrough accounts
   CHECK: npm run verify:api
-  EXPECT: all 43 checks passed
+  EXPECT: all 46 checks passed
   CWD: frontend-react
-  EVIDENCE: automatic-evidence=v1; definition-sha256=d41f6e7e0e229e36ac8d4f8230782d28cbcea13aa427dad7b9369a81cbe83f3a; exit=0; EXPECT=matched; output-sha256=dc8a43a6f87ec67d7eaea7574e092d0dce203613bd3800914c71a98277e58403; output-bytes=4511; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=b7848a1cfbb1a9ddaa970b89ba452b5ad50483005649b7c37accfe2d39d7f682; exit=0; EXPECT=matched; output-sha256=bf5407685357791db2656e70233487d8ddcf4bed2fd73d7316d196f027ecf65d; output-bytes=4839; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 - [x] F3: Account classification is centralised, not scattered substring
       matching, and the exclusion covers every automated-account family
   CHECK: npm run verify:api
-  EXPECT: all 43 checks passed
+  EXPECT: all 46 checks passed
   CWD: frontend-react
-  EVIDENCE: automatic-evidence=v1; definition-sha256=d41f6e7e0e229e36ac8d4f8230782d28cbcea13aa427dad7b9369a81cbe83f3a; exit=0; EXPECT=matched; output-sha256=d8246988ddd3e049312327d9f2312ce8184bb4e00f7cfe8183ac3f985a023367; output-bytes=4511; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=b7848a1cfbb1a9ddaa970b89ba452b5ad50483005649b7c37accfe2d39d7f682; exit=0; EXPECT=matched; output-sha256=3d61919005d6b976209cee28e14077a6a3c963cfea72f0f6480ef757d54ca299; output-bytes=4839; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 - [x] F4: An empty real pool renders an intentional empty state that points at
       Demo Mode, rather than loosening the feed to fill it
@@ -48,9 +48,9 @@ OWNS: frontend-react/api/account-kind.mjs, frontend-react/api/index.js,
 
 - [x] I1: A demo like cannot create a real match
   CHECK: npm run verify:api
-  EXPECT: all 43 checks passed
+  EXPECT: all 46 checks passed
   CWD: frontend-react
-  EVIDENCE: automatic-evidence=v1; definition-sha256=d41f6e7e0e229e36ac8d4f8230782d28cbcea13aa427dad7b9369a81cbe83f3a; exit=0; EXPECT=matched; output-sha256=e8ca652dce7b36082e158dc152b6c893c22fbf4cb5b5ca544eba7cce23be01a2; output-bytes=4510; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=b7848a1cfbb1a9ddaa970b89ba452b5ad50483005649b7c37accfe2d39d7f682; exit=0; EXPECT=matched; output-sha256=e334e834a31a0425eadaa07eb3763f6cb45665587a8b1cc186d6c2b42d47f7ae; output-bytes=4838; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 - [x] I2: Demo chat issues no API write at all, so no real conversation, message
       or agreement can originate in Demo Mode
@@ -62,16 +62,37 @@ OWNS: frontend-react/api/account-kind.mjs, frontend-react/api/index.js,
 - [x] I3: Swiping or shortlisting a demo, QA or walkthrough account is refused
       server-side, so a hand-crafted request cannot bypass the UI
   CHECK: npm run verify:api
-  EXPECT: all 43 checks passed
+  EXPECT: all 46 checks passed
   CWD: frontend-react
-  EVIDENCE: automatic-evidence=v1; definition-sha256=d41f6e7e0e229e36ac8d4f8230782d28cbcea13aa427dad7b9369a81cbe83f3a; exit=0; EXPECT=matched; output-sha256=b0062df9090866365da0bb762943223647b6022324680213adfe5acfc9b5537d; output-bytes=4510; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=b7848a1cfbb1a9ddaa970b89ba452b5ad50483005649b7c37accfe2d39d7f682; exit=0; EXPECT=matched; output-sha256=6394fc6d5dd082774809818347a0776e7ec446d7c78da7251d87c33813222a07; output-bytes=4839; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 - [x] I4: The classification is enforced from the stored address, not a
       client-supplied flag
   CHECK: npm run verify:api
-  EXPECT: all 43 checks passed
+  EXPECT: all 46 checks passed
   CWD: frontend-react
-  EVIDENCE: automatic-evidence=v1; definition-sha256=d41f6e7e0e229e36ac8d4f8230782d28cbcea13aa427dad7b9369a81cbe83f3a; exit=0; EXPECT=matched; output-sha256=3151c7a7666257eed37450e361761534ecdc72cceabb6b44d018bdb4e3f451e5; output-bytes=4511; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=b7848a1cfbb1a9ddaa970b89ba452b5ad50483005649b7c37accfe2d39d7f682; exit=0; EXPECT=matched; output-sha256=77878c09be64d94e7e28280625e88bb876af2e871a5eb14d6483211b19e9b72a; output-bytes=4840; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+
+- [x] I5: The guards are bidirectional: a demo, QA or walkthrough account acting
+      on its own is refused, not only one acting on a real target
+  CHECK: npm run verify:api
+  EXPECT: all 46 checks passed
+  CWD: frontend-react
+  EVIDENCE: automatic-evidence=v1; definition-sha256=b7848a1cfbb1a9ddaa970b89ba452b5ad50483005649b7c37accfe2d39d7f682; exit=0; EXPECT=matched; output-sha256=e922e407fc15a838223b59756f327f091c9364b7d9eaded442c7967f6ecf7c4f; output-bytes=4840; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+
+- [x] I6: An agreement requires two matched, genuine accounts, so a demo
+      account cannot open one with a real user and read back their budget
+  CHECK: npm run verify:api
+  EXPECT: all 46 checks passed
+  CWD: frontend-react
+  EVIDENCE: automatic-evidence=v1; definition-sha256=b7848a1cfbb1a9ddaa970b89ba452b5ad50483005649b7c37accfe2d39d7f682; exit=0; EXPECT=matched; output-sha256=063eda305d056780e5edcb694eb7a8c14d73a47595567dee1f428e6431d629e4; output-bytes=4840; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+
+- [x] I7: Classification fails closed: a missing or malformed address is never
+      treated as a real person
+  CHECK: npm run verify:api
+  EXPECT: all 46 checks passed
+  CWD: frontend-react
+  EVIDENCE: automatic-evidence=v1; definition-sha256=b7848a1cfbb1a9ddaa970b89ba452b5ad50483005649b7c37accfe2d39d7f682; exit=0; EXPECT=matched; output-sha256=d4ca75344c19dd560e236722531638d50070697ca764d478764ce0420c741363; output-bytes=4840; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 ## Profile rendering
 

@@ -81,12 +81,17 @@ try {
     await page.goto(`${BASE}/roommates`, { waitUntil: 'domcontentloaded' });
     // Exact aria-label: a prefix match once hit a real account whose name
     // started with the same letter.
-    const likeA = page.locator(`button[aria-label="Like ${A.name}"]`).first();
-    await likeA.waitFor({ state: 'visible', timeout: 25000 });
-    await likeA.click();
-    await page.waitForTimeout(2500);
+// Select by id, not by name: leftover accounts from earlier runs can share a
+// display name, and picking the first match would like the wrong person.
+const likeA = page.locator(`button[data-roommate-id="${A.id}"]`);
+await likeA.waitFor({ state: 'visible', timeout: 25000 });
+await likeA.click();
 
-    const banner = await page.locator('div[role="status"]').first();
+    const banner = page.locator('div[role="status"]').first();
+    // Wait for the outcome rather than sleeping a fixed interval: the banner
+    // only exists once /api/swipe has round-tripped, and a fixed sleep races
+    // the database under load and reports a phantom failure.
+    await banner.waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
     const text = (await banner.count()) ? (await banner.innerText()).replace(/\s+/g, ' ').trim() : '';
     const isMatch = /You matched/i.test(text);
     const isNeutral = /^Liked/i.test(text);
@@ -106,12 +111,12 @@ try {
     await login(page, A);
 
     await page.goto(`${BASE}/roommates`, { waitUntil: 'domcontentloaded' });
-    const likeB = page.locator(`button[aria-label="Like ${B.name}"]`).first();
-    await likeB.waitFor({ state: 'visible', timeout: 25000 });
+const likeB = page.locator(`button[data-roommate-id="${B.id}"]`);
+await likeB.waitFor({ state: 'visible', timeout: 25000 });
     await likeB.click();
-    await page.waitForTimeout(2500);
 
     const banner = page.locator('div[role="status"]').first();
+    await banner.waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
     const text = (await banner.count()) ? (await banner.innerText()).replace(/\s+/g, ' ').trim() : '';
     record('A: mutual like shows the match banner', /You matched/i.test(text), text.slice(0, 90) || 'no banner');
 

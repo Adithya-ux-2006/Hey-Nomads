@@ -822,6 +822,15 @@ async function calcCompatibility(userId, candidateId, weights) {
 // only the demo domain was filtered, which let automated test accounts rank in
 // the real feed.
 
+// Which kind of account is acting. The swipe/shortlist/agreement guards below
+// check the counterparty, but a demo or QA account acting on its own would
+// otherwise create real swipe, match, conversation and agreement rows against a
+// genuine user. One indexed lookup, only on the mutating routes.
+async function actorIsRealUser(userId) {
+  const r = await query('SELECT email FROM users WHERE id = $1', [userId]);
+  return r.rows.length > 0 && isInteractingAsRealUser(r.rows[0].email);
+}
+
 // ── Demo Mode ────────────────────────────────────────────────
 // Read-only. Deliberately exposes no write path: demo liking, chatting and
 // agreeing happen in the client so a demo interaction can never create a real
@@ -967,6 +976,9 @@ app.post('/api/swipe', authMiddleware, async (req, res) => {
     }
     if (targetId === req.userId) {
       return res.status(400).json({ error: 'Cannot swipe on yourself' });
+    }
+    if (!(await actorIsRealUser(req.userId))) {
+      return res.status(403).json({ error: 'Sample and test accounts cannot like or pass anyone' });
     }
 
     // Check target exists, and is not a seeded demo account. Demo Mode is
@@ -1216,7 +1228,10 @@ app.post('/api/shortlist', authMiddleware, async (req, res) => {
   try {
     const { targetId } = req.body;
     if (!targetId) return res.status(400).json({ error: 'targetId required' });
-    // Same boundary as /api/swipe: a demo account is not a real candidate.
+    if (!(await actorIsRealUser(req.userId))) {
+      return res.status(403).json({ error: 'Sample and test accounts cannot shortlist anyone' });
+    }
+    // Same boundary as /api/swipe: a non-real account is not a real candidate.
     const target = await query('SELECT email FROM users WHERE id = $1', [targetId]);
     if (target.rows.length > 0 && !isInteractingAsRealUser(target.rows[0].email)) {
       const kind = humanLabel(classifyEmail(target.rows[0].email));
@@ -1816,6 +1831,21 @@ app.get('/api/agreements', authMiddleware, async (req, res) => {
   }
 });
 
+// An agreement is a document between two matched, genuine people. Without this,
+// a demo or test account could open one with any real user, and the generated
+// template would quote that user's budget and deposit back to them.
+async function assertRealMatchedPair(userA, userB) {
+  const pair = [Number(userA), Number(userB)].sort((x, y) => x - y);
+  const emails = await query('SELECT email FROM users WHERE id = ANY($1::int[])', [pair]);
+  if (emails.rows.length !== 2 || !emails.rows.every(r => isInteractingAsRealUser(r.email))) return false;
+  const m = await query(
+    `SELECT 1 FROM matches WHERE status = 'matched'
+       AND ((user_a_id = $1 AND user_b_id = $2) OR (user_b_id = $1 AND user_a_id = $2)) LIMIT 1`,
+    pair
+  );
+  return m.rows.length > 0;
+}
+
 app.get('/api/agreement/:u1/:u2', authMiddleware, async (req, res) => {
   try {
     const { u1, u2 } = req.params;
@@ -1828,6 +1858,9 @@ app.get('/api/agreement/:u1/:u2', authMiddleware, async (req, res) => {
     }
     if (Number(req.userId) !== a && Number(req.userId) !== b) {
       return res.status(403).json({ error: 'This agreement is not yours' });
+    }
+    if (!(await assertRealMatchedPair(a, b))) {
+      return res.status(403).json({ error: 'An agreement is only available between two matched accounts' });
     }
     const existing = await query(
       `SELECT * FROM agreements
@@ -1886,6 +1919,9 @@ app.post('/api/agreement', authMiddleware, async (req, res) => {
     // Only the two named parties may create or edit their own agreement.
     if (Number(req.userId) !== a && Number(req.userId) !== b) {
       return res.status(403).json({ error: 'This agreement is not yours' });
+    }
+    if (!(await assertRealMatchedPair(a, b))) {
+      return res.status(403).json({ error: 'An agreement is only available between two matched accounts' });
     }
     await query(
       `INSERT INTO agreements (user_a_id, user_b_id, content, status)
