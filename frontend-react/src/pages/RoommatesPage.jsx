@@ -16,6 +16,15 @@ const BREAKDOWN_LABELS = {
   habits: 'Habits',
 }
 
+const DemoModeLink = () => (
+  <Link
+    to="/demo"
+    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-brand-amber text-white text-sm font-semibold hover:opacity-90 transition-opacity"
+  >
+    Try Demo Mode
+  </Link>
+)
+
 export default function RoommatesPage() {
   const [swipedIds, setSwipedIds] = useState(new Set())
   const [shortlistedIds, setShortlistedIds] = useState(new Set())
@@ -112,6 +121,7 @@ const handleSwipe = async (targetId, action, name) => {
   }
 
   const cities = [...new Set(list.map(r => r.city).filter(Boolean))]
+  const hasFilters = !!(city || budgetMin || budgetMax)
 
   return (
     <Layout>
@@ -222,9 +232,14 @@ const handleSwipe = async (targetId, action, name) => {
           ) : error ? (
             <ErrorState what="matches" error={error} onRetry={retry} />
           ) : visible.length === 0 ? (
+            // The real pool is genuinely empty right now. Say so and point at
+            // Demo Mode rather than quietly loosening the feed to fill it.
             <EmptyState
-              title="No matches in your filters"
-              description="Widen the city or budget, or check back when more people join."
+              title={hasFilters ? 'No matches in your filters' : 'No roommates to show you yet'}
+              description={hasFilters
+                ? 'Try widening the city or budget range.'
+                : 'Recommendations only include real accounts, and there are none available right now. You can still try the whole flow with clearly labelled sample profiles.'}
+              action={<DemoModeLink />}
             />
           ) : (
             <>
@@ -326,6 +341,7 @@ const handleSwipe = async (targetId, action, name) => {
                     </button>
                     <button
                       type="button"
+                      data-roommate-id={roommate.id}
                       aria-label={`Like ${roommate.name}`}
                       onClick={() => handleSwipe(roommate.id, 'like', roommate.name)}
                       className="w-12 h-12 rounded-full bg-surface-card border border-surface-border flex items-center justify-center text-secondary hover:text-brand-teal hover:border-brand-teal transition-colors"

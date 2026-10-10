@@ -5,6 +5,13 @@ import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import * as Sentry from '@sentry/node';
 import { put } from '@vercel/blob';
+import {
+  DEMO_EMAIL_PATTERN,
+  NOT_REAL_EMAIL_SQL,
+  isInteractingAsRealUser,
+  classifyEmail,
+  humanLabel,
+} from './account-kind.mjs';
 
 // No DSN => the SDK stays inert. Set SENTRY_DSN on Vercel to turn reporting on.
 Sentry.init({
@@ -810,10 +817,19 @@ async function calcCompatibility(userId, candidateId, weights) {
   return { score: total, breakdown, reasons };
 }
 
-// Seeded demo accounts live at this domain. They must never appear in a real
-// person's recommendations, or a genuine user matches with a robot and thinks
-// a real person liked them back.
-const DEMO_EMAIL_SUFFIX = '%@heynomads.app';
+// Account classification lives in account-kind.mjs so demo, QA and walkthrough
+// accounts are all excluded from a real person's recommendations. Previously
+// only the demo domain was filtered, which let automated test accounts rank in
+// the real feed.
+
+// Which kind of account is acting. The swipe/shortlist/agreement guards below
+// check the counterparty, but a demo or QA account acting on its own would
+// otherwise create real swipe, match, conversation and agreement rows against a
+// genuine user. One indexed lookup, only on the mutating routes.
+async function actorIsRealUser(userId) {
+  const r = await query('SELECT email FROM users WHERE id = $1', [userId]);
+  return r.rows.length > 0 && isInteractingAsRealUser(r.rows[0].email);
+}
 
 // ── Demo Mode ────────────────────────────────────────────────
 // Read-only. Deliberately exposes no write path: demo liking, chatting and
@@ -828,7 +844,7 @@ app.get('/api/demo/profiles', authMiddleware, async (req, res) => {
        FROM users u
        JOIN profiles p ON p.user_id = u.id
        WHERE u.email LIKE $1
-       ORDER BY u.name`, [DEMO_EMAIL_SUFFIX]
+       ORDER BY u.name`, [DEMO_EMAIL_PATTERN]
     );
     // The flag is the contract: a client must be able to label these without
     // inferring it from the email domain.
@@ -855,7 +871,7 @@ app.get('/api/roommates/recommended', authMiddleware, async (req, res) => {
     const blockedIds = blocked.rows.map(r => r.blocked_id);
 
     // The demo suffix is declared near the demo routes below.
-let where = `WHERE u.id != $1 AND u.email NOT LIKE '${DEMO_EMAIL_SUFFIX}'`;
+let where = `WHERE u.id != $1 AND ${NOT_REAL_EMAIL_SQL.replace(/email/g, 'u.email')}`;
     const params = [req.userId];
     let idx = 2;
 
@@ -961,14 +977,18 @@ app.post('/api/swipe', authMiddleware, async (req, res) => {
     if (targetId === req.userId) {
       return res.status(400).json({ error: 'Cannot swipe on yourself' });
     }
+    if (!(await actorIsRealUser(req.userId))) {
+      return res.status(403).json({ error: 'Sample and test accounts cannot like or pass anyone' });
+    }
 
     // Check target exists, and is not a seeded demo account. Demo Mode is
     // client-side only; without this guard a hand-crafted request could still
     // create a real swipe row pointing at a robot.
     const target = await query('SELECT id, email FROM users WHERE id = $1', [targetId]);
     if (target.rows.length === 0) return res.status(404).json({ error: 'User not found' });
-    if (target.rows[0].email.endsWith('@heynomads.app')) {
-      return res.status(403).json({ error: 'Demo profiles cannot be liked or passed' });
+    if (!isInteractingAsRealUser(target.rows[0].email)) {
+      const kind = humanLabel(classifyEmail(target.rows[0].email));
+      return res.status(403).json({ error: `${kind || 'This'} profile cannot be liked or passed` });
     }
 
     // Upsert swipe
@@ -1208,10 +1228,14 @@ app.post('/api/shortlist', authMiddleware, async (req, res) => {
   try {
     const { targetId } = req.body;
     if (!targetId) return res.status(400).json({ error: 'targetId required' });
-    // Same boundary as /api/swipe: a demo account is not a real candidate.
+    if (!(await actorIsRealUser(req.userId))) {
+      return res.status(403).json({ error: 'Sample and test accounts cannot shortlist anyone' });
+    }
+    // Same boundary as /api/swipe: a non-real account is not a real candidate.
     const target = await query('SELECT email FROM users WHERE id = $1', [targetId]);
-    if (target.rows.length > 0 && target.rows[0].email.endsWith('@heynomads.app')) {
-      return res.status(403).json({ error: 'Demo profiles cannot be shortlisted' });
+    if (target.rows.length > 0 && !isInteractingAsRealUser(target.rows[0].email)) {
+      const kind = humanLabel(classifyEmail(target.rows[0].email));
+      return res.status(403).json({ error: `${kind || 'This'} profile cannot be shortlisted` });
     }
     await query('INSERT INTO shortlists (user_id, target_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.userId, targetId]);
     res.json({ ok: true });
@@ -1715,7 +1739,7 @@ app.get('/api/discover', authMiddleware, async (req, res) => {
            FROM users u
            LEFT JOIN profiles p ON u.id = p.user_id
 WHERE u.id != $1
-              AND u.email NOT LIKE '${DEMO_EMAIL_SUFFIX}'
+              AND ${NOT_REAL_EMAIL_SQL.replace(/email/g, 'u.email')}
               AND NOT EXISTS (SELECT 1 FROM swipes s
                               WHERE s.swiper_id = $1 AND s.swiped_id = u.id AND s.action = 'pass')
              AND NOT EXISTS (SELECT 1 FROM blocks b
@@ -1807,6 +1831,21 @@ app.get('/api/agreements', authMiddleware, async (req, res) => {
   }
 });
 
+// An agreement is a document between two matched, genuine people. Without this,
+// a demo or test account could open one with any real user, and the generated
+// template would quote that user's budget and deposit back to them.
+async function assertRealMatchedPair(userA, userB) {
+  const pair = [Number(userA), Number(userB)].sort((x, y) => x - y);
+  const emails = await query('SELECT email FROM users WHERE id = ANY($1::int[])', [pair]);
+  if (emails.rows.length !== 2 || !emails.rows.every(r => isInteractingAsRealUser(r.email))) return false;
+  const m = await query(
+    `SELECT 1 FROM matches WHERE status = 'matched'
+       AND ((user_a_id = $1 AND user_b_id = $2) OR (user_b_id = $1 AND user_a_id = $2)) LIMIT 1`,
+    pair
+  );
+  return m.rows.length > 0;
+}
+
 app.get('/api/agreement/:u1/:u2', authMiddleware, async (req, res) => {
   try {
     const { u1, u2 } = req.params;
@@ -1819,6 +1858,9 @@ app.get('/api/agreement/:u1/:u2', authMiddleware, async (req, res) => {
     }
     if (Number(req.userId) !== a && Number(req.userId) !== b) {
       return res.status(403).json({ error: 'This agreement is not yours' });
+    }
+    if (!(await assertRealMatchedPair(a, b))) {
+      return res.status(403).json({ error: 'An agreement is only available between two matched accounts' });
     }
     const existing = await query(
       `SELECT * FROM agreements
@@ -1877,6 +1919,9 @@ app.post('/api/agreement', authMiddleware, async (req, res) => {
     // Only the two named parties may create or edit their own agreement.
     if (Number(req.userId) !== a && Number(req.userId) !== b) {
       return res.status(403).json({ error: 'This agreement is not yours' });
+    }
+    if (!(await assertRealMatchedPair(a, b))) {
+      return res.status(403).json({ error: 'An agreement is only available between two matched accounts' });
     }
     await query(
       `INSERT INTO agreements (user_a_id, user_b_id, content, status)
