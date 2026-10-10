@@ -9,34 +9,34 @@ OWNS: frontend-react/api/index.js, frontend-react/src/pages/RoommatesPage.jsx,
   frontend-react/src/components/Navbar.jsx, frontend-react/scripts/verify-api-flows.mjs,
   frontend-react/src/pages/DemoModePage.jsx, frontend-react/src/pages/AgreementsPage.jsx
 
-- [ ] L1: A swipe reaches the server as an object, not a double-encoded JSON
+- [x] L1: A swipe reaches the server as an object, not a double-encoded JSON
       string. This is the regression that shipped: RoommatesPage stringified the
       body and apiFetch stringified it again, so targetId was undefined and
       /api/swipe returned 400.
   CHECK: npm run verify:api
-  EXPECT: all 39 checks passed
+  EXPECT: all 40 checks passed
   CWD: frontend-react
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=1188fc98f325b6b68e5db5f808d8021f17b400a6802a0933d2de1078c83d080f; exit=0; EXPECT=matched; output-sha256=3f5d4b5d5f1aac93148cfac079a4620a75c4b9e0ac3ed325aa13fb63257d5257; output-bytes=4219; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
-- [ ] L2: A like persists a real swipe row, and a mutual like persists a match
+- [x] L2: A like persists a real swipe row, and a mutual like persists a match
   CHECK: npm run verify:api
-  EXPECT: all 39 checks passed
+  EXPECT: all 40 checks passed
   CWD: frontend-react
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=1188fc98f325b6b68e5db5f808d8021f17b400a6802a0933d2de1078c83d080f; exit=0; EXPECT=matched; output-sha256=bf41f606467ae44fd1196d7dba0ac85d0ffe7b4b3307b8da899875cb12178577; output-bytes=4218; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
-- [ ] L3: GET /api/agreements lists only agreements the caller is a party to
+- [x] L3: GET /api/agreements lists only agreements the caller is a party to
   CHECK: npm run verify:api
-  EXPECT: all 39 checks passed
+  EXPECT: all 40 checks passed
   CWD: frontend-react
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=1188fc98f325b6b68e5db5f808d8021f17b400a6802a0933d2de1078c83d080f; exit=0; EXPECT=matched; output-sha256=7100598d999818c5186d3dbbfa16c8e7d2b07c3d5186e16b77fa42e08cb5faf3; output-bytes=4218; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
-- [ ] L4: Demo Mode is a separate, labelled surface: a demo account is never
+- [x] L4: Demo Mode is a separate, labelled surface: a demo account is never
       returned as a real recommendation, and a demo interaction writes no match,
       message or agreement row
   CHECK: npm run verify:api
-  EXPECT: all 39 checks passed
+  EXPECT: all 40 checks passed
   CWD: frontend-react
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=1188fc98f325b6b68e5db5f808d8021f17b400a6802a0933d2de1078c83d080f; exit=0; EXPECT=matched; output-sha256=0a49a28168ef306e9215b8acef22b68f2eaae3074c7036ea7fecad3c27f95b25; output-bytes=4219; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 - [x] L5: The linter reports no errors
   CHECK: npx eslint . --max-warnings=0 && echo lint verification passed
