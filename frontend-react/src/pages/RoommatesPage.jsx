@@ -2,11 +2,10 @@ import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
 import { apiFetch } from '../lib/api'
 import { useAsync } from '../lib/useAsync'
-import { Card, Spinner, EmptyState, Button } from '../components/UI'
+import { Card, Badge, CompatibilityBadge, Spinner, EmptyState, ErrorState, InlineError, Button } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { SlidersHorizontal } from 'lucide-react'
+import { SlidersHorizontal, ChevronDown, MapPin, Briefcase, Heart, X, Bookmark } from 'lucide-react'
 
 const BREAKDOWN_LABELS = {
   lifestyle: 'Lifestyle',
@@ -47,6 +46,9 @@ export default function RoommatesPage() {
 
   const list = Array.isArray(roommates) ? roommates : []
   const visible = list.filter(r => !swipedIds.has(r.id))
+  // Swipe and shortlist failures are reverted optimistically, so both surface
+  // here rather than leaving the button state silently wrong.
+  const bannerError = actionError || shortlistError
 
   const handleSwipe = async (targetId, action) => {
     if (!targetId) return
@@ -116,13 +118,8 @@ export default function RoommatesPage() {
             </button>
           </div>
 
-          <motion
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="mb-6 overflow-hidden"
-          >
-            <Card className="p-4 space-y-3">
+          {showFilters && (
+            <Card className="p-4 mb-6 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label htmlFor="f-city" className="text-xs font-medium text-secondary block mb-1">City</label>
@@ -165,7 +162,9 @@ export default function RoommatesPage() {
                 </div>
               </div>
             </Card>
-          </motion>
+          )}
+
+          <InlineError error={bannerError} />
 
           {loading ? (
             <div className="flex justify-center py-20">
@@ -235,6 +234,40 @@ export default function RoommatesPage() {
                         ))}
                       </div>
                     )}
+                  </div>
+
+                  {/* Without these the grid is read-only: crossing a roommate
+                      has no action attached to it, so the list never shrinks. */}
+                  <div className="flex items-center justify-center gap-4 p-3 border-t border-surface-border">
+                    <button
+                      type="button"
+                      aria-label={`Pass on ${roommate.name}`}
+                      onClick={() => handleSwipe(roommate.id, 'pass')}
+                      className="w-12 h-12 rounded-full bg-surface-card border border-surface-border flex items-center justify-center text-secondary hover:text-brand-coral hover:border-brand-coral transition-colors"
+                    >
+                      <X size={20} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={shortlistedIds.has(roommate.id)}
+                      aria-label={shortlistedIds.has(roommate.id) ? `Remove ${roommate.name} from shortlist` : `Shortlist ${roommate.name}`}
+                      onClick={() => handleShortlist(roommate.id)}
+                      className={`w-12 h-12 rounded-full bg-surface-card border border-surface-border flex items-center justify-center transition-colors ${
+                        shortlistedIds.has(roommate.id)
+                          ? 'text-brand-amber border-brand-amber'
+                          : 'text-secondary hover:text-brand-amber hover:border-brand-amber'
+                      }`}
+                    >
+                      <Bookmark size={20} fill={shortlistedIds.has(roommate.id) ? 'currentColor' : 'none'} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Like ${roommate.name}`}
+                      onClick={() => handleSwipe(roommate.id, 'like')}
+                      className="w-12 h-12 rounded-full bg-surface-card border border-surface-border flex items-center justify-center text-secondary hover:text-brand-teal hover:border-brand-teal transition-colors"
+                    >
+                      <Heart size={20} />
+                    </button>
                   </div>
                 </Card>
               ))}

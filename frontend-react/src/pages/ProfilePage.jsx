@@ -142,23 +142,31 @@ const ProfilePage = () => {
           <Card className="overflow-hidden">
             <div className="relative h-32 bg-gradient-to-r from-brand-coral via-brand-teal to-brand-amber" />
             <div className="px-6 pb-6">
-              <div className="flex justify-between items-end -mt-14 mb-4">
-                <div className="relative group">
-                  <div className="w-24 h-24 rounded-2xl border-4 border-white shadow-lg overflow-hidden bg-surface-muted">
-                    <UserAvatar
-                      src={profile.profile_image}
-                      name={profile.name}
-                      size="xl"
-                      className="w-full h-full"
-                    />
-                  </div>
+              {/* The avatar overlaps the banner by -mt-14, but the card had no
+                  padding on the row holding it, so the pull-out escaped the
+                  rounded corner and clipped against the banner edge. Give the
+                  pull-out row its own side padding and keep the negative margin
+                  so the overlap still reads as intentional. */}
+              <div className="flex justify-between items-end -mt-14 mb-5 px-6">
+                <div className="w-24 h-24 rounded-2xl border-4 border-white shadow-sm overflow-hidden bg-surface-muted">
+                  <UserAvatar
+                    src={profile.profile_image}
+                    name={profile.name}
+                    size="xl"
+                    className="w-full h-full"
+                  />
                 </div>
                 {isOwn && (
-                  <ButtonLink to="/edit-profile" variant="primary">
-                    <Edit size={16} /> Edit profile
-                  </ButtonLink>
+                  <div className="translate-y-4">
+                    <ButtonLink to="/edit-profile" variant="primary" size="sm">
+                      <Edit size={14} /> Edit profile
+                    </ButtonLink>
+                  </div>
                 )}
               </div>
+              {/* Counteract the row's side padding so the name still aligns with
+                  the banner and the About cards below. */}
+              <div className="-mx-6 px-6">
 
               <div className="flex items-center gap-2 mb-3">
                 <h1 className="text-3xl font-display font-bold text-text-primary">
@@ -181,6 +189,7 @@ const ProfilePage = () => {
                   {profile.bio}
                 </p>
               )}
+              </div>
             </div>
           </Card>
 

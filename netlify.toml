@@ -1,0 +1,11 @@
+[build]
+  base = "frontend-react"
+  command = "npm run build"
+  publish = "dist"
+
+# SPA: every route is client-side, so /roommates/12 must serve index.html
+# rather than 404 on refresh or a hard reload of a nested URL.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
