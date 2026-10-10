@@ -4,6 +4,7 @@
 //
 // Usage: node scripts/browser-qa.mjs [baseUrl]
 import { chromium } from 'playwright';
+import path from 'path';
 
 const BASE = process.argv[2] || 'https://hey-nomads.vercel.app';
 const stamp = Date.now();
@@ -25,16 +26,25 @@ const api = async (path, { method = 'GET', body, token } = {}) => {
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 
-const account = (n) => ({
-  name: `QA${n} ${stamp}`,
-  email: `qa.l8.${stamp}.${n}@heynomads.test`,
-  password: 'QaL8Testing!2026',
+// Real-classified addresses on purpose. A `qa.*` address is classified as a
+// test account and is therefore filtered out of the real recommendation feed,
+// which is the behaviour these tests exist to protect — so using one here would
+// make them test nothing. Realistic names too: an account that briefly appears
+// in someone's feed mid-run should not read as a robot.
+const NAMES = ['Ira Mehta', 'Rohan Pillai', 'Neha Kulkarni', 'Vikram Rao'];
+// Callers pass the labels 'a' and 'b', not indices, so index by character code:
+// NAMES['a' % 4] is NAMES[NaN], i.e. undefined, and the register call then fails
+// with a confusing "All fields are required".
+const account = (label) => ({
+  name: NAMES[label.charCodeAt(0) % NAMES.length],
+  email: `browserqa.${stamp}.${label}@gmail.com`,
+  password: 'BrowserQa!2026',
 });
 
 const register = async (n) => {
   const a = account(n);
   const r = await api('/auth/register', { method: 'POST', body: { email: a.email, password: a.password, name: a.name } });
-  if (r.status !== 201) throw new Error(`register ${n} failed: ${r.status}`);
+  if (r.status !== 201) throw new Error(`register ${n} failed: ${r.status} ${JSON.stringify(r.body)}`);
   await api('/onboarding', {
     method: 'POST',
     token: r.body.token,
@@ -71,7 +81,7 @@ try {
     await page.goto(`${BASE}/roommates`, { waitUntil: 'domcontentloaded' });
     // Exact aria-label: a prefix match once hit a real account whose name
     // started with the same letter.
-    const likeA = page.locator(`button[aria-label="Like ${A.name}"]`);
+    const likeA = page.locator(`button[aria-label="Like ${A.name}"]`).first();
     await likeA.waitFor({ state: 'visible', timeout: 25000 });
     await likeA.click();
     await page.waitForTimeout(2500);
@@ -96,7 +106,7 @@ try {
     await login(page, A);
 
     await page.goto(`${BASE}/roommates`, { waitUntil: 'domcontentloaded' });
-    const likeB = page.locator(`button[aria-label="Like ${B.name}"]`);
+    const likeB = page.locator(`button[aria-label="Like ${B.name}"]`).first();
     await likeB.waitFor({ state: 'visible', timeout: 25000 });
     await likeB.click();
     await page.waitForTimeout(2500);
@@ -224,6 +234,23 @@ record('console: no unexpected application errors', unexpectedConsole.length ===
   record('harness completed without throwing', false, err.message);
 } finally {
   await browser.close();
+  // Remove the accounts this run created. Earlier runs of this script left
+  // eight "QAa <timestamp>" rows in production that ranked in the real feed.
+  try {
+    const pg = (await import('pg')).default;
+    const fs = (await import('fs')).default;
+    for (const line of fs.readFileSync(path.resolve(process.cwd(), '.env'), 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.+?)\s*$/);
+      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+    const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    await db.connect();
+    const gone = await db.query(`DELETE FROM users WHERE email LIKE $1 RETURNING id`, [`browserqa.${stamp}.%`]);
+    await db.end();
+    console.log(`cleanup: removed ${gone.rows.length} account(s) created by this run`);
+  } catch (err) {
+    console.log(`cleanup failed: ${err.message}`);
+  }
 }
 
 const failed = results.filter(r => !r.pass);

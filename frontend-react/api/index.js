@@ -5,6 +5,13 @@ import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import * as Sentry from '@sentry/node';
 import { put } from '@vercel/blob';
+import {
+  DEMO_EMAIL_PATTERN,
+  NOT_REAL_EMAIL_SQL,
+  isInteractingAsRealUser,
+  classifyEmail,
+  humanLabel,
+} from './account-kind.mjs';
 
 // No DSN => the SDK stays inert. Set SENTRY_DSN on Vercel to turn reporting on.
 Sentry.init({
@@ -810,10 +817,10 @@ async function calcCompatibility(userId, candidateId, weights) {
   return { score: total, breakdown, reasons };
 }
 
-// Seeded demo accounts live at this domain. They must never appear in a real
-// person's recommendations, or a genuine user matches with a robot and thinks
-// a real person liked them back.
-const DEMO_EMAIL_SUFFIX = '%@heynomads.app';
+// Account classification lives in account-kind.mjs so demo, QA and walkthrough
+// accounts are all excluded from a real person's recommendations. Previously
+// only the demo domain was filtered, which let automated test accounts rank in
+// the real feed.
 
 // ── Demo Mode ────────────────────────────────────────────────
 // Read-only. Deliberately exposes no write path: demo liking, chatting and
@@ -828,7 +835,7 @@ app.get('/api/demo/profiles', authMiddleware, async (req, res) => {
        FROM users u
        JOIN profiles p ON p.user_id = u.id
        WHERE u.email LIKE $1
-       ORDER BY u.name`, [DEMO_EMAIL_SUFFIX]
+       ORDER BY u.name`, [DEMO_EMAIL_PATTERN]
     );
     // The flag is the contract: a client must be able to label these without
     // inferring it from the email domain.
@@ -855,7 +862,7 @@ app.get('/api/roommates/recommended', authMiddleware, async (req, res) => {
     const blockedIds = blocked.rows.map(r => r.blocked_id);
 
     // The demo suffix is declared near the demo routes below.
-let where = `WHERE u.id != $1 AND u.email NOT LIKE '${DEMO_EMAIL_SUFFIX}'`;
+let where = `WHERE u.id != $1 AND ${NOT_REAL_EMAIL_SQL.replace(/email/g, 'u.email')}`;
     const params = [req.userId];
     let idx = 2;
 
@@ -967,8 +974,9 @@ app.post('/api/swipe', authMiddleware, async (req, res) => {
     // create a real swipe row pointing at a robot.
     const target = await query('SELECT id, email FROM users WHERE id = $1', [targetId]);
     if (target.rows.length === 0) return res.status(404).json({ error: 'User not found' });
-    if (target.rows[0].email.endsWith('@heynomads.app')) {
-      return res.status(403).json({ error: 'Demo profiles cannot be liked or passed' });
+    if (!isInteractingAsRealUser(target.rows[0].email)) {
+      const kind = humanLabel(classifyEmail(target.rows[0].email));
+      return res.status(403).json({ error: `${kind || 'This'} profile cannot be liked or passed` });
     }
 
     // Upsert swipe
@@ -1210,8 +1218,9 @@ app.post('/api/shortlist', authMiddleware, async (req, res) => {
     if (!targetId) return res.status(400).json({ error: 'targetId required' });
     // Same boundary as /api/swipe: a demo account is not a real candidate.
     const target = await query('SELECT email FROM users WHERE id = $1', [targetId]);
-    if (target.rows.length > 0 && target.rows[0].email.endsWith('@heynomads.app')) {
-      return res.status(403).json({ error: 'Demo profiles cannot be shortlisted' });
+    if (target.rows.length > 0 && !isInteractingAsRealUser(target.rows[0].email)) {
+      const kind = humanLabel(classifyEmail(target.rows[0].email));
+      return res.status(403).json({ error: `${kind || 'This'} profile cannot be shortlisted` });
     }
     await query('INSERT INTO shortlists (user_id, target_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.userId, targetId]);
     res.json({ ok: true });
@@ -1715,7 +1724,7 @@ app.get('/api/discover', authMiddleware, async (req, res) => {
            FROM users u
            LEFT JOIN profiles p ON u.id = p.user_id
 WHERE u.id != $1
-              AND u.email NOT LIKE '${DEMO_EMAIL_SUFFIX}'
+              AND ${NOT_REAL_EMAIL_SQL.replace(/email/g, 'u.email')}
               AND NOT EXISTS (SELECT 1 FROM swipes s
                               WHERE s.swiper_id = $1 AND s.swiped_id = u.id AND s.action = 'pass')
              AND NOT EXISTS (SELECT 1 FROM blocks b

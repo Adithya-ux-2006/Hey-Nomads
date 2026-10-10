@@ -15,7 +15,8 @@
     "verify:fixtures": "node --import ./scripts/dns-shim.mjs scripts/verify-checklist-fixtures.mjs",
     "verify:api": "node --import ./scripts/dns-shim.mjs scripts/verify-api-flows.mjs",
     "verify:deploy": "node scripts/verify-deploy-contract.mjs",
-    "qa:browser": "node scripts/browser-qa.mjs",
+    "qa:browser": "node --import ./scripts/dns-shim.mjs scripts/browser-qa.mjs",
+    "qa:profile": "node scripts/profile-layout-qa.mjs",
     "verify": "npm run lint && npm run verify:security && npm run verify:fixtures && npm run verify:api && npm run verify:deploy"
   },
   "dependencies": {

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { apiFetch, auth } from '../lib/api'
-import { Card, Badge, Button, ButtonLink, SectionHeader, ErrorState, InlineError } from '../components/UI'
+import { Card, Badge, Button, ButtonLink, SectionHeader, EmptyState, ErrorState, InlineError } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import {
   Edit, MapPin, Briefcase, Home, Calendar, Moon, Cigarette, Wine, Users, Globe, ArrowLeft, ShieldCheck
@@ -25,6 +25,32 @@ const AboutItem = ({ icon: Icon, label, value, color }) =>
       </div>
     </div>
   ) : null
+
+// A detail section that either lists what exists or says plainly that nothing
+// has been added yet. Rendering the header over an empty grid made a brand-new
+// profile look broken rather than unfinished.
+const DetailSection = ({ title, subtitle, items, emptyText, isOwn }) => {
+  const filled = items.filter(i => i.value);
+  return (
+    <Card className="p-6">
+      <SectionHeader title={title} subtitle={subtitle} />
+      {filled.length > 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {items.map(({ icon: Icon, label, value, color }) => (
+            <AboutItem key={label} icon={Icon} label={label} value={value} color={color} />
+          ))}
+        </div>
+      ) : (
+        <div className="p-4 rounded-xl bg-surface-bg border border-surface-border flex flex-wrap items-center gap-3">
+          <p className="text-sm text-text-muted flex-1 min-w-[180px]">{emptyText}.</p>
+          {isOwn && (
+            <ButtonLink to="/edit-profile" variant="secondary" size="sm">Complete profile</ButtonLink>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+};
 
 const ProfilePage = () => {
   const { id } = useParams()
@@ -142,13 +168,14 @@ const ProfilePage = () => {
           <Card className="overflow-hidden">
             <div className="relative h-32 bg-gradient-to-r from-brand-coral via-brand-teal to-brand-amber" />
             <div className="px-6 pb-6">
-              {/* The avatar overlaps the banner by -mt-14, but the card had no
-                  padding on the row holding it, so the pull-out escaped the
-                  rounded corner and clipped against the banner edge. Give the
-                  pull-out row its own side padding and keep the negative margin
-                  so the overlap still reads as intentional. */}
-              <div className="flex justify-between items-end -mt-14 mb-5 px-6">
-                <div className="w-24 h-24 rounded-2xl border-4 border-white shadow-sm overflow-hidden bg-surface-muted">
+              {/* The avatar overlaps the banner by -mt-14. It used to carry its
+                  own px-6 on top of this container's px-6, then a -mx-6 px-6
+                  wrapper tried to undo it and a translate-y-4 pushed Edit into
+                  the banner edge. One padding context, no compensating
+                  margins, no transforms: the parent owns horizontal padding
+                  and the pull-out only moves vertically. */}
+              <div className="flex justify-between items-end -mt-14 mb-5">
+                <div className="w-24 h-24 rounded-2xl border-4 border-white shadow-sm overflow-hidden bg-surface-muted flex-shrink-0">
                   <UserAvatar
                     src={profile.profile_image}
                     name={profile.name}
@@ -157,19 +184,14 @@ const ProfilePage = () => {
                   />
                 </div>
                 {isOwn && (
-                  <div className="translate-y-4">
-                    <ButtonLink to="/edit-profile" variant="primary" size="sm">
-                      <Edit size={14} /> Edit profile
-                    </ButtonLink>
-                  </div>
+                  <ButtonLink to="/edit-profile" variant="primary" size="sm" className="mb-1 flex-shrink-0">
+                    <Edit size={14} /> Edit profile
+                  </ButtonLink>
                 )}
               </div>
-              {/* Counteract the row's side padding so the name still aligns with
-                  the banner and the About cards below. */}
-              <div className="-mx-6 px-6">
 
               <div className="flex items-center gap-2 mb-3">
-                <h1 className="text-3xl font-display font-bold text-text-primary">
+                <h1 className="text-3xl font-display font-bold text-text-primary break-words">
                   {profile.name}{profile.age ? `, ${profile.age}` : ''}
                 </h1>
                 {verified && <ShieldCheck className="text-status-success flex-shrink-0" size={22} />}
@@ -184,50 +206,66 @@ const ProfilePage = () => {
                 )}
               </div>
 
-              {profile.bio && (
+              {profile.bio ? (
                 <p className="text-text-secondary text-sm leading-relaxed bg-surface-bg rounded-xl p-4 border border-surface-border">
                   {profile.bio}
                 </p>
-              )}
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <SectionHeader title="About" />
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <AboutItem icon={Users} label="Age" value={profile.age} color="text-brand-coral" />
-              <AboutItem icon={Briefcase} label="Occupation" value={profile.occupation} color="text-brand-teal" />
-              <AboutItem icon={MapPin} label="City" value={profile.city} color="text-brand-coral" />
-              <AboutItem icon={MapPin} label="Moving To" value={profile.moving_to} color="text-brand-amber" />
-              <AboutItem icon={Globe} label="University" value={profile.university} color="text-brand-teal" />
-              <AboutItem icon={Globe} label="Country" value={profile.country} color="text-brand-coral" />
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <SectionHeader title="Lifestyle" subtitle="Daily habits & preferences" />
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <AboutItem icon={Moon} label="Sleep" value={SLEEP_MAP[profile.sleep_time] || profile.sleep_time} color="text-brand-teal" />
-              <AboutItem icon={Users} label="Cleanliness" value={CLEANLINESS_MAP[profile.cleanliness] || profile.cleanliness} color="text-brand-coral" />
-              <AboutItem icon={Globe} label="Diet" value={DIET_MAP[profile.diet] || profile.diet} color="text-brand-amber" />
-              <AboutItem icon={Cigarette} label="Smoking" value={SMOKING_MAP[profile.smoking] || profile.smoking} color="text-brand-coral" />
-              <AboutItem icon={Wine} label="Drinking" value={DRINKING_MAP[profile.drinking] || profile.drinking} color="text-brand-teal" />
-              <AboutItem icon={Users} label="Social" value={SOCIAL_MAP[profile.social_level] || profile.social_level} color="text-brand-amber" />
-              {profile.pets && (
-                <AboutItem icon={Globe} label="Pets" value={profile.pets} color="text-brand-teal" />
+              ) : isOwn ? (
+                <EmptyState
+                  title="No introduction added yet"
+                  description="A couple of lines about who you are and what you are looking for helps people start a conversation."
+                  action={<ButtonLink to="/edit-profile" variant="primary" size="sm">Add an introduction</ButtonLink>}
+                />
+              ) : (
+                <p className="text-text-muted text-sm bg-surface-bg rounded-xl p-4 border border-surface-border">
+                  No introduction added yet.
+                </p>
               )}
             </div>
           </Card>
 
-          <Card className="p-6">
-            <SectionHeader title="Housing Preferences" />
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <AboutItem icon={Briefcase} label="Budget" value={profile.budget ? `${Number(profile.budget).toLocaleString('en-IN')}/mo` : null} color="text-brand-coral" />
-              <AboutItem icon={Home} label="Flat Type" value={profile.flat_type?.replace(/_/g, ' ')} color="text-brand-teal" />
-              <AboutItem icon={Calendar} label="Move-in Date" value={profile.move_in_date} color="text-brand-amber" />
-            </div>
-          </Card>
+          {/* A section whose fields are all empty used to render as a bare
+              header over nothing, which reads as broken rather than new. */}
+          <DetailSection
+            title="About"
+            items={[
+              { icon: Users, label: 'Age', value: profile.age },
+              { icon: Briefcase, label: 'Occupation', value: profile.occupation },
+              { icon: MapPin, label: 'City', value: profile.city },
+              { icon: MapPin, label: 'Moving To', value: profile.moving_to },
+              { icon: Globe, label: 'University', value: profile.university },
+              { icon: Globe, label: 'Country', value: profile.country },
+            ]}
+            emptyText="No introduction added yet"
+            isOwn={isOwn}
+          />
+
+          <DetailSection
+            title="Lifestyle"
+            subtitle="Daily habits & preferences"
+            items={[
+              { icon: Moon, label: 'Sleep', value: SLEEP_MAP[profile.sleep_time] || profile.sleep_time },
+              { icon: Users, label: 'Cleanliness', value: CLEANLINESS_MAP[profile.cleanliness] || profile.cleanliness },
+              { icon: Globe, label: 'Diet', value: DIET_MAP[profile.diet] || profile.diet },
+              { icon: Cigarette, label: 'Smoking', value: SMOKING_MAP[profile.smoking] || profile.smoking },
+              { icon: Wine, label: 'Drinking', value: DRINKING_MAP[profile.drinking] || profile.drinking },
+              { icon: Users, label: 'Social', value: SOCIAL_MAP[profile.social_level] || profile.social_level },
+              { icon: Globe, label: 'Pets', value: profile.pets },
+            ]}
+            emptyText="Lifestyle details haven't been added yet"
+            isOwn={isOwn}
+          />
+
+          <DetailSection
+            title="Housing Preferences"
+            items={[
+              { icon: Briefcase, label: 'Budget', value: profile.budget ? `${Number(profile.budget).toLocaleString('en-IN')}/mo` : null },
+              { icon: Home, label: 'Flat Type', value: profile.flat_type?.replace(/_/g, ' ') },
+              { icon: Calendar, label: 'Move-in Date', value: profile.move_in_date },
+            ]}
+            emptyText="Housing preferences haven't been added yet"
+            isOwn={isOwn}
+          />
 
           {interests.length > 0 && (
             <Card className="p-6">

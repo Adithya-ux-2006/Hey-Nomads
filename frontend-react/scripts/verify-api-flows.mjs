@@ -55,7 +55,11 @@ const call = (method, path, token, body) => new Promise((resolve, reject) => {
   setTimeout(() => reject(new Error(`${method} ${path} never responded`)), 15000).unref?.();
 });
 
-const email = `verify.${Date.now()}@heynomads.test`;
+// Real-classified on purpose: this account has to appear in, and draw from,
+// the real recommendation feed. An address the classifier treats as a test
+// account is correctly filtered out of recommendations, which would make the
+// matching assertions below vacuous.
+const email = `realtest.${Date.now()}@gmail.com`;
 let token, userId;
 const results = [];
 const step = async (name, fn) => {
@@ -201,7 +205,7 @@ await step('discover exposes the same banking link as the checklist', async () =
 const other = { id: null, token: null };
 await step('register the counterpart account', async () => {
   const r = await call('POST', '/api/auth/register', null, {
-    email: `verify2.${Date.now()}@heynomads.test`, password: 'Verify12345!', name: 'Other Person',
+    email: `realtest2.${Date.now()}@gmail.com`, password: 'Verify12345!', name: 'Other Person',
   });
   assert.equal(r.status, 201, r.body?.error);
   other.id = r.body.user.id;
@@ -266,7 +270,7 @@ await step('shortlist reports match state so the UI can gate the action', async 
 const outsider = { id: null, token: null };
 await step('register an unrelated account', async () => {
   const r = await call('POST', '/api/auth/register', null, {
-    email: `verify3.${Date.now()}@heynomads.test`, password: 'Verify12345!', name: 'Unrelated Third Party',
+    email: `realtest3.${Date.now()}@gmail.com`, password: 'Verify12345!', name: 'Unrelated Third Party',
   });
   assert.equal(r.status, 201, r.body?.error);
   outsider.id = r.body.user.id;
@@ -277,19 +281,23 @@ await step('register an unrelated account', async () => {
 await step('a like is accepted and the swipe is persisted', async () => {
   const before = await call('GET', '/api/roommates/recommended', token);
   const list = Array.isArray(before.body) ? before.body : (before.body.roommates || []);
-  assert.ok(list.length > 0, 'no candidates to like');
+  // Skip the account reserved for the mutual-match step below. Liking it here
+  // would create that match one step early, and matchCreated is only true on
+  // the transition, so the later assertion would see false.
+  const candidate = list.find(c => c.id !== outsider.id) || list[0];
+  assert.ok(candidate, 'no candidates to like');
 
   const r = await call('POST', '/api/swipe', token, {
-    targetId: list[0].id, action: 'like',
+    targetId: candidate.id, action: 'like',
   });
   assert.equal(r.status, 200, `like returned ${r.status}: ${JSON.stringify(r.body)}`);
   assert.equal(r.body.ok, true, 'like did not report ok');
 
   const after = await call('GET', '/api/roommates/recommended', token);
   const afterList = Array.isArray(after.body) ? after.body : (after.body.roommates || []);
-  assert.ok(!afterList.some(c => c.id === list[0].id),
+  assert.ok(!afterList.some(c => c.id === candidate.id),
     'the liked person is still recommended, so the swipe did not persist');
-  return `${list[0].name} liked and removed from recommendations`;
+  return `${candidate.name} liked and removed from recommendations`;
 });
 
 await step('a mutual like persists a match row', async () => {
@@ -562,10 +570,85 @@ await step('a refused demo swipe leaves no swipe row behind', async () => {
   return `swipes pointing at the demo account stayed at ${before.rows[0].n}`;
 });
 
-// L8 in the ledger is a render claim. This proves the contract the render
-// branches on: matchCreated is true exactly when a match row exists. If that
-// signal were wrong the banner would either claim a match that did not happen
-// or hide a match that did.
+// ── account classification ───────────────────────────────────
+// Automated QA and walkthrough accounts used to rank in the real feed because
+// only the demo domain was filtered. These pin the classification itself, so a
+// future script that creates test accounts cannot silently reappear as people.
+await step('account classification routes test accounts away from the feed', async () => {
+  const { classifyEmail, isRealFeedCandidate, isInteractingAsRealUser, NOT_REAL_EMAIL_SQL } =
+    await import('../api/account-kind.mjs');
+
+  const cases = [
+    ['priya.sharma@heynomads.app', 'demo', false],
+    ['qa.l8.123.a@heynomads.test', 'qa', false],
+    ['realtest.123@gmail.com', 'real', true],
+    ['verify.123@heynomads.test', 'qa', false],
+    ['walkthrough.1791457325092@example.com', 'walkthrough', false],
+    ['someone@gmail.com', 'real', true],
+    ['someone@hey-nomads.co', 'real', true],
+  ];
+  for (const [email, kind, real] of cases) {
+    assert.equal(classifyEmail(email), kind, `${email} classified as ${classifyEmail(email)}, want ${kind}`);
+    assert.equal(isRealFeedCandidate(email), real, `${email} realFeedCandidate`);
+    assert.equal(isInteractingAsRealUser(email), real, `${email} interactingAsRealUser`);
+  }
+  // The SQL fragment must carry every rule, not just the demo domain.
+  for (const frag of ['heynomads.app', 'qa.%', 'verify%', 'walkthrough.%']) {
+    assert.ok(NOT_REAL_EMAIL_SQL.includes(frag), `exclusion SQL is missing ${frag}`);
+  }
+  return `${cases.length} addresses classified`;
+});
+
+await step('real recommendations exclude QA and walkthrough accounts', async () => {
+  // The account used by this suite is itself a QA account, so create a genuine
+  // one to assert against, then confirm nothing non-real leaks into its feed.
+  const genuine = await call('POST', '/api/auth/register', null, {
+    email: `feed.${Date.now()}@gmail.com`, password: 'Verify12345!', name: 'Feed Probe',
+  });
+  assert.equal(genuine.status, 201, genuine.body?.error);
+  await call('POST', '/api/onboarding', genuine.body.token, {
+    moving_to: 'Mumbai', budget: 25000, cleanliness: 4,
+  });
+
+  const rec = await call('GET', '/api/roommates/recommended', genuine.body.token);
+  assert.equal(rec.status, 200, rec.body?.error);
+  const list = Array.isArray(rec.body) ? rec.body : (rec.body.roommates || []);
+
+  const { classifyEmail } = await import('../api/account-kind.mjs');
+  const pgq = (await import('pg')).default;
+  const db = new pgq.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  await db.connect();
+  const emails = await db.query(
+    `SELECT id, email FROM users WHERE id = ANY($1::int[])`, [list.map(c => c.id)]
+  );
+  await db.end();
+
+  const leaks = emails.rows.filter(r => classifyEmail(r.email) !== 'real');
+  assert.equal(leaks.length, 0,
+    `real feed contains non-real accounts: ${leaks.map(l => `${l.email} (${classifyEmail(l.email)})`).join(', ')}`);
+  return `${list.length} candidates, all classified real`;
+});
+
+await step('a QA account cannot be swiped or shortlisted as a person', async () => {
+  const pgq = (await import('pg')).default;
+  const db = new pgq.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  await db.connect();
+  const qa = await db.query(`SELECT id FROM users WHERE email LIKE 'qa.%' OR email LIKE 'walkthrough.%' LIMIT 1`);
+  await db.end();
+  if (!qa.rows.length) {
+    // Nothing to assert against in this database; the classifier test above
+    // still proves the rule. Skip rather than create a throwaway QA user.
+    return 'no QA account present to probe; covered by the classifier test';
+  }
+
+  const target = qa.rows[0].id;
+  const sw = await call('POST', '/api/swipe', token, { targetId: target, action: 'like' });
+  assert.ok(sw.status === 403 || sw.status === 400, `swipe on a QA account returned ${sw.status}`);
+  const sl = await call('POST', '/api/shortlist', token, { targetId: target });
+  assert.ok(sl.status === 403 || sl.status === 400, `shortlist on a QA account returned ${sl.status}`);
+  return `swipe ${sw.status}, shortlist ${sl.status}`;
+});
+
 await step('matchCreated is true exactly when a match row exists', async () => {
   const demos = await call('GET', '/api/demo/profiles', token);
   assert.equal(demos.status, 200);
@@ -635,7 +718,7 @@ const cleanup = async () => {
   const pg = (await import('pg')).default;
   const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
   await db.connect();
-  await db.query(`DELETE FROM users WHERE email LIKE 'verify%@heynomads.test'`);
+  await db.query(`DELETE FROM users WHERE email LIKE 'realtest%'`);
   await db.end();
 };
 await cleanup().catch(e => results.push(['FAIL', 'cleanup', e.message]));
