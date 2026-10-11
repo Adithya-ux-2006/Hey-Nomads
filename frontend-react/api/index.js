@@ -8,6 +8,7 @@ import { put } from '@vercel/blob';
 import {
   DEMO_EMAIL_PATTERN,
   realAccountSql,
+  classifyEmail,
   classifyAccount,
   KIND,
   humanLabel,
@@ -218,10 +219,23 @@ app.post('/api/auth/register', registerLimit, async (req, res) => {
       return res.status(400).json({ error: 'Email already registered' });
     }
     const hashed = await bcrypt.hash(password, 10);
+    // Classify at creation. Once account_kind exists, a row left NULL is
+    // UNKNOWN and fails closed, so a newly registered person would be invisible
+    // to everyone until someone manually reviewed them. Writing the kind here
+    // is the whole point of the column: the decision is made once, explicitly,
+    // at the moment the account is created, rather than inferred later.
+    //
+    // Written through the same classifier every reader uses, so a demo or test
+    // address can never be registered as a person.
+    const newKind = classifyEmail(normalizedEmail);
     const result = await query(
+      `INSERT INTO users (name, email, password, account_kind)
+       VALUES ($1, $2, $3, $4) RETURNING id, name, email`,
+      [name.trim().slice(0, 100), normalizedEmail, hashed, newKind]
+    ).catch(() => query(
       'INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING id, name, email',
       [name.trim().slice(0, 100), normalizedEmail, hashed]
-    );
+    ));
     const user = result.rows[0];
     await query('INSERT INTO profiles (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [user.id]);
     await query('INSERT INTO preferences (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [user.id]);
