@@ -445,6 +445,44 @@ await step('the agreements list returns only agreements you are party to', async
   return `party sees ${mine.body.length}, unrelated sees ${theirs.body.length}`;
 });
 
+await step('the agreements list hides a mixed demo/real agreement from the demo side', async () => {
+  const demo = await call('POST', '/api/auth/login', null, {
+    email: 'priya.sharma@heynomads.app', password: 'HeyNomads2026!',
+  });
+  if (demo.status !== 200) return `skipped: demo login returned ${demo.status}`;
+  const demoId = demo.body.user.id, demoToken = demo.body.token;
+
+  // Simulate historical contamination: the API refuses to create a mixed pair
+  // now, but rows written before the guard could exist. Insert directly so the
+  // list filter is exercised against a row it must hide.
+  const real = await call('POST', '/api/auth/register', null, {
+    email: `mixlist.${Date.now()}@gmail.com`, password: 'Verify12345!', name: 'Mix List',
+  });
+  assert.equal(real.status, 201, real.body?.error);
+  const pair = [Number(demoId), Number(real.body.user.id)].sort((x, y) => x - y);
+  const pg = (await import('pg')).default;
+  const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  await db.connect();
+  await db.query(
+    `INSERT INTO agreements (user_a_id, user_b_id, content, status)
+     VALUES ($1, $2, 'legacy mixed pair', 'signed')
+     ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET content = EXCLUDED.content`,
+    pair
+  );
+  await db.end();
+
+  const listed = await call('GET', '/api/agreements', demoToken);
+  assert.equal(listed.status, 200, listed.body?.error);
+  assert.ok(!listed.body.some(a => a.partner_id === real.body.user.id),
+    'a demo account was shown an agreement shared with a real user');
+
+  // The real side is genuine, but the pair is not, so it is hidden there too.
+  const realListed = await call('GET', '/api/agreements', real.body.token);
+  assert.ok(!realListed.body.some(a => a.partner_id === demoId),
+    'the real side was shown the mixed agreement as well');
+  return 'mixed demo/real agreement hidden from both list views';
+});
+
 await step('agreement rejects a missing counterpart', async () => {
   const r = await call('POST', '/api/agreement', token, { userA_id: userId, content: 'x' });
   assert.equal(r.status, 400);
@@ -724,6 +762,132 @@ await step('classification fails closed on a missing address', async () => {
   return 'null, empty and malformed addresses are not classified real';
 });
 
+// ── direct-id profile access ─────────────────────────────────
+// /roommates/:userId was reachable by guessed id, so the feed filter could be
+// bypassed entirely by asking for a known demo or QA id.
+await step('a real user cannot read a demo, QA or walkthrough profile by id', async () => {
+  const pg = (await import('pg')).default;
+  const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  await db.connect();
+  const probes = await db.query(`
+    SELECT id, email FROM users
+    WHERE email LIKE '%@heynomads.app' OR email LIKE 'qa.%' OR email LIKE 'walkthrough.%'
+    LIMIT 3`);
+  await db.end();
+  if (!probes.rows.length) return 'no non-real account present to probe';
+
+  for (const p of probes.rows) {
+    const r = await call('GET', `/api/roommates/${p.id}`, token);
+    // 404, not 403: a 403 would confirm the account exists.
+    assert.equal(r.status, 404,
+      `direct read of a non-real profile (${p.email}) returned ${r.status}, expected 404`);
+  }
+  return `${probes.rows.length} non-real account(s) all returned 404`;
+});
+
+await step('a non-real actor cannot read a real profile by id', async () => {
+  const demo = await call('POST', '/api/auth/login', null, {
+    email: 'priya.sharma@heynomads.app', password: 'HeyNomads2026!',
+  });
+  if (demo.status !== 200) return `skipped: demo login returned ${demo.status}`;
+  const demoToken = demo.body.token;
+
+  // Filtering the feed is only half the fix. Without an actor check, a demo
+  // session could still ask for any real id and read that person's full profile.
+  const victim = await call('POST', '/api/auth/register', null, {
+    email: `victim.${Date.now()}@gmail.com`, password: 'Verify12345!', name: 'Victim Probe',
+  });
+  assert.equal(victim.status, 201, victim.body?.error);
+
+  const peek = await call('GET', `/api/roommates/${victim.body.user.id}`, demoToken);
+  assert.equal(peek.status, 404,
+    `a demo actor read a real user's profile by id (${peek.status})`);
+  assert.ok(!peek.body?.bio, 'a refused direct-id read still returned profile fields');
+
+  // But a demo account may still view its own profile, which Demo Mode needs.
+  const self = await call('GET', `/api/roommates/${demo.body.user.id}`, demoToken);
+  assert.equal(self.status, 200, `a demo account cannot view its own profile (${self.status})`);
+  return 'demo actor 404 on a real target, own profile still readable';
+});
+
+await step('legitimate profile navigation still works', async () => {
+  const me = await call('GET', `/api/roommates/${userId}`, token);
+  assert.equal(me.status, 200, `own roommate-detail read failed: ${me.status}`);
+  assert.equal(me.body.is_self, true, 'is_self must be set when reading your own profile');
+
+  const other1 = await call('POST', '/api/auth/register', null, {
+    email: `nav.${Date.now()}@gmail.com`, password: 'Verify12345!', name: 'Nav Probe',
+  });
+  assert.equal(other1.status, 201, other1.body?.error);
+  const theirProfile = await call('GET', `/api/roommates/${other1.body.user.id}`, token);
+  assert.equal(theirProfile.status, 200,
+    `a real user cannot read another real user's profile (${theirProfile.status})`);
+  assert.ok(typeof theirProfile.body.score === 'number', 'a legitimate profile read has no score');
+  return 'own profile, is_self, and a real peer all readable';
+});
+
+await step('unknown classification is not served to a real user', async () => {
+  const { classifyEmail } = await import('../api/account-kind.mjs');
+  // UNKNOWN must not be treated as a real person anywhere it is security
+  // relevant, and the feed SQL excludes it by never matching a real kind.
+  assert.equal(classifyEmail(''), 'unknown');
+  assert.equal(classifyEmail('not-an-email'), 'unknown');
+  assert.notEqual(classifyEmail('not-an-email'), 'real');
+  return 'malformed addresses classify unknown, never real';
+});
+
+// ── agreement: creation vs access ────────────────────────────
+await step('an existing agreement survives the pair unmatching', async () => {
+  // Two real accounts that match, draft, then unmatch.
+  const p = await call('POST', '/api/auth/register', null, {
+    email: `persist.${Date.now()}.a@gmail.com`, password: 'Verify12345!', name: 'Persist A',
+  });
+  const q = await call('POST', '/api/auth/register', null, {
+    email: `persist.${Date.now()}.b@gmail.com`, password: 'Verify12345!', name: 'Persist B',
+  });
+  assert.equal(p.status, 201, p.body?.error);
+  assert.equal(q.status, 201, q.body?.error);
+  const pa = p.body.user.id, qb = q.body.user.id;
+
+  await call('POST', '/api/swipe', p.body.token, { targetId: qb, action: 'like' });
+  await call('POST', '/api/swipe', q.body.token, { targetId: pa, action: 'like' });
+
+  const draft = await call('POST', '/api/agreement', p.body.token, {
+    userA_id: pa, userB_id: qb, content: 'ROOMMATE AGREEMENT\n\nterms agreed while matched',
+  });
+  assert.equal(draft.status, 200, `matched draft failed: ${draft.status} ${JSON.stringify(draft.body)}`);
+
+  const matches = await call('GET', '/api/matches', p.body.token);
+  const matchId = matches.body.find(m => m.partner_id === qb)?.id;
+  assert.ok(matchId, 'no match row to unmatch');
+  const un = await call('DELETE', `/api/matches/${matchId}`, p.body.token);
+  assert.equal(un.status, 200, `unmatch failed: ${un.status}`);
+
+  // The document must remain readable and editable by its parties.
+  const read = await call('GET', `/api/agreement/${pa}/${qb}`, p.body.token);
+  assert.equal(read.status, 200, `an existing agreement became unreadable after unmatch: ${read.status}`);
+  assert.ok(/terms agreed while matched/.test(read.body.content), 'the stored terms were lost');
+
+  const edit = await call('POST', '/api/agreement', p.body.token, {
+    userA_id: pa, userB_id: qb, content: 'ROOMMATE AGREEMENT\n\nrevised after unmatch',
+  });
+  assert.equal(edit.status, 200, `an existing agreement became uneditable after unmatch: ${edit.status}`);
+
+  // But a NEW agreement between two now-unmatched people is still refused.
+  const fresh = await call('POST', '/api/auth/register', null, {
+    email: `persist.${Date.now()}.c@gmail.com`, password: 'Verify12345!', name: 'Persist C',
+  });
+  const d = await call('POST', '/api/auth/register', null, {
+    email: `persist.${Date.now()}.d@gmail.com`, password: 'Verify12345!', name: 'Persist D',
+  });
+  const blocked = await call('POST', '/api/agreement', fresh.body.token, {
+    userA_id: fresh.body.user.id, userB_id: d.body.user.id, content: 'x',
+  });
+  assert.equal(blocked.status, 403, `a new agreement was created between unmatched accounts: ${blocked.status}`);
+  void qb;
+  return 'existing terms survive unmatch; new agreements still require a match';
+});
+
 await step('matchCreated is true exactly when a match row exists', async () => {
   const demos = await call('GET', '/api/demo/profiles', token);
   assert.equal(demos.status, 200);
@@ -789,12 +953,22 @@ await step('unauthenticated requests are rejected', async () => {
 });
 
 // ── cleanup ───────────────────────────────────────────────────
+// Every throwaway address this suite creates, not just the three main
+// accounts. The previous predicate matched only 'realtest%', so the probe
+// accounts (feed., layout., actorprobe., agr.) accumulated in the real database
+// and showed up in other people's feeds.
+const CLEANUP_PREFIXES = ['realtest', 'feed.', 'layout.', 'actorprobe.', 'agr.', 'browserqa.'];
 const cleanup = async () => {
   const pg = (await import('pg')).default;
   const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
   await db.connect();
-  await db.query(`DELETE FROM users WHERE email LIKE 'realtest%'`);
+  let removed = 0;
+  for (const prefix of CLEANUP_PREFIXES) {
+    const r = await db.query('DELETE FROM users WHERE email LIKE $1 RETURNING id', [`${prefix}%`]);
+    removed += r.rows.length;
+  }
   await db.end();
+  return `removed ${removed} throwaway account(s)`;
 };
 await cleanup().catch(e => results.push(['FAIL', 'cleanup', e.message]));
 

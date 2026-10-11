@@ -924,7 +924,7 @@ app.get('/api/roommates/:userId', authMiddleware, async (req, res) => {
     const { userId } = req.params;
     const weights = await getMatchWeights();
     const result = await query(
-      `SELECT u.id, u.name, u.age, u.interests, u.moving_to, u.country, u.university,
+      `SELECT u.id, u.name, u.age, u.email, u.interests, u.moving_to, u.country, u.university,
               u.verification_status, u.created_at,
               p.bio, p.occupation, p.city, p.profile_image, p.budget, p.deposit,
               p.flat_type, p.sleep_time, p.cleanliness, p.diet, p.smoking, p.drinking,
@@ -936,6 +936,21 @@ app.get('/api/roommates/:userId', authMiddleware, async (req, res) => {
        WHERE u.id = $1`, [userId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+    // This route was reachable by guessed id, so a real user could read a
+    // demo, QA or walkthrough profile even though the feed excludes them.
+    // 404 rather than 403: a 403 would confirm the account exists.
+    // Self is always allowed because /roommates/:ownId is a legitimate view.
+    const targetEmail = result.rows[0].email;
+    if (Number(req.userId) !== Number(userId)) {
+      // Both sides must be genuine: a demo/QA actor must not read a real
+      // profile through the ordinary route either. Demo Mode is client-only.
+      const actor = await query('SELECT email FROM users WHERE id = $1', [req.userId]);
+      const actorIsReal = actor.rows.length > 0 && isInteractingAsRealUser(actor.rows[0].email);
+      if (!actorIsReal || !isInteractingAsRealUser(targetEmail)) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+    }
 
     const profile = result.rows[0];
     const langs = await query(
@@ -1816,13 +1831,21 @@ WHERE u.id != $1
 // agreements.
 app.get('/api/agreements', authMiddleware, async (req, res) => {
   try {
+    // The list is scoped by party membership, but it must not expose a real
+    // user's agreement to a demo/QA account that is (or once was) one side of
+    // it. Only genuinely-real documents are listed, so a leftover mixed pair
+    // stays hidden until the classification is resolved.
     const result = await query(
       `SELECT a.id, a.user_a_id, a.user_b_id, a.content, a.status, a.updated_at,
               u.id AS partner_id, u.name AS partner_name, p.profile_image AS partner_image
        FROM agreements a
        JOIN users u ON u.id = CASE WHEN a.user_a_id = $1 THEN a.user_b_id ELSE a.user_a_id END
        LEFT JOIN profiles p ON p.user_id = u.id
-       WHERE a.user_a_id = $1 OR a.user_b_id = $1
+       JOIN users ua ON ua.id = a.user_a_id
+       JOIN users ub ON ub.id = a.user_b_id
+       WHERE (a.user_a_id = $1 OR a.user_b_id = $1)
+         AND ${NOT_REAL_EMAIL_SQL.replace(/email/g, 'ua.email')}
+         AND ${NOT_REAL_EMAIL_SQL.replace(/email/g, 'ub.email')}
        ORDER BY a.updated_at DESC`, [req.userId]
     );
     res.json(result.rows);
@@ -1834,10 +1857,19 @@ app.get('/api/agreements', authMiddleware, async (req, res) => {
 // An agreement is a document between two matched, genuine people. Without this,
 // a demo or test account could open one with any real user, and the generated
 // template would quote that user's budget and deposit back to them.
-async function assertRealMatchedPair(userA, userB) {
+//
+// Genuine-pair and matched-pair are deliberately separate checks. They have
+// different lifetimes: two real people who unmatch must keep the agreement they
+// already wrote, but no demo/QA/unknown account may reach an agreement at all,
+// whatever state the document is in.
+async function assertRealPair(userA, userB) {
   const pair = [Number(userA), Number(userB)].sort((x, y) => x - y);
   const emails = await query('SELECT email FROM users WHERE id = ANY($1::int[])', [pair]);
-  if (emails.rows.length !== 2 || !emails.rows.every(r => isInteractingAsRealUser(r.email))) return false;
+  return emails.rows.length === 2 && emails.rows.every(r => isInteractingAsRealUser(r.email));
+}
+
+async function assertMatchedPair(userA, userB) {
+  const pair = [Number(userA), Number(userB)].sort((x, y) => x - y);
   const m = await query(
     `SELECT 1 FROM matches WHERE status = 'matched'
        AND ((user_a_id = $1 AND user_b_id = $2) OR (user_b_id = $1 AND user_a_id = $2)) LIMIT 1`,
@@ -1859,14 +1891,25 @@ app.get('/api/agreement/:u1/:u2', authMiddleware, async (req, res) => {
     if (Number(req.userId) !== a && Number(req.userId) !== b) {
       return res.status(403).json({ error: 'This agreement is not yours' });
     }
-    if (!(await assertRealMatchedPair(a, b))) {
-      return res.status(403).json({ error: 'An agreement is only available between two matched accounts' });
+    // Both parties must still be genuine. Re-checking the MATCH here made an
+    // agreement permanently unreachable the moment the pair unmatched, which
+    // destroyed work the two of them had done. The genuine check stays, though,
+    // so a demo or test account can never read a real user's agreement.
+    if (!(await assertRealPair(a, b))) {
+      return res.status(403).json({ error: 'This agreement is not available' });
     }
+    // Access to an EXISTING document is otherwise governed by party membership.
     const existing = await query(
       `SELECT * FROM agreements
-       WHERE (user_a_id=$1 AND user_b_id=$2) OR (user_a_id=$2 AND user_b_id=$1)`, [u1, u2]
+       WHERE (user_a_id=$1 AND user_b_id=$2) OR (user_b_id=$1 AND user_a_id=$2)`, [a, b]
     );
     if (existing.rows.length > 0) return res.json(existing.rows[0]);
+
+    // CREATING a new document additionally requires an active match. This is
+    // what stops a demo or test account opening one with a real user.
+    if (!(await assertMatchedPair(a, b))) {
+      return res.status(403).json({ error: 'An agreement can only be drafted between two matched accounts' });
+    }
 
     const profiles = await query(
       `SELECT u.id, u.name, p.budget, p.deposit, p.cleanliness, p.noise_tolerance
@@ -1920,8 +1963,18 @@ app.post('/api/agreement', authMiddleware, async (req, res) => {
     if (Number(req.userId) !== a && Number(req.userId) !== b) {
       return res.status(403).json({ error: 'This agreement is not yours' });
     }
-    if (!(await assertRealMatchedPair(a, b))) {
-      return res.status(403).json({ error: 'An agreement is only available between two matched accounts' });
+    // Same split as the read path. Both parties must be genuine to touch any
+    // agreement, so a demo or test account cannot edit a real user's document.
+    // But an existing document needs no current match, because unmatching must
+    // not destroy terms two people already agreed. A NEW one needs a match.
+    if (!(await assertRealPair(a, b))) {
+      return res.status(403).json({ error: 'This agreement is not available' });
+    }
+    const already = await query(
+      'SELECT 1 FROM agreements WHERE user_a_id = $1 AND user_b_id = $2 LIMIT 1', [a, b]
+    );
+    if (already.rows.length === 0 && !(await assertMatchedPair(a, b))) {
+      return res.status(403).json({ error: 'An agreement can only be drafted between two matched accounts' });
     }
     await query(
       `INSERT INTO agreements (user_a_id, user_b_id, content, status)
