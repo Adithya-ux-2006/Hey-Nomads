@@ -6,6 +6,9 @@
 import { chromium } from 'playwright';
 import path from 'path';
 
+// This script registers accounts. Refuse to do that to the deployed database.
+await import('./require-test-db.mjs');
+
 const BASE = process.argv[2] || 'https://hey-nomads.vercel.app';
 const stamp = Date.now();
 const results = [];

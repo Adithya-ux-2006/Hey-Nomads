@@ -9,6 +9,9 @@ import path from 'path';
 import assert from 'node:assert';
 import { Readable } from 'node:stream';
 
+// This script writes accounts. Refuse to do that to the deployed database.
+await import('./require-test-db.mjs');
+
 for (const line of fs.readFileSync(path.resolve(process.cwd(), '.env'), 'utf8').split(/\r?\n/)) {
   const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.+?)\s*$/);
   if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
@@ -1074,7 +1077,12 @@ await step('unauthenticated requests are rejected', async () => {
 // accounts. The previous predicate matched only 'realtest%', so the probe
 // accounts (feed., layout., actorprobe., agr.) accumulated in the real database
 // and showed up in other people's feeds.
-const CLEANUP_PREFIXES = ['realtest', 'feed.', 'layout.', 'actorprobe.', 'agr.', 'browserqa.'];
+// Every throwaway account this script creates starts with one of these. A prefix
+// that is created but not listed here leaks into whatever database is under
+// test, which is how ~185 stray accounts ended up in production before this
+// list was audited. If you add a prefix, add it here in the same commit.
+const CLEANUP_PREFIXES = ['realtest', 'feed.', 'layout.', 'actorprobe.', 'agr.', 'browserqa.',
+  'nav.', 'persist.', 'onesided.', 'eavesdrop.', 'mixlist.', 'victim.'];
 const cleanup = async () => {
   const pg = (await import('pg')).default;
   const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });

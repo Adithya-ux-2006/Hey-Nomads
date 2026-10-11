@@ -5,6 +5,8 @@
 //
 // Usage: node scripts/profile-layout-qa.mjs [baseUrl]
 import { chromium } from 'playwright';
+// This script provisions accounts. Refuse to do that to the deployed database.
+await import('./require-test-db.mjs');
 
 const BASE = process.argv[2] || 'https://hey-nomads.vercel.app';
 const WIDTHS = [360, 390, 768, 1440];
