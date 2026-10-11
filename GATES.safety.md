@@ -53,6 +53,13 @@ users 215, swipes 113, matches 48, conversations 357, messages 2, agreements 40.
 
 ## Account isolation
 
+- [x] A2: Explicit stored classification is authoritative when present, and a
+      migrated-but-unreviewed account fails closed instead of being served as a person
+  CHECK: node scripts/check-account-kind.mjs
+  EXPECT: all assertions passed
+  CWD: frontend-react
+  EVIDENCE: run=true; exit=0; EXPECT=matched; output-sha256=8aca4e33c1ece4027dbaa0df90da3b1aa0f9b82a81e0adc393604655703421b7; output-bytes=57; shell=cmd.exe; cwd=C:\Hey_Nomads\frontend-react
+
 - [ ] A1: Genuine users never see demo, QA, walkthrough or test identities as
       ordinary recommendations, and unknown classification fails closed
   CHECK: npm run verify:api
@@ -61,6 +68,15 @@ users 215, swipes 113, matches 48, conversations 357, messages 2, agreements 40.
   BLOCKED: same reason as S4. The behaviour is covered by existing gates in
   GATES.feed.md (F1-F3, I3-I7, D1-D4) which were attested 24/24 on the isolated
   branch, but has not been re-attested since the production restore.
+
+<!--
+Wiring gap, stated plainly: classifyAccount() exists and is proven by A2, but the
+feed, direct-id and interaction routes still call classifyEmail()/NOT_REAL_EMAIL_SQL
+directly. Switching them over requires runtime detection of whether
+users.account_kind exists, which can only be validated against a database, and
+every database-backed check is blocked in this phase. A2 proves the decision
+function; it does not prove any endpoint uses it yet.
+-->
 
 <!--
 Not run in this phase: S4 and A1. Both need DATABASE_URL pointed at an isolated test

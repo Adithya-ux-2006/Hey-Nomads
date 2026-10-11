@@ -45,6 +45,36 @@ export function classifyEmail(email) {
   return KIND.REAL;
 }
 
+/**
+ * Prefers the explicit stored classification over the address heuristic.
+ *
+ * `users.account_kind` is the durable answer (see
+ * database/migrations/2026-10-10_add_account_kind.sql). Once that column exists,
+ * it is authoritative and the substring heuristic is NOT consulted, because the
+ * heuristic cannot tell a genuine `qa.smith@gmail.com` from a test account and
+ * that false positive hides a real person.
+ *
+ * Three states, deliberately distinct:
+ *   - column absent      (`account_kind === undefined`) -> heuristic, the pre-migration state
+ *   - column present and populated -> that value, verbatim
+ *   - column present but NULL/unrecognised -> UNKNOWN, i.e. fail closed. A row that
+ *     has been migrated but not yet reviewed must not be served as a person just
+ *     because its address happens to look ordinary.
+ *
+ * Never silently reclassifies: it reads what is stored, it does not write.
+ */
+export function classifyAccount(row) {
+  const stored = row?.account_kind;
+  if (stored === undefined) return classifyEmail(row?.email);
+  if (typeof stored !== 'string') return KIND.UNKNOWN;
+  const k = stored.trim().toLowerCase();
+  if (!k || k === KIND.UNKNOWN) return KIND.UNKNOWN;
+  return Object.values(KIND).includes(k) ? k : KIND.UNKNOWN;
+}
+
+/** True when the stored column exists on the row shape we were handed. */
+export const hasStoredKind = row => row?.account_kind !== undefined;
+
 export const isDemo = email => classifyEmail(email) === KIND.DEMO;
 
 /** Only these may appear in another person's real recommendation feed. */
