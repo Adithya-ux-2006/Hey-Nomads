@@ -315,6 +315,123 @@ await step('a mutual like persists a match row', async () => {
   return 'match row exists and is listed';
 });
 
+// ── match and chat regression ──────────────────────────────────
+// The reported symptom was "I liked them and they never showed up in Matches,
+// and there is no Chat button". Both halves are asserted end to end here so a
+// future refactor cannot quietly reintroduce either.
+await step('both participants see the same match', async () => {
+  const mine = await call('GET', '/api/matches', token);
+  const theirs = await call('GET', '/api/matches', outsider.token);
+  assert.equal(mine.status, 200, mine.body?.error);
+  assert.equal(theirs.status, 200, theirs.body?.error);
+
+  assert.ok(mine.body.some(m => m.partner_id === outsider.id),
+    'the liker does not see the match on their own Matches page');
+  assert.ok(theirs.body.some(m => m.partner_id === userId),
+    'the liked party does not see the match on their own Matches page');
+
+  // The card the frontend renders needs these fields to show a name and a link.
+  const card = mine.body.find(m => m.partner_id === outsider.id);
+  assert.ok(card.partner_name, 'the match card has no partner_name to render');
+  assert.ok(card.partner_id, 'the match card has no partner_id to link to chat with');
+  assert.equal(mine.body.filter(m => m.partner_id === outsider.id).length, 1,
+    'the same match is listed more than once');
+
+  // A one-sided like must never be presented as a match.
+  const stranger = await call('POST', '/api/auth/register', null, {
+    email: `onesided.${Date.now()}@gmail.com`, password: 'Verify12345!', name: 'One Sided',
+  });
+  assert.equal(stranger.status, 201, stranger.body?.error);
+  await call('POST', '/api/swipe', token, { targetId: stranger.body.user.id, action: 'like' });
+  const afterOneSided = await call('GET', '/api/matches', token);
+  assert.ok(!afterOneSided.body.some(m => m.partner_id === stranger.body.user.id),
+    'a one-sided like was presented as a match');
+  return 'both sides listed once; one-sided likes excluded';
+});
+
+await step('a repeated like does not create a second match', async () => {
+  const before = await call('GET', '/api/matches', token);
+  const countBefore = before.body.length;
+  const a = await call('POST', '/api/swipe', token, { targetId: outsider.id, action: 'like' });
+  const b = await call('POST', '/api/swipe', outsider.token, { targetId: userId, action: 'like' });
+  assert.equal(a.status, 200, a.body?.error);
+  assert.equal(b.status, 200, b.body?.error);
+  assert.equal(b.body.matchCreated, false,
+    're-liking an already matched pair claimed to create a new match');
+  const after = await call('GET', '/api/matches', token);
+  assert.equal(after.body.length, countBefore,
+    `repeat likes changed the match count from ${countBefore} to ${after.body.length}`);
+
+  const pg = (await import('pg')).default;
+  const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  await db.connect();
+  const pair = [Number(userId), Number(outsider.id)].sort((x, y) => x - y);
+  const rows = await db.query(
+    'SELECT COUNT(*)::int n FROM matches WHERE user_a_id = $1 AND user_b_id = $2', pair);
+  const swipes = await db.query(
+    'SELECT COUNT(*)::int n FROM swipes WHERE (swiper_id = $1 AND swiped_id = $2) OR (swiper_id = $2 AND swiped_id = $1)', pair);
+  await db.end();
+  assert.equal(rows.rows[0].n, 1, `the pair has ${rows.rows[0].n} match rows, expected 1`);
+  assert.equal(swipes.rows[0].n, 2, `the pair has ${swipes.rows[0].n} swipe rows, expected 2 (one per direction)`);
+  return 'idempotent: 1 match row, 2 swipe rows';
+});
+
+await step('messages persist, reload, and stay private to the pair', async () => {
+  const text = `hello there ${Date.now()}`;
+  const sent = await call('POST', '/api/messages', token, { receiver_id: outsider.id, message: text });
+  assert.ok(sent.status === 200 || sent.status === 201,
+    `the message was not accepted (${sent.status}): ${sent.body?.error}`);
+
+  for (const who of ['sender', 'recipient']) {
+    const partnerId = who === 'sender' ? outsider.id : userId;
+    const tok = who === 'sender' ? token : outsider.token;
+    const thread = await call('GET', `/api/conversations/${partnerId}`, tok);
+    assert.equal(thread.status, 200, `${who} could not load the thread: ${thread.body?.error}`);
+    assert.ok(Array.isArray(thread.body), `${who} got a non-array thread`);
+    const mineMsg = thread.body.find(m => m.content === text);
+    assert.ok(mineMsg, `${who} lost the message after a reload`);
+    assert.ok(mineMsg.id, 'a persisted message has no id');
+    assert.ok(mineMsg.created_at, 'a persisted message has no created_at');
+  }
+
+  const listA = await call('GET', '/api/conversations', token);
+  const listB = await call('GET', '/api/conversations', outsider.token);
+  const rowA = listA.body.find(c => c.partner_id === outsider.id);
+  const rowB = listB.body.find(c => c.partner_id === userId);
+  assert.ok(rowA, 'the conversation is missing from the sender inbox');
+  assert.ok(rowB, 'the conversation is missing from the recipient inbox');
+  assert.equal(rowA.conversation_id, rowB.conversation_id,
+    'the two parties were given different conversation ids');
+
+  const stranger = await call('POST', '/api/auth/register', null, {
+    email: `eavesdrop.${Date.now()}@gmail.com`, password: 'Verify12345!', name: 'Eavesdropper',
+  });
+  assert.equal(stranger.status, 201, stranger.body?.error);
+  const peek = await call('GET', `/api/conversations/${userId}`, stranger.body.token);
+  assert.equal(peek.status, 200);
+  assert.deepEqual(peek.body, [], 'an unrelated account read a private conversation');
+  const inbox = await call('GET', '/api/conversations', stranger.body.token);
+  assert.ok(!inbox.body.some(c => c.partner_id === userId || c.partner_id === outsider.id),
+    'an unrelated account saw a private conversation in its inbox');
+  const post = await call('POST', '/api/messages', stranger.body.token, { receiver_id: userId, message: 'let me in' });
+  assert.equal(post.status, 403, `an unmatched account posted into a conversation (${post.status})`);
+  return 'persists for both, one shared id, third party blocked';
+});
+
+await step('a failed like is never reported as a match', async () => {
+  const demo = await call('POST', '/api/auth/login', null, {
+    email: 'priya.sharma@heynomads.app', password: 'HeyNomads2026!',
+  });
+  if (demo.status !== 200) return `skipped: demo login returned ${demo.status}`;
+  const refused = await call('POST', '/api/swipe', token, { targetId: demo.body.user.id, action: 'like' });
+  assert.notEqual(refused.status, 200, 'a like against a demo account was accepted');
+  assert.notEqual(refused.body?.matchCreated, true, 'a refused like reported matchCreated');
+  const matches = await call('GET', '/api/matches', token);
+  assert.ok(!matches.body.some(m => m.partner_id === demo.body.user.id),
+    'a refused like still produced a match card');
+  return 'refused, with no matchCreated and no card';
+});
+
 // ── agreement authorization ───────────────────────────────────
 // An agreement is private to its two parties and quotes their rent and deposit.
 // Neither route compared req.userId against the pair, so any signed-in account
