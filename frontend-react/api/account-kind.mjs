@@ -97,6 +97,22 @@ export const NOT_REAL_EMAIL_SQL =
 /** True when the account may be swiped/shortlisted as a real person. */
 export const isInteractingAsRealUser = email => classifyEmail(email) === KIND.REAL;
 
+/**
+ * The WHERE fragment that keeps non-real accounts out of a real-user surface,
+ * for the two states the schema can be in.
+ *
+ * `stored` true  -> the explicit column decides, so a reviewed row is honoured
+ *                   and an unreviewed one (NULL) drops out of the result set
+ *                   rather than defaulting to real.
+ * `stored` false -> the pre-migration heuristic, byte-identical to before.
+ *
+ * Kept pure and parameterless so it can be asserted without a database.
+ */
+export const realAccountSql = (alias, stored) => {
+  const p = alias ? `${alias}.` : '';
+  return stored ? `${p}account_kind = 'real'` : NOT_REAL_EMAIL_SQL.replace(/email/g, `${p}email`);
+};
+
 export const humanLabel = kind => {
   switch (kind) {
     case KIND.DEMO: return 'Demo';

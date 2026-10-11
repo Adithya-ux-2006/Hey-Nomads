@@ -7,9 +7,9 @@ import * as Sentry from '@sentry/node';
 import { put } from '@vercel/blob';
 import {
   DEMO_EMAIL_PATTERN,
-  NOT_REAL_EMAIL_SQL,
-  isInteractingAsRealUser,
-  classifyEmail,
+  realAccountSql,
+  classifyAccount,
+  KIND,
   humanLabel,
 } from './account-kind.mjs';
 
@@ -823,12 +823,56 @@ async function calcCompatibility(userId, candidateId, weights) {
 // the real feed.
 
 // Which kind of account is acting. The swipe/shortlist/agreement guards below
-// check the counterparty, but a demo or QA account acting on its own would
-// otherwise create real swipe, match, conversation and agreement rows against a
-// genuine user. One indexed lookup, only on the mutating routes.
+// ── Explicit account classification ─────────────────────────────────────
+// `users.account_kind` (see database/migrations/2026-10-10_add_account_kind.sql)
+// is the durable answer to "is this a real person?". Until it is applied, the
+// address heuristic stands in for it. Probed once and cached, because the answer
+// cannot change while the process is running: the column either exists or it
+// does not, and adding it is a migration, not a request.
+//
+// Cached value: null = not probed yet, true = column present, false = absent.
+let storedAccountKind = null;
+async function hasStoredAccountKind() {
+  if (storedAccountKind !== null) return storedAccountKind;
+  try {
+    const r = await query(
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'account_kind' LIMIT 1`
+    );
+    storedAccountKind = r.rows.length > 0;
+  } catch {
+    // If we cannot tell, assume the pre-migration schema rather than suddenly
+    // excluding every account. Failing toward visibility is the safe direction
+    // here; failing closed is about not CALLING something real, not about
+    // hiding people.
+    storedAccountKind = false;
+  }
+  return storedAccountKind;
+}
+
+/** Classify a row that may or may not carry account_kind. */
+async function kindOf(row) {
+  const stored = await hasStoredAccountKind();
+  return classifyAccount(stored ? { email: row.email, account_kind: row.account_kind } : row);
+}
+
+/** True when this row may act as, or be treated as, a genuine person. */
+async function isRealRow(row) {
+  return (await kindOf(row)) === KIND.REAL;
+}
+
+/** The WHERE fragment keeping non-real accounts out of a real-user surface. */
+async function realOnlySql(alias) {
+  return realAccountSql(alias, await hasStoredAccountKind());
+}
+
+// One indexed lookup, only on the mutating routes. Both sides of the interaction
+// must be genuine: a demo or QA account acting on its own would otherwise create
+// real swipe, match, conversation and agreement rows against a genuine user.
 async function actorIsRealUser(userId) {
-  const r = await query('SELECT email FROM users WHERE id = $1', [userId]);
-  return r.rows.length > 0 && isInteractingAsRealUser(r.rows[0].email);
+  const r = await query('SELECT email, account_kind FROM users WHERE id = $1', [userId])
+    .catch(() => query('SELECT email FROM users WHERE id = $1', [userId]));
+  return r.rows.length > 0 && await isRealRow(r.rows[0]);
 }
 
 // ── Demo Mode ────────────────────────────────────────────────
@@ -870,8 +914,10 @@ app.get('/api/roommates/recommended', authMiddleware, async (req, res) => {
     );
     const blockedIds = blocked.rows.map(r => r.blocked_id);
 
-    // The demo suffix is declared near the demo routes below.
-let where = `WHERE u.id != $1 AND ${NOT_REAL_EMAIL_SQL.replace(/email/g, 'u.email')}`;
+    // The demo suffix is declared near the demo routes below. The exclusion is
+    // resolved at request time: once account_kind exists it decides, otherwise
+    // the heuristic is used unchanged.
+let where = `WHERE u.id != $1 AND ${await realOnlySql('u')}`;
     const params = [req.userId];
     let idx = 2;
 
@@ -941,13 +987,13 @@ app.get('/api/roommates/:userId', authMiddleware, async (req, res) => {
     // demo, QA or walkthrough profile even though the feed excludes them.
     // 404 rather than 403: a 403 would confirm the account exists.
     // Self is always allowed because /roommates/:ownId is a legitimate view.
-    const targetEmail = result.rows[0].email;
     if (Number(req.userId) !== Number(userId)) {
       // Both sides must be genuine: a demo/QA actor must not read a real
       // profile through the ordinary route either. Demo Mode is client-only.
-      const actor = await query('SELECT email FROM users WHERE id = $1', [req.userId]);
-      const actorIsReal = actor.rows.length > 0 && isInteractingAsRealUser(actor.rows[0].email);
-      if (!actorIsReal || !isInteractingAsRealUser(targetEmail)) {
+      const actor = await query('SELECT email, account_kind FROM users WHERE id = $1', [req.userId])
+        .catch(() => query('SELECT email FROM users WHERE id = $1', [req.userId]));
+      const actorIsReal = actor.rows.length > 0 && await isRealRow(actor.rows[0]);
+      if (!actorIsReal || !(await isRealRow(result.rows[0]))) {
         return res.status(404).json({ error: 'User not found' });
       }
     }
@@ -999,10 +1045,11 @@ app.post('/api/swipe', authMiddleware, async (req, res) => {
     // Check target exists, and is not a seeded demo account. Demo Mode is
     // client-side only; without this guard a hand-crafted request could still
     // create a real swipe row pointing at a robot.
-    const target = await query('SELECT id, email FROM users WHERE id = $1', [targetId]);
+    const target = await query('SELECT id, email, account_kind FROM users WHERE id = $1', [targetId])
+      .catch(() => query('SELECT id, email FROM users WHERE id = $1', [targetId]));
     if (target.rows.length === 0) return res.status(404).json({ error: 'User not found' });
-    if (!isInteractingAsRealUser(target.rows[0].email)) {
-      const kind = humanLabel(classifyEmail(target.rows[0].email));
+    if (!(await isRealRow(target.rows[0]))) {
+      const kind = humanLabel(await kindOf(target.rows[0]));
       return res.status(403).json({ error: `${kind || 'This'} profile cannot be liked or passed` });
     }
 
@@ -1248,8 +1295,8 @@ app.post('/api/shortlist', authMiddleware, async (req, res) => {
     }
     // Same boundary as /api/swipe: a non-real account is not a real candidate.
     const target = await query('SELECT email FROM users WHERE id = $1', [targetId]);
-    if (target.rows.length > 0 && !isInteractingAsRealUser(target.rows[0].email)) {
-      const kind = humanLabel(classifyEmail(target.rows[0].email));
+    if (target.rows.length > 0 && !(await isRealRow(target.rows[0]))) {
+      const kind = humanLabel(await kindOf(target.rows[0]));
       return res.status(403).json({ error: `${kind || 'This'} profile cannot be shortlisted` });
     }
     await query('INSERT INTO shortlists (user_id, target_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.userId, targetId]);
@@ -1754,7 +1801,7 @@ app.get('/api/discover', authMiddleware, async (req, res) => {
            FROM users u
            LEFT JOIN profiles p ON u.id = p.user_id
 WHERE u.id != $1
-              AND ${NOT_REAL_EMAIL_SQL.replace(/email/g, 'u.email')}
+              AND ${await realOnlySql('u')}
               AND NOT EXISTS (SELECT 1 FROM swipes s
                               WHERE s.swiper_id = $1 AND s.swiped_id = u.id AND s.action = 'pass')
              AND NOT EXISTS (SELECT 1 FROM blocks b
@@ -1844,8 +1891,8 @@ app.get('/api/agreements', authMiddleware, async (req, res) => {
        JOIN users ua ON ua.id = a.user_a_id
        JOIN users ub ON ub.id = a.user_b_id
        WHERE (a.user_a_id = $1 OR a.user_b_id = $1)
-         AND ${NOT_REAL_EMAIL_SQL.replace(/email/g, 'ua.email')}
-         AND ${NOT_REAL_EMAIL_SQL.replace(/email/g, 'ub.email')}
+         AND ${await realOnlySql('ua')}
+         AND ${await realOnlySql('ub')}
        ORDER BY a.updated_at DESC`, [req.userId]
     );
     res.json(result.rows);
@@ -1864,8 +1911,11 @@ app.get('/api/agreements', authMiddleware, async (req, res) => {
 // whatever state the document is in.
 async function assertRealPair(userA, userB) {
   const pair = [Number(userA), Number(userB)].sort((x, y) => x - y);
-  const emails = await query('SELECT email FROM users WHERE id = ANY($1::int[])', [pair]);
-  return emails.rows.length === 2 && emails.rows.every(r => isInteractingAsRealUser(r.email));
+  const emails = await query('SELECT email, account_kind FROM users WHERE id = ANY($1::int[])', [pair])
+    .catch(() => query('SELECT email FROM users WHERE id = ANY($1::int[])', [pair]));
+  if (emails.rows.length !== 2) return false;
+  for (const r of emails.rows) if (!(await isRealRow(r))) return false;
+  return true;
 }
 
 async function assertMatchedPair(userA, userB) {

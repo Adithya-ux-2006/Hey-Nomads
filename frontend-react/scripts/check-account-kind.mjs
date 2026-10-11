@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import {
   KIND, classifyEmail, classifyAccount, hasStoredKind,
-  isInteractingAsRealUser, isRealFeedCandidate, NOT_REAL_EMAIL_SQL,
+  isInteractingAsRealUser, isRealFeedCandidate, NOT_REAL_EMAIL_SQL, realAccountSql,
 } from '../api/account-kind.mjs';
 
 // ── heuristic (pre-migration) ────────────────────────────────────────────────
@@ -58,5 +58,21 @@ for (const frag of ['%@heynomads.app', "'qa.%'", "'verify%'", "'walkthrough.%'"]
 const aliased = NOT_REAL_EMAIL_SQL.replace(/email/g, 'ua.email');
 assert.ok(aliased.includes('ua.email NOT LIKE'));
 assert.ok(!aliased.includes('ua.ua.email'));
+
+// ── realAccountSql: the two schema states must not be confusable ──────────────
+// stored=false has to reproduce today's behaviour exactly, or enabling the
+// column would silently change who sees whom.
+assert.equal(realAccountSql('u', false), NOT_REAL_EMAIL_SQL.replace(/email/g, 'u.email'));
+assert.ok(realAccountSql('u', false).includes("email NOT LIKE 'qa.%'"));
+assert.equal(realAccountSql('u', true), "u.account_kind = 'real'");
+// The whole point: NULL or unreviewed rows simply fail this predicate.
+assert.ok(!/IS NOT NULL/.test(realAccountSql('u', true)), 'must not admit NULL kinds');
+// Both forms stay parameterless and single-table.
+for (const f of [realAccountSql('u', true), realAccountSql('u', false)]) {
+  assert.ok(!/\$\d/.test(f), 'fragment must be parameterless');
+  assert.ok(!/\bJOIN\b/i.test(f), 'fragment must be a single-table predicate');
+}
+assert.equal(realAccountSql('ua', true), "ua.account_kind = 'real'");
+assert.equal(realAccountSql('', true), "account_kind = 'real'");
 
 console.log('account classification self-check: all assertions passed');
