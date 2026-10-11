@@ -2,6 +2,27 @@
 // Registers a fresh account and walks Register -> Onboarding -> Discover ->
 // Shortlist -> Chat -> Compare -> Agreement.
 const BASE = process.env.BASE_URL || 'https://hey-nomads.vercel.app';
+
+// This script deliberately writes to the LIVE deployment: it registers
+// accounts, shortlists, messages and agreements. That is its purpose, so it
+// cannot simply be pointed away from production the way the other writers are.
+// What it must not do is run by accident, because every run leaves a
+// walkthrough.* account and its dependent records behind in production.
+//
+// Two of those accounts still exist (the 2026-10-08 pair). Requiring an
+// explicit opt-in makes the next run a decision rather than a default.
+const baseHost = (() => { try { return new URL(BASE).hostname; } catch { return null; } })();
+const isLocal = baseHost === 'localhost' || baseHost === '127.0.0.1' || baseHost === '::1';
+if (!isLocal && process.env.ALLOW_PRODUCTION_WALKTHROUGH !== '1') {
+  console.error(`refusing to run: BASE_URL is ${baseHost}, the live deployment.`);
+  console.error('This script creates real accounts and records in production and does not');
+  console.error('clean up after itself. Run it against a local server, or set');
+  console.error('ALLOW_PRODUCTION_WALKTHROUGH=1 if that is genuinely intended.');
+  process.exit(3);
+}
+if (!isLocal) {
+  console.warn('ALLOW_PRODUCTION_WALKTHROUGH=1: writing to the live deployment.');
+}
 const STAMP = Date.now();
 const EMAIL = `walkthrough.${STAMP}@example.com`;
 const PASSWORD = 'HeyNomads2026!';

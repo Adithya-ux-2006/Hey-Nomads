@@ -9,6 +9,17 @@
 // Override the target with BASE_URL=http://host:port
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:3100';
+
+// This script creates real records through the API, so the database guard does
+// not cover it. A deployed BASE_URL is production by definition.
+const baseHost = (() => { try { return new URL(BASE).hostname; } catch { return null; } })();
+const isLocal = baseHost === 'localhost' || baseHost === '127.0.0.1' || baseHost === '::1';
+if (!isLocal && process.env.ALLOW_DEPLOYED_SMOKE !== '1') {
+  console.error(`refusing to run: BASE_URL points at ${baseHost}, which is not a local server.`);
+  console.error('This script creates accounts, likes and messages through the API.');
+  console.error('Run it against a local server, or set ALLOW_DEPLOYED_SMOKE=1 deliberately.');
+  process.exit(3);
+}
 const EMAIL = process.env.SMOKE_EMAIL || 'priya.sharma@heynomads.app';
 const PASSWORD = process.env.SMOKE_PASSWORD || 'HeyNomads2026!';
 

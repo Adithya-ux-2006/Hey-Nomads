@@ -25,6 +25,9 @@ import fs from 'fs';
 import path from 'path';
 import pg from 'pg';
 
+// This seeder writes reference tables. Refuse to run it against the deployed database.
+await import('./require-test-db.mjs');
+
 for (const line of fs.readFileSync(path.resolve(process.cwd(), '.env'), 'utf8').split(/\r?\n/)) {
   const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.+?)\s*$/);
   if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');

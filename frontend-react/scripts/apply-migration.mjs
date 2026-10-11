@@ -10,34 +10,21 @@ import fs from 'fs';
 import path from 'path';
 import pg from 'pg';
 
-const envPath = path.resolve(process.cwd(), '.env');
-const readEnv = () => {
-  const out = {};
-  if (!fs.existsSync(envPath)) return out;
-  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.+?)\s*$/);
-    if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, '');
-  }
-  return out;
-};
+// One guard implementation, so there is one thing to audit. This used to carry
+// its own copy of the production check.
+await import('./require-test-db.mjs');
 
 const file = process.argv[2];
 if (!file) { console.error('usage: apply-migration.mjs <file.sql>'); process.exit(2); }
 if (!fs.existsSync(file)) { console.error(`not found: ${file}`); process.exit(2); }
 
-const url = process.env.DATABASE_URL || readEnv().DATABASE_URL;
+const url = process.env.DATABASE_URL;
 if (!url) { console.error('DATABASE_URL is not set'); process.exit(2); }
 
+// Host only. The guard has already refused the deployed database, so by here
+// this is a test target. Never print the connection string, it carries a password.
 const host = (() => { try { return new URL(url).host; } catch { return '(unparseable)'; } })();
-const deployedHost = (() => { try { return new URL(readEnv().DATABASE_URL || '').host; } catch { return null; } })();
-
-const isDeployed = deployedHost && host === deployedHost;
-if (isDeployed && !process.argv.includes('--force-production')) {
-  console.error(`refusing: ${host} is the database in .env, i.e. the deployed one.`);
-  console.error('Point DATABASE_URL at a test database, or pass --force-production deliberately.');
-  process.exit(3);
-}
-console.log(`target: ${host}${isDeployed ? '  (FORCED past the deployed-database guard)' : ''}`);
+console.log(`target: ${host}`);
 
 const sql = fs.readFileSync(file, 'utf8');
 

@@ -18,6 +18,9 @@ import dns from 'dns';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 
+// This seeder writes users. Refuse to run it against the deployed database.
+await import('./require-test-db.mjs');
+
 // ── Load DATABASE_URL from .env (same file the serverless API uses)
 function loadEnv() {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
