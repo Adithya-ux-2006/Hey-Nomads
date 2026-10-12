@@ -2,13 +2,31 @@ import { motion } from 'framer-motion';
 import { AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-const BUTTON_BASE = 'font-semibold inline-flex items-center justify-center gap-2 transition-all rounded-full';
+// The button system is the most reused surface in the product, so it is where
+// restraint pays off most.
+//
+// It previously carried `shadow-coral` and `shadow-teal` - a saturated coloured
+// glow behind every primary action. apple-design/references/restraint-and-antislop
+// lists over-saturation and glow as a real failure mode, and the repository's own
+// design policy flags the coloured glow shadows as inherited drift rather than an
+// endorsed choice. Depth now comes from a near-black hairline shadow instead,
+// which separates the control from the surface without tinting it.
+//
+// Focus is a visible ring rather than a browser default, and every transition is
+// disabled under prefers-reduced-motion, per the same reference.
+const BUTTON_BASE =
+  'font-semibold inline-flex items-center justify-center gap-2 rounded-full ' +
+  'transition-[background-color,border-color,color,box-shadow,transform] duration-200 ' +
+  'motion-reduce:transition-none ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral ' +
+  'focus-visible:ring-offset-2 focus-visible:ring-offset-surface-bg ' +
+  'disabled:opacity-50 disabled:cursor-not-allowed';
 const BUTTON_SIZES = { sm: 'px-4 py-2 text-sm', md: 'px-6 py-3 text-base', lg: 'px-8 py-4 text-lg' };
 const BUTTON_VARIANTS = {
-  primary: 'bg-brand-coral text-white shadow-coral hover:bg-brand-coral-dark hover:shadow-hover active:scale-95',
-  secondary: 'border-2 border-surface-border bg-white text-text-primary hover:bg-surface-muted hover:border-brand-coral',
-  ghost: 'bg-transparent text-text-secondary border border-surface-border hover:bg-surface-muted',
-  teal: 'bg-brand-teal text-white shadow-teal hover:bg-brand-teal-dark',
+  primary: 'bg-brand-coral text-white shadow-card hover:bg-brand-coral-dark hover:shadow-hover active:scale-[0.98] motion-reduce:active:scale-100',
+  secondary: 'border border-surface-border bg-white text-text-primary hover:bg-surface-muted hover:border-brand-coral',
+  ghost: 'bg-transparent text-text-secondary hover:bg-surface-muted',
+  teal: 'bg-brand-teal text-white shadow-card hover:bg-brand-teal-dark',
   amber: 'bg-brand-amber text-text-primary hover:bg-brand-amber-light',
 };
 
@@ -37,7 +55,12 @@ export { ButtonLink };
 export const Card = ({ children, className = '', interactive = false }) => (
   <motion.div
     whileHover={interactive ? { y: -2, boxShadow: '0 10px 40px rgba(0,0,0,0.08)' } : {}}
-    className={`bg-white rounded-2xl border border-surface-border shadow-card transition-all ${className}`}
+    className={`bg-white rounded-card border border-surface-border shadow-card ${
+      // transition-all animates colours the card never changes, which reads as
+      // lag on a surface this large. Narrow it to the two things that move.
+      'transition-[box-shadow,border-color] duration-200 motion-reduce:transition-none ' +
+      `focus-within:border-brand-coral/40 ${className}`
+    }`}
   >
     {children}
   </motion.div>

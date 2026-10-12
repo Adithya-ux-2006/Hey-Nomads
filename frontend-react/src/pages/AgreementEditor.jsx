@@ -124,7 +124,7 @@ const AgreementEditor = () => {
                         <button 
                             onClick={handleSave} 
                             disabled={saving}
-                            className="inline-flex items-center gap-2 bg-brand-coral px-5 py-2 rounded-full text-xs font-semibold text-white shadow-coral hover:bg-brand-coral-dark transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral"
+                            className="inline-flex items-center gap-2 bg-brand-coral px-5 py-2 rounded-full text-xs font-semibold text-white shadow-card hover:bg-brand-coral-dark transition-[background-color,box-shadow] duration-200 motion-reduce:transition-none disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral focus-visible:ring-offset-2"
                         >
                              {saving ? 'Saving...' : <><Save size={14} /> Save Draft</>}
                         </button>

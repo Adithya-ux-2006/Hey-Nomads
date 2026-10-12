@@ -28,7 +28,7 @@ const STEP_LABELS = ['Basic Info', 'Location', 'Lifestyle', 'Housing', 'Interest
 
 const inputCls = 'w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral transition-all'
 const labelCls = 'text-sm font-semibold text-text-primary mb-2 block'
-const chipActive = 'bg-brand-coral text-white shadow-coral'
+const chipActive = 'bg-brand-coral text-white shadow-card'
 const chipBase = 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/30'
 const chipCls = `px-4 py-2 rounded-full text-sm font-semibold transition-all cursor-pointer`
 

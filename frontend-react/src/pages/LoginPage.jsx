@@ -79,7 +79,7 @@ export default function LoginPage() {
             </div>
             <button
               type="submit" disabled={loading}
-              className="w-full bg-brand-coral hover:bg-brand-coral-dark text-white font-bold py-3.5 rounded-xl transition-all shadow-coral disabled:opacity-50"
+              className="w-full bg-brand-coral hover:bg-brand-coral-dark text-white font-bold py-3.5 rounded-card transition-[background-color,box-shadow] duration-200 motion-reduce:transition-none shadow-card hover:bg-brand-coral-dark disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral focus-visible:ring-offset-2"
             >
               {loading ? 'Logging you in' : 'Log in'}
             </button>

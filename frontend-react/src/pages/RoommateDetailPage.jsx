@@ -456,7 +456,7 @@ const RoommateDetailPage = () => {
               // is invalid HTML and unreachable by keyboard.
               <Link
                 to={`/messages/${userId}`}
-                className="flex-1 max-w-[140px] flex items-center justify-center gap-2 py-3 rounded-full bg-brand-teal text-white font-semibold text-sm shadow-teal hover:bg-brand-teal-dark transition-colors"
+                className="flex-1 max-w-[140px] flex items-center justify-center gap-2 py-3 rounded-full bg-brand-teal text-white font-semibold text-sm shadow-card hover:bg-brand-teal-dark transition-[background-color,box-shadow] duration-200 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal focus-visible:ring-offset-2"
               >
                 <MessageSquare size={18} /> Message
               </Link>
@@ -466,7 +466,7 @@ const RoommateDetailPage = () => {
                 whileTap={{ scale: 0.95 }}
                 onClick={() => handleSwipe('like')}
                 disabled={!!actionLoading}
-                className="flex-1 max-w-[140px] flex items-center justify-center gap-2 py-3 rounded-full bg-brand-coral text-white font-semibold text-sm shadow-coral hover:bg-brand-coral-dark transition-colors disabled:opacity-50"
+                className="flex-1 max-w-[140px] flex items-center justify-center gap-2 py-3 rounded-full bg-brand-coral text-white font-semibold text-sm shadow-card hover:bg-brand-coral-dark transition-[background-color,box-shadow] duration-200 motion-reduce:transition-none disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral focus-visible:ring-offset-2"
               >
                 {actionLoading === 'like' ? <Spinner size="sm" /> : <><Heart size={18} /> Like</>}
               </motion.button>

@@ -259,13 +259,16 @@ const handleSwipe = async (targetId, action, name) => {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {visible.map(roommate => (
-                <Card key={roommate.id} className="overflow-hidden cursor-pointer hover:shadow-lg transition-shadow">
-                  <Link to={`/roommates/${roommate.id}`}>
-                    <div className="relative h-72 sm:h-80 bg-surface-bg">
+                <Card key={roommate.id} className="overflow-hidden group hover:shadow-hover">
+                  <Link
+                    to={`/roommates/${roommate.id}`}
+                    className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral focus-visible:ring-inset rounded-card"
+                  >
+                    <div className="relative h-72 sm:h-80 bg-surface-bg overflow-hidden">
                       <UserAvatar
                         src={roommate.profile_image}
                         name={roommate.name}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover transition-transform duration-300 motion-reduce:transition-none group-hover:scale-[1.02]"
                       />
                       <div className="absolute top-3 right-3">
                         <CompatibilityBadge score={roommate.score} />
@@ -274,24 +277,34 @@ const handleSwipe = async (targetId, action, name) => {
                   </Link>
 
                   <div className="p-4 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-semibold text-primary">{roommate.name}, {roommate.age}</h3>
+                    <div className="flex items-baseline gap-2">
+                      <h3 className="text-lg font-semibold text-text-primary truncate">{roommate.name}</h3>
+                      {roommate.age && <span className="text-sm text-text-muted tabular-nums shrink-0">{roommate.age}</span>}
                     </div>
 
-                    <div className="flex flex-wrap gap-2 text-sm text-secondary">
-                      <span className="flex items-center gap-1">
-                        <Briefcase size={14} /> {roommate.occupation}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <MapPin size={14} /> {roommate.city}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        {roommate.budget?.toLocaleString()}/mo
-                      </span>
+                    {/* Metadata reads as separate facts rather than one run-on
+                        line. Items are dropped entirely when absent instead of
+                        rendering a stray icon beside nothing. */}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-text-secondary">
+                      {roommate.occupation && (
+                        <span className="flex items-center gap-1.5">
+                          <Briefcase size={14} className="shrink-0 text-text-muted" aria-hidden="true" /> {roommate.occupation}
+                        </span>
+                      )}
+                      {roommate.city && (
+                        <span className="flex items-center gap-1.5">
+                          <MapPin size={14} className="shrink-0 text-text-muted" aria-hidden="true" /> {roommate.city}
+                        </span>
+                      )}
+                      {roommate.budget != null && (
+                        <span className="flex items-center gap-1.5 tabular-nums">
+                          {roommate.budget.toLocaleString()}<span className="text-text-muted">/mo</span>
+                        </span>
+                      )}
                     </div>
 
                     {roommate.bio && (
-                      <p className="text-sm text-muted line-clamp-2">{roommate.bio}</p>
+                      <p className="text-sm leading-relaxed text-text-secondary line-clamp-2">{roommate.bio}</p>
                     )}
 
                     {roommate.reasons?.length > 0 && (

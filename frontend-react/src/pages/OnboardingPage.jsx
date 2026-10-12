@@ -81,7 +81,7 @@ export default function OnboardingPage() {
             { value: 'both', label: 'Both', desc: 'Roommate + community', icon: '🌟' },
           ].map(opt => (
             <button key={opt.value} onClick={() => update('looking_for', opt.value)}
-              className={`p-5 rounded-2xl border-2 text-left transition-all ${data.looking_for === opt.value ? 'border-brand-coral bg-brand-coral/5 shadow-coral' : 'border-surface-border bg-white hover:border-brand-coral/30'}`}>
+              className={`p-5 rounded-2xl border text-left transition-[border-color,background-color,box-shadow] duration-200 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral focus-visible:ring-offset-2 ${data.looking_for === opt.value ? 'border-brand-coral bg-brand-coral/5 shadow-card' : 'border-surface-border bg-white hover:border-brand-coral/40'}`}>
               <div className="flex items-center gap-4">
                 <span className="text-3xl">{opt.icon}</span>
                 <div>
