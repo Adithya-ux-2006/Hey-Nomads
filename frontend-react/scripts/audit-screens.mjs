@@ -11,11 +11,76 @@ const BASE = process.env.BASE_URL || 'http://127.0.0.1:5199';
 const OUT = 'screenshots';
 
 const ME = 900;
+const OTHER_ID = 11;
 const other = id => ({
   id, name: 'Rich Person', age: 27, occupation: 'Product design', city: 'Lisbon',
   budget: 15000, bio: 'Six years of flat sharing, plant parent, runs most mornings.',
   profile_image: null, verification_status: 'verified', moving_to: 'Lisbon',
 });
+
+// ?? Living DNA ????????????????????????????????????????????????????????????
+// Fixtures follow the real contracts:
+//   GET /living-dna/questions -> [{ id, slug, category, prompt, options, position }]
+//   GET /living-dna/me        -> { answers, sharing, answered, total, complete }
+//   GET /living-dna/compare/:id     -> { pairs, aligned, different, notAnsweredByThem, ... }
+//   GET /living-dna/constitution/:id -> { rules, acceptedBy, iHaveAccepted, ... }
+// The partner views live behind ?with=<id>, which is how LivingDnaPage decides
+// whether to open on the answers tab or the comparison tab.
+const ldQuestions = [
+  { id: 1, slug: 'guests', category: 'Guests & quiet hours', position: 1,
+    prompt: 'How do you feel about overnight guests?',
+    options: ['Rarely, and always with notice', 'A couple of times a month', 'Often', 'No strong preference'] },
+  { id: 2, slug: 'noise', category: 'Guests & quiet hours', position: 2,
+    prompt: 'What does a quiet evening at home look like?',
+    options: ['Silence after 9pm', 'Normal household noise until 11pm', 'A TV or music on is fine'] },
+  { id: 3, slug: 'cleaning', category: 'Cleaning & chores', position: 3,
+    prompt: 'How do you handle shared chores?',
+    options: ['Weekly checklist we split', 'We clean as we go', 'One of us does it'] },
+  { id: 4, slug: 'boundary', category: 'Cleaning & chores', position: 4,
+    prompt: 'Is there anything you consider completely non-negotiable in a shared home?',
+    options: ['No smoking indoors', 'No pets, sorry', 'Nothing absolute'] },
+];
+
+// Partly answered, so progress is real rather than 0% or 100%.
+const ldMinePartial = {
+  answers: [
+    { question_id: 1, option: 'A couple of times a month', is_boundary: false, slug: 'guests', category: 'Guests & quiet hours', prompt: 'How do you feel about overnight guests?', updated_at: '2026-10-12T09:00:00Z' },
+    { question_id: 2, option: 'Normal household noise until 11pm', is_boundary: false, slug: 'noise', category: 'Guests & quiet hours', prompt: 'What does a quiet evening at home look like?', updated_at: '2026-10-12T09:02:00Z' },
+    { question_id: 4, option: 'No smoking indoors', is_boundary: true, slug: 'boundary', category: 'Cleaning & chores', prompt: 'Is there anything you consider completely non-negotiable in a shared home?', updated_at: '2026-10-12T09:05:00Z' },
+  ],
+  // Private by default: neither preferences nor boundaries are shared yet.
+  sharing: { share_preferences: false, share_boundaries: false },
+  answered: 3, total: 4, complete: false,
+};
+
+const ldCompare = {
+  matchId: 77,
+  iHaveShared: true, theyHaveShared: true,
+  theySharePreferences: true, theyShareBoundaries: true,
+  compared: 3, aligned: 2, different: 1, notAnsweredByThem: false,
+  pairs: [
+    { slug: 'guests', category: 'Guests & quiet hours', prompt: 'How do you feel about overnight guests?',
+      status: 'aligned', my_option: 'A couple of times a month', their_option: 'A couple of times a month', their_boundary: null },
+    { slug: 'noise', category: 'Guests & quiet hours', prompt: 'What does a quiet evening at home look like?',
+      status: 'aligned', my_option: 'Normal household noise until 11pm', their_option: 'Normal household noise until 11pm', their_boundary: null },
+    { slug: 'cleaning', category: 'Cleaning & chores', prompt: 'How do you handle shared chores?',
+      status: 'different', my_option: 'Weekly checklist we split', their_option: 'We clean as we go', their_boundary: null },
+  ],
+  note: 'A side-by-side view of the answers you have both chosen to share. It is not a prediction of how well you will get along.',
+};
+
+// One accepted, one not: the dual-acceptance state the API actually reports.
+const ldConstitution = {
+  matchId: 77, partnerId: OTHER_ID,
+  rules: [
+    { id: 1, category: 'Rent & expenses', rule_text: 'Rent is 980 EUR a month, split evenly, due on the 1st.', status: 'agreed', author_id: ME, author_name: 'Tester', updated_at: '2026-10-12T09:10:00Z' },
+    { id: 2, category: 'Cleaning & chores', rule_text: 'Kitchen is cleaned after every use; bathroom on a rotating weekly schedule.', status: 'proposed', author_id: OTHER_ID, author_name: 'Rich Person', updated_at: '2026-10-12T09:20:00Z' },
+  ],
+  acceptedBy: [ME],
+  iHaveAccepted: true, theyHaveAccepted: false,
+  mutuallyAccepted: false,
+  agreedRules: 1,
+};
 
 // The four screens under review, with the routes they hit. ChatPage's contract
 // is known from source: /conversations/:id returns the message array and
@@ -36,8 +101,18 @@ const SCREENS = [
         partner_id: 11, partner_name: 'Rich Person', partner_image: null,
         content: 'Rent is 980 EUR a month, split evenly. Bills are paid from a shared account on the first of each month.' },
     ] } },
-  { name: 'living-dna', path: '/living-dna', populated: {} },
+  { name: 'living-dna', path: '/living-dna', populated: {
+      '**/api/living-dna/questions': ldQuestions,
+      '**/api/living-dna/me': ldMinePartial,
+    } },
+  { name: 'living-dna-compare', path: '/living-dna?with=' + OTHER_ID, populated: {
+      '**/api/living-dna/questions': ldQuestions,
+      '**/api/living-dna/me': ldMinePartial,
+      ['**/api/living-dna/compare/' + OTHER_ID]: ldCompare,
+      ['**/api/living-dna/constitution/' + OTHER_ID]: ldConstitution,
+    } },
 ];
+
 
 const SHOTS = [];
 

@@ -61,7 +61,10 @@ function OptionRow({ option, selected, isBoundary, onSelect, onToggleBoundary })
           type="button"
           onClick={() => onToggleBoundary(!isBoundary)}
           aria-pressed={isBoundary}
-          className={`flex min-h-[44px] items-center gap-2 self-start rounded-pill border px-3 text-xs transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-coral ${
+          // Sat flush between two answer options, so it read as a third option
+          // rather than a control that belongs to the one above it. Extra
+          // leading space detaches it without touching the option list.
+          className={`flex min-h-[44px] items-center gap-2 self-start mt-3 rounded-pill border px-3 text-xs transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-coral ${
             isBoundary
               ? 'border-brand-teal bg-brand-teal/10 text-brand-teal-dark'
               : 'border-surface-border text-text-muted hover:border-brand-teal/50'

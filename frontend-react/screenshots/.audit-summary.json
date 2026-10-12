@@ -118,5 +118,35 @@
     "file": "screenshots/living-dna-error-390.png",
     "tag": "390",
     "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-compare-populated-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-compare-populated-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-compare-empty-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-compare-empty-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-compare-error-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-compare-error-390.png",
+    "tag": "390",
+    "overflow": false
   }
 ]
