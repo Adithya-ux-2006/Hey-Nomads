@@ -32,8 +32,9 @@ const SCREENS = [
       '**/api/conversations/11/read': { ok: true },
     } },
   { name: 'agreements', path: '/agreements', populated: { '**/api/agreements': [
-      { id: 1, status: 'pending', created_at: '2026-10-12T10:00:00Z', user_a_id: ME, user_b_id: 11,
-        other_user: other(11), title: 'Flat share agreement', property: 'Rua da Prata, Lisbon' },
+      { id: 1, status: 'pending', updated_at: '2026-10-12T10:00:00Z', user_a_id: ME, user_b_id: 11,
+        partner_id: 11, partner_name: 'Rich Person', partner_image: null,
+        content: 'Rent is 980 EUR a month, split evenly. Bills are paid from a shared account on the first of each month.' },
     ] } },
   { name: 'living-dna', path: '/living-dna', populated: {} },
 ];

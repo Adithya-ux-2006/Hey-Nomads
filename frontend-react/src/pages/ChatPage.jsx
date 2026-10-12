@@ -120,11 +120,11 @@ export default function ChatPage() {
 
   return (
     <Layout>
-      {/* Layout reserves pb-24 (6rem) for the fixed bottom nav. Claiming a full
-          100dvh on top of that padding pushed the composer down onto the nav
-          itself, clipping the send button on mobile. Fill the space Layout
-          actually left instead. */}
-      <div className="flex flex-col bg-surface-bg h-[calc(100dvh-6rem)]">
+      {/* Layout reserves pb-28 (7rem) for the fixed bottom nav, which measures
+          ~111px at 390px where it wraps to two rows. Mirroring that here keeps
+          the composer above the nav instead of clipped by it. Claiming a full
+          100dvh pushed the composer straight down onto the nav. */}
+      <div className="flex flex-col bg-surface-bg h-[calc(100dvh-7rem)]">
         <header className="flex items-center gap-3 p-3 border-b border-surface-border bg-surface-card">
           <button
             type="button"
