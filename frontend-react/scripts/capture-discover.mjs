@@ -16,7 +16,22 @@ try {
   // Log every API status so an empty feed is distinguishable from an auth
   // failure, a server error and a network timeout.
   const apiLog = [];
-  page.on('response', r => { if (r.url().includes('/api/')) apiLog.push(`${r.status()} ${r.url().split('/api/')[1]}`); });
+  page.on('response', async r => {
+    if (!r.url().includes('/api/')) return;
+    const name = r.url().split('/api/')[1];
+    apiLog.push(`${r.status()} ${name}`);
+    // Body of the two responses that decide what Discover renders. Only the
+    // requester id and the candidate ids are logged - never tokens or profiles.
+    if (name.startsWith('roommates/recommended')) {
+      try {
+        const body = await r.text();
+        const j = JSON.parse(body);
+        {
+          console.log(`    [feed] rows=${Array.isArray(j) ? j.length : '(not array)'} ids=${Array.isArray(j) ? j.map(c => c.id).join(',') : '-'}`);
+        }
+      } catch (e) { console.log('    [body unreadable] ' + e.message.slice(0, 60)); }
+    }
+  });
   page.on('pageerror', e => apiLog.push('PAGEERROR ' + e.message.slice(0, 80)));
 
   // Plain fetch, not page.request: Playwright's request context resolved this
@@ -69,7 +84,14 @@ try {
   for (const [w, h, tag] of [[1440, 1100, '1440'], [390, 844, '390']]) {
     await page.setViewportSize({ width: w, height: h });
     await page.goto(`${BASE}/roommates`, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(3500);
+    // Wait for the feed to SETTLE, not for a fixed sleep. calcCompatibility runs
+    // per candidate and this branch's link is intermittent, so a fixed wait
+    // measured the page mid-flight and reported an empty feed for a request the
+    // API had already answered with candidates (observed: rows=2 arriving after
+    // the count). Either a card or the settled empty state means loading is done.
+    await page.locator('a[href^="/roommates/"], :text("You\'ve seen everyone")')
+      .first().waitFor({ state: 'visible', timeout: 60000 })
+      .catch(() => {});
     const cards = await page.locator('a[href^="/roommates/"]').count();
     console.log('  api:', apiLog.join(' | ') || '(no api calls)');
     console.log('  body:', (await page.locator('body').innerText()).slice(0, 160).replace(/\n+/g, ' | '));
