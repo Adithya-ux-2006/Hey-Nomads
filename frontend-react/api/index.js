@@ -2053,5 +2053,330 @@ app.post('/api/agreement', authMiddleware, async (req, res) => {
   }
 });
 
+// ══════════════════════════════════════════════════════════════
+// LIVING DNA
+// ══════════════════════════════════════════════════════════════
+// A private household questionnaire, a consent-gated comparison between mutual
+// matches, and a collaboratively written Living Constitution.
+//
+// Privacy model, enforced here rather than in the UI:
+//   - an answer row belongs to one user and is readable only by them
+//   - living_dna_sharing is the ONLY thing that opens an answer to a matched
+//     partner, and it defaults to sharing nothing
+//   - comparison refuses unless BOTH participants have consented
+// Nothing here writes to the feed, matching or compatibility score, so
+// "complete your Living DNA" can never quietly become a matching criterion.
+
+// Shared preamble for every Living DNA route: is this a mutual match between two
+// genuine accounts? Returns the match row, or null after answering.
+async function matchedPairWith(req, otherUserId) {
+  const other = Number(otherUserId);
+  const me = Number(req.userId);
+  if (!Number.isInteger(other) || other === me) return null;
+  const emails = await query('SELECT email, account_kind FROM users WHERE id = ANY($1::int[])', [[me, other]])
+    .catch(() => query('SELECT email FROM users WHERE id = ANY($1::int[])', [[me, other]]));
+  if (emails.rows.length !== 2) return null;
+  for (const r of emails.rows) if (!(await isRealRow(r))) return null;
+  const m = await query(
+    `SELECT id, user_a_id, user_b_id FROM matches
+      WHERE status = 'matched'
+        AND ((user_a_id = $1 AND user_b_id = $2) OR (user_b_id = $1 AND user_a_id = $2)) LIMIT 1`,
+    [me, other]
+  );
+  return m.rows.length ? m.rows[0] : null;
+}
+
+app.get('/api/living-dna/questions', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT id, slug, category, prompt, options, position
+         FROM living_dna_questions ORDER BY position`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load questions' });
+  }
+});
+
+// The caller's own answers plus completion progress. Private by construction:
+// this route never accepts another user's id.
+app.get('/api/living-dna/me', authMiddleware, async (req, res) => {
+  try {
+    const [answers, sharing, total] = await Promise.all([
+      query(
+        `SELECT a.question_id, a.option, a.is_boundary, a.updated_at, q.slug, q.category, q.prompt
+           FROM living_dna_answers a JOIN living_dna_questions q ON q.id = a.question_id
+          WHERE a.user_id = $1 ORDER BY q.position`, [req.userId]
+      ),
+      query('SELECT share_preferences, share_boundaries FROM living_dna_sharing WHERE user_id = $1', [req.userId]),
+      query('SELECT count(*)::int AS n FROM living_dna_questions'),
+    ]);
+    const s = sharing.rows[0] || { share_preferences: false, share_boundaries: false };
+    res.json({
+      answers: answers.rows,
+      sharing: s,
+      answered: answers.rows.length,
+      total: total.rows[0].n,
+      complete: answers.rows.length === total.rows[0].n,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load your Living DNA' });
+  }
+});
+
+// Save one or many answers. Partial saves are the point: the questionnaire is
+// resumable, so this upserts whatever is sent and reports the real progress the
+// server computed rather than trusting the client.
+app.put('/api/living-dna/answers', authMiddleware, async (req, res) => {
+  try {
+    const { answers } = req.body || {};
+    if (!Array.isArray(answers)) return res.status(400).json({ error: 'answers must be an array' });
+    if (answers.length > 50) return res.status(400).json({ error: 'too many answers in one request' });
+
+    const qs = await query('SELECT id, options FROM living_dna_questions');
+    const byId = new Map(qs.rows.map(q => [q.id, q]));
+    for (const a of answers) {
+      const q = byId.get(Number(a.question_id));
+      if (!q) return res.status(400).json({ error: `unknown question ${a.question_id}` });
+      // Validate against the stored option list rather than trusting the client,
+      // so an invented value can never be persisted and later compared as real.
+      if (!Array.isArray(q.options) || !q.options.includes(a.option)) {
+        return res.status(400).json({ error: `"${a.option}" is not an option for this question` });
+      }
+    }
+    for (const a of answers) {
+      await query(
+        `INSERT INTO living_dna_answers (user_id, question_id, option, is_boundary, updated_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         ON CONFLICT (user_id, question_id)
+         DO UPDATE SET option = EXCLUDED.option, is_boundary = EXCLUDED.is_boundary,
+                       updated_at = CURRENT_TIMESTAMP`,
+        [req.userId, Number(a.question_id), a.option, Boolean(a.is_boundary)]
+      );
+    }
+    const [after, total] = await Promise.all([
+      query('SELECT count(*)::int AS n FROM living_dna_answers WHERE user_id = $1', [req.userId]),
+      query('SELECT count(*)::int AS n FROM living_dna_questions'),
+    ]);
+    res.json({
+      ok: true,
+      saved: answers.length,
+      answered: after.rows[0].n,
+      total: total.rows[0].n,
+      complete: after.rows[0].n === total.rows[0].n,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save answers' });
+  }
+});
+
+// Sharing consent. Absent row means "shares nothing", which is the safe default,
+// so a user who never visits this screen is never exposed.
+app.put('/api/living-dna/sharing', authMiddleware, async (req, res) => {
+  try {
+    const { share_preferences, share_boundaries } = req.body || {};
+    if (typeof share_preferences !== 'boolean' || typeof share_boundaries !== 'boolean') {
+      return res.status(400).json({ error: 'share_preferences and share_boundaries must be booleans' });
+    }
+    await query(
+      `INSERT INTO living_dna_sharing (user_id, share_preferences, share_boundaries, updated_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+       ON CONFLICT (user_id) DO UPDATE
+         SET share_preferences = EXCLUDED.share_preferences,
+             share_boundaries = EXCLUDED.share_boundaries,
+             updated_at = CURRENT_TIMESTAMP`,
+      [req.userId, share_preferences, share_boundaries]
+    );
+    res.json({ ok: true, share_preferences, share_boundaries });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save sharing settings' });
+  }
+});
+
+// Comparison between two matched people. Refuses unless both consented, and
+// never returns an answer the owner has not chosen to share.
+app.get('/api/living-dna/compare/:userId', authMiddleware, async (req, res) => {
+  try {
+    const match = await matchedPairWith(req, req.params.userId);
+    if (!match) return res.status(403).json({ error: 'Living DNA comparison is available to matched accounts only' });
+
+    const other = Number(req.params.userId);
+    const consent = await query(
+      'SELECT user_id, share_preferences, share_boundaries FROM living_dna_sharing WHERE user_id = ANY($1::int[])',
+      [[Number(req.userId), other]]
+    );
+    const mine = consent.rows.find(c => c.user_id === Number(req.userId));
+    const theirs = consent.rows.find(c => c.user_id === other);
+    if (!theirs) {
+      return res.status(403).json({ error: 'They have not chosen to share their Living DNA yet' });
+    }
+
+    const [myAnswers, theirAnswers] = await Promise.all([
+      query(
+        `SELECT a.question_id, a.option, a.is_boundary, q.slug, q.category, q.prompt
+           FROM living_dna_answers a JOIN living_dna_questions q ON q.id = a.question_id
+          WHERE a.user_id = $1 ORDER BY q.position`, [req.userId]
+      ),
+      query(
+        `SELECT a.question_id, a.option, a.is_boundary, q.slug, q.category, q.prompt
+           FROM living_dna_answers a JOIN living_dna_questions q ON q.id = a.question_id
+          WHERE a.user_id = $1 ORDER BY q.position`, [other]
+      ),
+    ]);
+
+    // Only consent what the owner actually agreed to share. A boundary is the
+    // most personal answer on the questionnaire, so it is gated separately.
+    const visible = new Set(theirAnswers.rows.map(a => a.question_id));
+    const pairs = [];
+    for (const a of myAnswers.rows) {
+      const b = theirAnswers.rows.find(x => x.question_id === a.question_id);
+      if (!b) {
+        pairs.push({ slug: a.slug, category: a.category, prompt: a.prompt, status: 'not_answered_by_them', my_option: a.option });
+        continue;
+      }
+      // A boundary is the most personal answer on the questionnaire and is
+      // gated separately. Sharing preferences must NOT imply sharing
+      // boundaries: someone can happily share "I rotate the bins" while their
+      // one hard line is never disclosed. Decide on the boundary flag first.
+      const shown = b.is_boundary ? theirs.share_boundaries : theirs.share_preferences;
+      const isBoundaryShared = b.is_boundary && shown;
+      pairs.push({
+        slug: a.slug,
+        category: a.category,
+        prompt: a.prompt,
+        status: shown ? (a.option === b.option ? 'aligned' : 'different') : 'not_shared',
+        my_option: a.option,
+        their_option: shown ? b.option : null,
+        their_boundary: isBoundaryShared ? b.is_boundary : null,
+      });
+    }
+
+    const answeredByThem = visible.size;
+    const considered = pairs.filter(p => p.status === 'aligned' || p.status === 'different');
+    res.json({
+      matchId: match.id,
+      iHaveShared: !!(mine && (mine.share_preferences || mine.share_boundaries)),
+      theyHaveShared: !!(theirs.share_preferences || theirs.share_boundaries),
+      theySharePreferences: theirs.share_preferences,
+      theyShareBoundaries: theirs.share_boundaries,
+      compared: considered.length,
+      aligned: considered.filter(p => p.status === 'aligned').length,
+      different: considered.filter(p => p.status === 'different').length,
+      notAnsweredByThem: answeredByThem === 0,
+      pairs,
+      // No percentage. A transparent side-by-side is honest; a number here would
+      // imply a validated prediction that does not exist.
+      note: 'A side-by-side view of the answers you have both chosen to share. It is not a prediction of how well you will get along.',
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to build comparison' });
+  }
+});
+
+// ── Living Constitution ─────────────────────────────────────────────
+// Rules hang off the match, so a constitution is a shared document between
+// exactly the two matched people.
+app.get('/api/living-dna/constitution/:userId', authMiddleware, async (req, res) => {
+  try {
+    const match = await matchedPairWith(req, req.params.userId);
+    if (!match) return res.status(403).json({ error: 'A Living Constitution is available to matched accounts only' });
+    const other = Number(req.params.userId);
+
+    const [rules, accepts] = await Promise.all([
+      query(
+        `SELECT r.id, r.category, r.rule_text, r.status, r.author_id, r.updated_at, u.name AS author_name
+           FROM living_constitution_rules r JOIN users u ON u.id = r.author_id
+          WHERE r.match_id = $1 ORDER BY r.created_at`, [match.id]
+      ),
+      query('SELECT user_id FROM living_constitution_acceptances WHERE match_id = $1', [match.id]),
+    ]);
+    const acceptedBy = accepts.rows.map(a => a.user_id);
+    const agreed = rules.rows.filter(r => r.status === 'agreed').length;
+    res.json({
+      matchId: match.id,
+      partnerId: other,
+      rules: rules.rows,
+      acceptedBy,
+      iHaveAccepted: acceptedBy.includes(Number(req.userId)),
+      theyHaveAccepted: acceptedBy.includes(other),
+      // Mutual means literally both rows exist. Never infer it from rule count.
+      mutuallyAccepted: acceptedBy.includes(Number(req.userId)) && acceptedBy.includes(other),
+      agreedRules: agreed,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load the Living Constitution' });
+  }
+});
+
+const RULE_CATEGORIES = ['Rent & expenses', 'Cleaning & chores', 'Guests & quiet hours',
+  'Food & shared supplies', 'Privacy & belongings', 'Conflict resolution'];
+
+app.post('/api/living-dna/constitution/:userId/rules', authMiddleware, async (req, res) => {
+  try {
+    const match = await matchedPairWith(req, req.params.userId);
+    if (!match) return res.status(403).json({ error: 'A Living Constitution is available to matched accounts only' });
+    const { category, rule_text } = req.body || {};
+    if (!RULE_CATEGORIES.includes(category)) {
+      return res.status(400).json({ error: 'Unknown rule category' });
+    }
+    if (typeof rule_text !== 'string' || !rule_text.trim()) {
+      return res.status(400).json({ error: 'rule_text is required' });
+    }
+    const text = rule_text.trim().slice(0, 500);
+
+    const dup = await query(
+      `SELECT id FROM living_constitution_rules
+        WHERE match_id = $1 AND lower(btrim(rule_text)) = lower(btrim($2)) LIMIT 1`,
+      [match.id, text]
+    );
+    if (dup.rows.length) return res.status(409).json({ error: 'That rule has already been proposed' });
+
+    const r = await query(
+      `INSERT INTO living_constitution_rules (match_id, author_id, category, rule_text, status)
+       VALUES ($1, $2, $3, $4, 'proposed') RETURNING id, category, rule_text, status, author_id, updated_at`,
+      [match.id, req.userId, category, text]
+    );
+    // A new rule changes the document, so earlier acceptance no longer covers
+    // it. The schema has no version column, so acceptance rows are the signal.
+    await query('DELETE FROM living_constitution_acceptances WHERE match_id = $1', [match.id]);
+    res.status(201).json({ ok: true, rule: r.rows[0], acceptanceReset: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to propose rule' });
+  }
+});
+
+app.post('/api/living-dna/constitution/:userId/accept', authMiddleware, async (req, res) => {
+  try {
+    const match = await matchedPairWith(req, req.params.userId);
+    if (!match) return res.status(403).json({ error: 'A Living Constitution is available to matched accounts only' });
+    const other = Number(req.params.userId);
+
+    const rules = await query(`SELECT id, status FROM living_constitution_rules WHERE match_id = $1`, [match.id]);
+    if (!rules.rows.length) return res.status(409).json({ error: 'There is nothing to accept yet' });
+    // Declined rules must be resolved before anyone signs the document.
+    if (rules.rows.some(r => r.status === 'declined')) {
+      return res.status(409).json({ error: 'Resolve the declined rules before accepting' });
+    }
+
+    await query(
+      `INSERT INTO living_constitution_acceptances (match_id, user_id, accepted_at)
+       VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (match_id, user_id) DO NOTHING`,
+      [match.id, req.userId]
+    );
+    await query(`UPDATE living_constitution_rules SET status = 'agreed' WHERE match_id = $1 AND status = 'proposed'`, [match.id]);
+
+    const accepts = await query('SELECT user_id FROM living_constitution_acceptances WHERE match_id = $1', [match.id]);
+    const ids = accepts.rows.map(a => a.user_id);
+    res.json({
+      ok: true,
+      iHaveAccepted: ids.includes(Number(req.userId)),
+      theyHaveAccepted: ids.includes(other),
+      mutuallyAccepted: ids.includes(Number(req.userId)) && ids.includes(other),
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to record acceptance' });
+  }
+});
+
 // ── Vercel Serverless Export ──────────────────────────────────
 export default (req, res) => app(req, res);
