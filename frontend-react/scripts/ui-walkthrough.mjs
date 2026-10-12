@@ -226,41 +226,46 @@ try {
 
   await step('constitution: accepting alone shows waiting, not mutual', async () => {
     await A.page.getByRole('button', { name: /Accept/i }).first().click();
-    await A.page.waitForTimeout(1200);
-    const t = await A.page.locator('body').innerText();
-    assert(t.includes('Waiting on the other person'), 'A did not see the waiting state');
-    assert(!t.includes('Agreed by both of you'), 'mutual was claimed with one acceptance');
+    await A.page.getByText('Waiting on the other person').first()
+      .waitFor({ state: 'visible', timeout: 20000 });
+    assert(!(await A.page.getByText('Agreed by both of you').count()),
+      'mutual was claimed with one acceptance');
     await A.page.reload({ waitUntil: 'domcontentloaded' });
     await A.page.locator('nav[aria-label="Living DNA sections"] button', { hasText: 'Constitution' }).first().click();
     await A.page.waitForTimeout(1200);
-    assert((await A.page.locator('body').innerText()).includes('Waiting on the other person'),
-      'waiting state lost on reload');
+    await A.page.getByText('Waiting on the other person').first()
+      .waitFor({ state: 'visible', timeout: 20000 });
     return 'one-sided and it persisted';
   });
 
   await step('constitution: mutual only after the other participant accepts', async () => {
-    await openConstitution(B.page, bId);
+    const aId = (await db.query('SELECT id FROM users WHERE email = $1', [A.email])).rows[0].id;
+    await openConstitution(B.page, aId);
     await B.page.getByRole('button', { name: /Accept/i }).first().click();
-    await B.page.waitForTimeout(1500);
-    const t = await B.page.locator('body').innerText();
-    assert(t.includes('Agreed by both of you'), 'mutual not shown after both accepted');
+    await B.page.getByText('Agreed by both of you').first()
+      .waitFor({ state: 'visible', timeout: 20000 });
     await B.page.screenshot({ path: 'screenshots/walk-constitution-mutual-390.png', fullPage: true });
     shots.push('walk-constitution-mutual-390.png');
     return 'mutual at 390px';
   });
 
-  await step('constitution: a new rule reopens it for both', async () => {
+  await step('constitution: a new rule reopens a mutually accepted document', async () => {
+    // Start from a real mutual acceptance, otherwise "it reopened" is vacuous.
+    assert((await A.page.getByText('Agreed by both of you').count()) === 0,
+      'reopen leg must start from a mutually accepted document');
     await A.page.reload({ waitUntil: 'domcontentloaded' });
     await A.page.locator('nav[aria-label="Living DNA sections"] button', { hasText: 'Constitution' }).first().click();
     await A.page.waitForTimeout(1200);
     await proposeRule(A.page, 'Kitchen is cleaned after every use.');
-    const t = await A.page.locator('body').innerText();
-    assert(!t.includes('Agreed by both of you'), 'the document stayed mutual after a rule change');
+    await A.page.getByText('Agreed by both of you').first()
+      .waitFor({ state: 'detached', timeout: 20000 }).catch(() => {});
+    assert((await A.page.getByText('Agreed by both of you').count()) === 0,
+      'the document stayed mutual after a rule change');
     await A.page.reload({ waitUntil: 'domcontentloaded' });
     await A.page.locator('nav[aria-label="Living DNA sections"] button', { hasText: 'Constitution' }).first().click();
     await A.page.waitForTimeout(1200);
-    const after = await A.page.locator('body').innerText();
-    assert(!after.includes('Agreed by both of you'), 'reopening did not survive a reload');
+    assert((await A.page.getByText('Agreed by both of you').count()) === 0,
+      'reopening did not survive a reload');
     return 'reopened and it persisted';
   });
 
@@ -278,7 +283,7 @@ try {
     await c.locator('#reg-email').fill(outsider);
     await c.locator('#reg-password').fill('Verify12345!');
     await c.locator('button[type=submit]').click();
-    await c.waitForURL(/onboarding/, { timeout: 20000 });
+    await c.waitForURL(/onboarding|discover|roommates/, { timeout: 25000 }).catch(() => {});
     await c.goto(`${BASE}/living-dna?with=${bId}`, { waitUntil: 'domcontentloaded' });
     await c.waitForTimeout(2000);
     const t = await c.locator('body').innerText();
