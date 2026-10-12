@@ -171,6 +171,22 @@ record('incomplete profile: Lifestyle shows values or an explicit empty state',
   record('harness completed without throwing', false, err.message);
 } finally {
   await browser.close();
+  // This script registered two accounts and used to leave them behind. Their
+  // addresses start with "layout.", which carries no reserved prefix, so the
+  // classifier calls them real and they rank in genuine users' recommendation
+  // feeds. That is the same mechanism that left ~191 stray accounts in
+  // production. Clean up on the way out, exactly as browser-qa.mjs does, and do
+  // it in a finally block so a mid-run failure still tidies up.
+  try {
+    const pg = (await import('pg')).default;
+    const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    await db.connect();
+    const r = await db.query('DELETE FROM users WHERE email LIKE $1 RETURNING id', [`layout.${stamp}.%`]);
+    await db.end();
+    console.log(`cleanup: removed ${r.rows.length} account(s) created by this run`);
+  } catch (err) {
+    console.error(`cleanup failed: ${err.message}`);
+  }
 }
 
 const failed = results.filter(r => !r.pass);
