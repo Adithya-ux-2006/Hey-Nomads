@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ShieldCheck, Check, CircleSlash, Scale, FileText, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
+import { ShieldCheck, Check, CircleSlash, Scale, FileText, ChevronLeft, ChevronRight, Lock, Dna } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import Layout from '../components/Layout';
-import { Card, Button, Spinner, ErrorState, InlineError, SectionHeader } from '../components/UI';
+import { Card, Button, ButtonLink, Spinner, ErrorState, InlineError, SectionHeader } from '../components/UI';
 
 // Design notes, because these choices are deliberate:
 // - Utility surface. Restrained, near-invisible motion; nothing ambient.
@@ -198,8 +198,21 @@ export default function LivingDnaPage() {
 
         {tab === 'answers' && (
           !questions ? <Spinner size="lg" /> : questions.length === 0 ? (
-            <Card className="p-6 text-center">
-              <p className="text-text-secondary">No questions have been published yet.</p>
+            <Card className="p-10 text-center">
+              {/* This used to be a single bare sentence in a card, which read
+                  like a half-loaded page rather than a deliberate state. It now
+                  says what Living DNA is for, that nothing is lost, and gives
+                  somewhere to go next. */}
+              <div className="mx-auto mb-4 p-4 rounded-full bg-surface-muted">
+                <Dna size={28} className="text-brand-coral" />
+              </div>
+              <h2 className="text-lg font-bold text-text-primary">No questions published yet</h2>
+              <p className="text-sm text-text-secondary mt-1.5 max-w-sm mx-auto">
+                Living DNA is a short set of questions about how you actually live, so you can
+                compare honestly before moving in. None have been published here yet, so there is
+                nothing to answer and nothing you have lost.
+              </p>
+              <div className="mt-6"><ButtonLink to="/roommates">Back to finding a roommate</ButtonLink></div>
             </Card>
           ) : (
             <div className="space-y-5">

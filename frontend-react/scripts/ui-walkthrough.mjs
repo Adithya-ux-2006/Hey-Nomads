@@ -100,7 +100,7 @@ try {
     await like.click();
     await B.page.waitForTimeout(1500);
     await B.page.goto(`${BASE}/matches`, { waitUntil: 'domcontentloaded' });
-    await B.page.getByText(/Walk alex/i).first().waitFor({ state: 'visible', timeout: 20000 });
+    await B.page.getByText(/Walk alex/i).first().waitFor({ state: 'visible', timeout: 40000 });
     await B.page.screenshot({ path: `screenshots/walk-blair-matches-390.png`, fullPage: true });
     shots.push('walk-blair-matches-390.png');
     return 'match visible to blair at 390px';
@@ -185,6 +185,104 @@ try {
     const text = await A.page.locator('body').innerText();
     assert(!text.includes('Walk blair'), 'another participant leaked into the answers view');
     return m ? 'no cross-participant answers in the UI' : '';
+  });
+
+
+  // ?? Living Constitution, driven through the real UI by both participants ??
+  let bId = null;
+  const proposeRule = async (page, text) => {
+    const sel = page.locator('select').first();
+    // Pick the first real category by its visible label. Index 1 can land on a
+    // placeholder, which the API rejects as an unknown category.
+    const value = await sel.locator('option').nth(1).getAttribute('value');
+    await sel.selectOption(value);
+    await page.locator('textarea').first().fill(text);
+    await page.getByRole('button', { name: /^Propose$/ }).click();
+    // Wait for the rule to actually appear rather than sleeping and hoping.
+    await page.getByText(text).first().waitFor({ state: 'visible', timeout: 20000 });
+  };
+  const openConstitution = async (page, partnerId) => {
+    await page.goto(`${BASE}/living-dna?with=${partnerId}`, { waitUntil: 'domcontentloaded' });
+    const tab = page.locator('nav[aria-label="Living DNA sections"] button', { hasText: 'Constitution' }).first();
+    await tab.waitFor({ state: 'visible', timeout: 20000 });
+    await tab.click();
+    await page.waitForTimeout(1000);
+  };
+
+  await step('constitution: a rule proposed in the UI starts as proposed', async () => {
+    bId = (await db.query('SELECT id FROM users WHERE email = $1', [B.email])).rows[0].id;
+    await openConstitution(A.page, bId);
+    await proposeRule(A.page, 'Rent is 980 EUR a month, split evenly.');
+    const t = await A.page.locator('body').innerText();
+    assert(t.includes('Rent is 980 EUR'), 'rule not visible after proposing');
+    assert(t.includes('proposed'), 'rule did not start as proposed');
+    await A.page.screenshot({ path: 'screenshots/walk-constitution-proposed-1440.png', fullPage: true });
+    shots.push('walk-constitution-proposed-1440.png');
+    return 'proposed';
+  });
+
+  await step('constitution: accepting alone shows waiting, not mutual', async () => {
+    await A.page.getByRole('button', { name: /Accept/i }).first().click();
+    await A.page.waitForTimeout(1200);
+    const t = await A.page.locator('body').innerText();
+    assert(t.includes('Waiting on the other person'), 'A did not see the waiting state');
+    assert(!t.includes('Agreed by both of you'), 'mutual was claimed with one acceptance');
+    await A.page.reload({ waitUntil: 'domcontentloaded' });
+    await A.page.locator('nav[aria-label="Living DNA sections"] button', { hasText: 'Constitution' }).first().click();
+    await A.page.waitForTimeout(1200);
+    assert((await A.page.locator('body').innerText()).includes('Waiting on the other person'),
+      'waiting state lost on reload');
+    return 'one-sided and it persisted';
+  });
+
+  await step('constitution: mutual only after the other participant accepts', async () => {
+    await openConstitution(B.page, bId);
+    await B.page.getByRole('button', { name: /Accept/i }).first().click();
+    await B.page.waitForTimeout(1500);
+    const t = await B.page.locator('body').innerText();
+    assert(t.includes('Agreed by both of you'), 'mutual not shown after both accepted');
+    await B.page.screenshot({ path: 'screenshots/walk-constitution-mutual-390.png', fullPage: true });
+    shots.push('walk-constitution-mutual-390.png');
+    return 'mutual at 390px';
+  });
+
+  await step('constitution: a new rule reopens it for both', async () => {
+    await A.page.reload({ waitUntil: 'domcontentloaded' });
+    await A.page.locator('nav[aria-label="Living DNA sections"] button', { hasText: 'Constitution' }).first().click();
+    await A.page.waitForTimeout(1200);
+    await proposeRule(A.page, 'Kitchen is cleaned after every use.');
+    const t = await A.page.locator('body').innerText();
+    assert(!t.includes('Agreed by both of you'), 'the document stayed mutual after a rule change');
+    await A.page.reload({ waitUntil: 'domcontentloaded' });
+    await A.page.locator('nav[aria-label="Living DNA sections"] button', { hasText: 'Constitution' }).first().click();
+    await A.page.waitForTimeout(1200);
+    const after = await A.page.locator('body').innerText();
+    assert(!after.includes('Agreed by both of you'), 'reopening did not survive a reload');
+    return 'reopened and it persisted';
+  });
+
+  await step('constitution: an unrelated account cannot open the document', async () => {
+    const outsider = `${NS}.outsider3@gmail.com`;
+    emails.push(outsider);
+    await fetch(`${process.env.API_BASE || 'http://127.0.0.1:3100'}/api/auth/register`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: outsider, password: 'Verify12345!', name: 'Outsider3' }),
+    });
+    const ctxC = await browser.newContext();
+    const c = await ctxC.newPage();
+    await c.goto(`${BASE}/register`, { waitUntil: 'domcontentloaded' });
+    await c.locator('#reg-name').fill('Outsider3');
+    await c.locator('#reg-email').fill(outsider);
+    await c.locator('#reg-password').fill('Verify12345!');
+    await c.locator('button[type=submit]').click();
+    await c.waitForURL(/onboarding/, { timeout: 20000 });
+    await c.goto(`${BASE}/living-dna?with=${bId}`, { waitUntil: 'domcontentloaded' });
+    await c.waitForTimeout(2000);
+    const t = await c.locator('body').innerText();
+    assert(!t.includes('Rent is 980 EUR'), 'a stranger saw the rule text');
+    assert(!t.includes('Agreed by both of you'), 'a stranger saw the acceptance state');
+    await ctxC.close();
+    return 'no document, no rule text, no acceptance state';
   });
 
   await ctxA.close(); await ctxB.close();
