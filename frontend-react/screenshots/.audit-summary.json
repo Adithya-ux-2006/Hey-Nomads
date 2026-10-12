@@ -1,0 +1,122 @@
+[
+  {
+    "file": "screenshots/matches-populated-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/matches-populated-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/matches-empty-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/matches-empty-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/matches-error-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/matches-error-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/chat-populated-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/chat-populated-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/chat-empty-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/chat-empty-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/chat-error-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/chat-error-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/agreements-populated-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/agreements-populated-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/agreements-empty-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/agreements-empty-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/agreements-error-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/agreements-error-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-populated-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-populated-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-empty-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-empty-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-error-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-error-390.png",
+    "tag": "390",
+    "overflow": false
+  }
+]

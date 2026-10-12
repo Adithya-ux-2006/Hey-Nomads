@@ -2,10 +2,10 @@ import { useState } from 'react'
 import Layout from '../components/Layout'
 import { apiFetch } from '../lib/api'
 import { useAsync } from '../lib/useAsync'
-import { Card, EmptyState, Spinner, CompatibilityBadge, ErrorState, InlineError } from '../components/UI'
+import { Card, EmptyState, Spinner, CompatibilityBadge, ErrorState, InlineError, Button } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
-import { MessageCircle, MoreVertical, UserX, FileText } from 'lucide-react'
+import { MessageCircle, MoreVertical, UserX, FileText, Heart } from 'lucide-react'
 
 export default function MatchesPage() {
   // A failed fetch used to drop through to "No matches yet / Start swiping!",
@@ -44,9 +44,18 @@ export default function MatchesPage() {
         ) : error ? (
           <ErrorState what="matches" error={error} onRetry={retry} />
         ) : matches.length === 0 ? (
+          // A match cannot happen until someone likes you back, so an empty
+          // list here has exactly one useful next step. Saying so beats leaving
+          // the reader on a dead end.
           <EmptyState
+            icon={Heart}
             title="No matches yet"
             description="Like someone who likes you back and the conversation starts here."
+            action={
+              <Link to="/roommates">
+                <Button>Find roommates</Button>
+              </Link>
+            }
           />
         ) : (
           <div className="space-y-4">
