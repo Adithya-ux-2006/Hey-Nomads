@@ -282,25 +282,35 @@ await step('register an unrelated account', async () => {
 });
 
 await step('a like is accepted and the swipe is persisted', async () => {
-  const before = await call('GET', '/api/roommates/recommended', token);
-  const list = Array.isArray(before.body) ? before.body : (before.body.roommates || []);
-  // Skip the account reserved for the mutual-match step below. Liking it here
-  // would create that match one step early, and matchCreated is only true on
-  // the transition, so the later assertion would see false.
-  const candidate = list.find(c => c.id !== outsider.id) || list[0];
-  assert.ok(candidate, 'no candidates to like');
+  // Pick someone to like.
+  //
+  // This used to take whatever the feed happened to contain, skipping only the
+  // account reserved for the mutual-match step. That made the step depend on
+  // pool contents it does not control: the reserved account was excluded with
+  // `find(...) || list[0]`, and the fallback liked it anyway once the pool ran
+  // thin, creating the next step's match early and failing it. Narrowing the
+  // feed to reviewed real accounts is what finally shrank the pool enough to
+  // expose it.
+  //
+  // Registering the target keeps the step self-contained and independent of how
+  // many people happen to be recommendable.
+  const target = await call('POST', '/api/auth/register', null, {
+    email: `liketarget.${Date.now()}@gmail.com`, password: 'Verify12345!', name: 'Like Target',
+  });
+  assert.equal(target.status, 201, target.body?.error);
+  const targetId = target.body.user.id;
 
   const r = await call('POST', '/api/swipe', token, {
-    targetId: candidate.id, action: 'like',
+    targetId, action: 'like',
   });
   assert.equal(r.status, 200, `like returned ${r.status}: ${JSON.stringify(r.body)}`);
   assert.equal(r.body.ok, true, 'like did not report ok');
 
   const after = await call('GET', '/api/roommates/recommended', token);
   const afterList = Array.isArray(after.body) ? after.body : (after.body.roommates || []);
-  assert.ok(!afterList.some(c => c.id === candidate.id),
+  assert.ok(!afterList.some(c => c.id === targetId),
     'the liked person is still recommended, so the swipe did not persist');
-  return `${candidate.name} liked and removed from recommendations`;
+  return `id=${targetId} liked and removed from recommendations`;
 });
 
 await step('a mutual like persists a match row', async () => {
@@ -1082,7 +1092,7 @@ await step('unauthenticated requests are rejected', async () => {
 // test, which is how ~185 stray accounts ended up in production before this
 // list was audited. If you add a prefix, add it here in the same commit.
 const CLEANUP_PREFIXES = ['realtest', 'feed.', 'layout.', 'actorprobe.', 'agr.', 'browserqa.',
-  'nav.', 'persist.', 'onesided.', 'eavesdrop.', 'mixlist.', 'victim.'];
+  'nav.', 'persist.', 'onesided.', 'eavesdrop.', 'mixlist.', 'victim.', 'liketarget.'];
 const cleanup = async () => {
   const pg = (await import('pg')).default;
   const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
