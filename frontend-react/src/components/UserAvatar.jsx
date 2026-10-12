@@ -20,17 +20,29 @@ function hashName(name = '') {
   return Math.abs(h);
 }
 
-const UserAvatar = ({ src, name = '', size = 'md', className = '' }) => {
+// `fill` is for the full-bleed hero image at the top of a roommate card, where
+// the surrounding container decides the box. Without it the card passed
+// `w-full h-full` through className, which won over this component's own
+// `w-14 h-14` and stretched the avatar into a full-height ellipse once
+// `rounded-full` was applied.
+const UserAvatar = ({ src, name = '', size = 'md', fill = false, className = '' }) => {
   const { outer, text } = sizeMap[size] || sizeMap.md;
   const initial = name?.[0]?.toUpperCase() || '?';
   const color = COLORS[hashName(name) % COLORS.length];
 
   const resolvedSrc = src ? resolveMediaUrl(src) : null;
 
+  const box = fill
+    ? 'w-full h-full'
+    : `${outer} rounded-full flex-shrink-0`;
+
   return (
     <div
-      className={`${outer} rounded-full flex items-center justify-center overflow-hidden flex-shrink-0 ${className}`}
-      style={!resolvedSrc ? { backgroundColor: color } : undefined}
+      className={`flex items-center justify-center overflow-hidden ${box} ${className}`}
+      // A full-bleed hero should not become a saturated pastel slab. It falls
+      // back to the neutral surface the card already provides, with a muted
+      // initial, which keeps the contrast readable at that size.
+      style={!resolvedSrc && !fill ? { backgroundColor: color } : undefined}
     >
       {resolvedSrc ? (
         <img
@@ -39,11 +51,17 @@ const UserAvatar = ({ src, name = '', size = 'md', className = '' }) => {
           className="w-full h-full object-cover"
           onError={e => {
             e.target.style.display = 'none';
-            e.target.parentNode.style.backgroundColor = color;
+            if (!fill) e.target.parentNode.style.backgroundColor = color;
           }}
         />
       ) : (
-        <span className={`${text} font-bold text-white select-none`}>{initial}</span>
+        <span
+          className={fill
+            ? 'text-5xl font-semibold text-text-muted select-none'
+            : `${text} font-bold text-white select-none`}
+        >
+          {initial}
+        </span>
       )}
     </div>
   );

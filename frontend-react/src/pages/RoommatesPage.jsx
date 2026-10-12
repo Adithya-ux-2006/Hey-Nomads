@@ -7,14 +7,10 @@ import UserAvatar from '../components/UserAvatar'
 import { Link } from 'react-router-dom'
 import { SlidersHorizontal, ChevronDown, MapPin, Briefcase, Heart, X, Bookmark } from 'lucide-react'
 
-const BREAKDOWN_LABELS = {
-  lifestyle: 'Lifestyle',
-  budget: 'Budget',
-  location: 'Location',
-  movein: 'Move-in',
-  interests: 'Interests',
-  habits: 'Habits',
-}
+// Enough reasons to explain a match without turning the card into a column of
+// chips that pushes the pass/shortlist/like row off the screen. The full list
+// is still on the detail page.
+const MAX_CARD_REASONS = 4;
 
 const DemoModeLink = () => (
   <Link
@@ -126,7 +122,7 @@ const handleSwipe = async (targetId, action, name) => {
   return (
     <Layout>
       <div className="min-h-screen bg-surface-bg">
-        <div className="max-w-2xl mx-auto px-4 py-6">
+        <div className="max-w-4xl mx-auto px-4 py-6">
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-2xl font-bold text-primary">Recommended Roommates</h1>
             <button
@@ -232,14 +228,27 @@ const handleSwipe = async (targetId, action, name) => {
           ) : error ? (
             <ErrorState what="matches" error={error} onRetry={retry} />
           ) : visible.length === 0 ? (
-            // The real pool is genuinely empty right now. Say so and point at
-            // Demo Mode rather than quietly loosening the feed to fill it.
+            // One empty state, inside the loading/error chain. A second block
+            // sat outside that chain and rendered on `visible.length === 0`
+            // alone, so "You've seen everyone" appeared while the request was
+            // still loading, sat next to the error state when one arrived, and
+            // stacked on top of this one for a genuinely empty feed.
             <EmptyState
               title={hasFilters ? 'No matches in your filters' : 'No roommates to show you yet'}
               description={hasFilters
-                ? 'Try widening the city or budget range.'
+                ? 'Try widening the city or budget range, or start over.'
                 : 'Recommendations only include real accounts, and there are none available right now. You can still try the whole flow with clearly labelled sample profiles.'}
-              action={<DemoModeLink />}
+              action={
+                <div className="flex flex-wrap gap-3 justify-center">
+                  {hasFilters && (
+                    <Button variant="secondary" onClick={() => { setCity(''); setBudgetMin(''); setBudgetMax(''); setSwipedIds(new Set()); }}>
+                      Clear filters
+                    </Button>
+                  )}
+                  <Button onClick={retry}>Load more matches</Button>
+                  <DemoModeLink />
+                </div>
+              }
             />
           ) : (
             <>
@@ -257,7 +266,7 @@ const handleSwipe = async (targetId, action, name) => {
                   Try Demo Mode
                 </Link>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {visible.map(roommate => (
                 <Card key={roommate.id} className="overflow-hidden group hover:shadow-hover">
                   <Link
@@ -268,7 +277,8 @@ const handleSwipe = async (targetId, action, name) => {
                       <UserAvatar
                         src={roommate.profile_image}
                         name={roommate.name}
-                        className="w-full h-full object-cover transition-transform duration-300 motion-reduce:transition-none group-hover:scale-[1.02]"
+                        fill
+                        className="transition-transform duration-300 motion-reduce:transition-none group-hover:scale-[1.02]"
                       />
                       <div className="absolute top-3 right-3">
                         <CompatibilityBadge score={roommate.score} />
@@ -307,23 +317,25 @@ const handleSwipe = async (targetId, action, name) => {
                       <p className="text-sm leading-relaxed text-text-secondary line-clamp-2">{roommate.bio}</p>
                     )}
 
+                    {/* The plain-language reasons are the explanation a person
+                        actually reads. The raw breakdown (Location: 0,
+                        Interests: 0) is diagnostic output: the sub-scores are
+                        ceiling-relative and a zero is not something a user can
+                        interpret, so it was removed from the card rather than
+                        dressed up. The breakdown itself is unchanged on the
+                        API and still shown on the detail page. */}
                     {roommate.reasons?.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
-                        {roommate.reasons.map((r, i) => (
+                        {roommate.reasons.slice(0, MAX_CARD_REASONS).map((r, i) => (
                           <Badge variant={r.type === 'positive' ? 'success' : r.type === 'warning' ? 'warning' : 'neutral'} key={i}>
                             {r.text}
                           </Badge>
                         ))}
-                      </div>
-                    )}
-
-                    {roommate.breakdown && (
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {Object.entries(roommate.breakdown).map(([key, val]) => (
-                          <Badge variant="muted" key={key} className="text-xs">
-                            {BREAKDOWN_LABELS[key] || key}: {val}
-                          </Badge>
-                        ))}
+                        {roommate.reasons.length > MAX_CARD_REASONS && (
+                          <span className="text-xs text-text-muted self-center">
+                            +{roommate.reasons.length - MAX_CARD_REASONS} more
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -372,21 +384,6 @@ const handleSwipe = async (targetId, action, name) => {
             <div className="text-center mt-6 text-sm text-muted">
               {visible.length} roommates remaining
             </div>
-          )}
-
-          {visible.length === 0 && (
-            <EmptyState
-              title="You've seen everyone"
-              description="Try widening your filters, or check back when more people join your city."
-              action={
-                <div className="flex gap-3">
-                  <Button onClick={retry}>Load more matches</Button>
-                  <Button variant="secondary" onClick={() => { setCity(''); setBudgetMin(''); setBudgetMax(''); setSwipedIds(new Set()); }}>
-                    Clear filters and start over
-                  </Button>
-                </div>
-              }
-            />
           )}
         </div>
       </div>
