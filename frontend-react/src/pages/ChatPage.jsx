@@ -123,8 +123,12 @@ export default function ChatPage() {
       {/* Layout reserves pb-28 (7rem) for the fixed bottom nav, which measures
           ~111px at 390px where it wraps to two rows. Mirroring that here keeps
           the composer above the nav instead of clipped by it. Claiming a full
-          100dvh pushed the composer straight down onto the nav. */}
-      <div className="flex flex-col bg-surface-bg h-[calc(100dvh-7rem)]">
+          100dvh pushed the composer straight down onto the nav.
+
+          The column is also capped. Full-bleed, a desktop bubble stretched from
+          1124px to 1424px and the composer ran the entire viewport, which reads
+          as broken rather than roomy. Every other screen is capped. */}
+      <div className="mx-auto w-full max-w-3xl flex flex-col bg-surface-bg h-[calc(100dvh-7rem)]">
         <header className="flex items-center gap-3 p-3 border-b border-surface-border bg-surface-card">
           <button
             type="button"
