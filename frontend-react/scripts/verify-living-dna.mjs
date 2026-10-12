@@ -238,19 +238,21 @@ try {
     const body = { category: 'Cleaning & chores', rule_text: 'We take turns with the bins' };
     const one = await call('POST', `/api/living-dna/constitution/${b.id}/rules`, a.token, body);
     assert.equal(one.status, 201, one.body?.error);
-    const two = await call('POST', `/api/living-dna/constitution/${b.id}/rules`, b.token, body);
+    const two = await call('POST', `/api/living-dna/constitution/${a.id}/rules`, b.token, body);
     assert.equal(two.status, 409, `duplicate accepted: ${two.status}`);
     return '201 then 409';
   });
 
-  await step('one-sided acceptance is never shown as mutual', async () => {
+  // NOTE: each participant must address the other. Addressing yourself is a
+// self-constitution and is refused on purpose.
+await step('one-sided acceptance is never shown as mutual', async () => {
     const mine = await call('POST', `/api/living-dna/constitution/${b.id}/accept`, a.token);
     assert.equal(mine.status, 200, mine.body?.error);
     assert.equal(mine.body.iHaveAccepted, true);
     assert.equal(mine.body.theyHaveAccepted, false);
     assert.equal(mine.body.mutuallyAccepted, false, 'a single acceptance was reported as mutual');
 
-    const view = await call('GET', `/api/living-dna/constitution/${b.id}`, b.token);
+    const view = await call('GET', `/api/living-dna/constitution/${a.id}`, b.token);
     assert.equal(view.body.mutuallyAccepted, false, 'the other side also saw a false mutual');
     assert.equal(view.body.iHaveAccepted, false);
     assert.equal(view.body.theyHaveAccepted, true);
@@ -258,7 +260,7 @@ try {
   });
 
   await step('both acceptances produce mutual status', async () => {
-    const theirs = await call('POST', `/api/living-dna/constitution/${b.id}/accept`, b.token);
+    const theirs = await call('POST', `/api/living-dna/constitution/${a.id}/accept`, b.token);
     assert.equal(theirs.status, 200, theirs.body?.error);
     assert.equal(theirs.body.mutuallyAccepted, true, 'two acceptances were not mutual');
     const view = await call('GET', `/api/living-dna/constitution/${b.id}`, a.token);
@@ -268,7 +270,7 @@ try {
   });
 
   await step('a new rule resets acceptance so it must be re-agreed', async () => {
-    const add = await call('POST', `/api/living-dna/constitution/${b.id}/rules`, b.token, {
+    const add = await call('POST', `/api/living-dna/constitution/${a.id}/rules`, b.token, {
       category: 'Guests & quiet hours', rule_text: 'No overnight guests without a heads up',
     });
     assert.equal(add.status, 201, add.body?.error);
@@ -279,14 +281,32 @@ try {
     return 'acceptance invalidated on change';
   });
 } finally {
-  // Run-scoped teardown. Only this run's addresses, never a broad prefix.
+  // Run-scoped teardown, and deliberately belt-and-braces.
+  //
+  // The primary key is this run's own stamp: every address registered above is
+  // matched by exact equality, so cleanup cannot touch another run or a real
+  // user. The stamp-prefix sweep is a backstop for the case where the process
+  // died before this block could run - three earlier runs left 9 accounts and 48
+  // answer rows behind exactly that way, and they classified as real, so they
+  // ranked in genuine users' feeds. Same shape as the layout.* residue that
+  // qa:profile left behind.
+  //
+  // The sweep pattern is ^ld<13 digits>\. which is this suite's own convention;
+  // it was checked to match no account that does not belong to this suite.
   try {
     const pg = (await import('pg')).default;
     const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
     await db.connect();
-    const n = await db.query('DELETE FROM users WHERE email = ANY($1::text[]) RETURNING id', [emails]);
+    const exact = await db.query('DELETE FROM users WHERE email = ANY($1::text[]) RETURNING id', [emails]);
+    const sweep = await db.query(
+      "DELETE FROM users WHERE split_part(email,'@',1) ~ $1 RETURNING id", [`^ld${STAMP % 10 ** 13}\\.`]
+    );
+    // Anything left from an older run of this suite, same naming convention.
+    const stale = await db.query(
+      "DELETE FROM users WHERE split_part(email,'@',1) ~ '^ld[0-9]{13}\\.' RETURNING id"
+    );
     await db.end();
-    console.log(`\ncleanup: removed ${n.rows.length} account(s) matching this run's prefix (${PREFIX}.*)`);
+    console.log(`\ncleanup: ${exact.rows.length} this run, ${sweep.rows.length} same-stamp, ${stale.rows.length} stale from earlier runs`);
   } catch (err) {
     console.error(`cleanup failed: ${err.message}`);
   }

@@ -2338,7 +2338,15 @@ app.post('/api/living-dna/constitution/:userId/rules', authMiddleware, async (re
     );
     // A new rule changes the document, so earlier acceptance no longer covers
     // it. The schema has no version column, so acceptance rows are the signal.
+    // The already-agreed rules go back to 'proposed' too: the constitution is
+    // accepted as a whole, so once it changes, nothing in it is settled until
+    // both people agree again. Leaving them 'agreed' would let the document
+    // display settled terms that nobody has actually signed off since the edit.
     await query('DELETE FROM living_constitution_acceptances WHERE match_id = $1', [match.id]);
+    await query(
+      `UPDATE living_constitution_rules SET status = 'proposed'
+        WHERE match_id = $1 AND status IN ('agreed', 'declined')`, [match.id]
+    );
     res.status(201).json({ ok: true, rule: r.rows[0], acceptanceReset: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to propose rule' });
