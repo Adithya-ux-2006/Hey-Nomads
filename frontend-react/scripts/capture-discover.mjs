@@ -94,18 +94,32 @@ try {
     );
     await page.goto(`${BASE}/roommates`, { waitUntil: 'domcontentloaded' });
     let feedStatus = 'NO RESPONSE';
+    let feedRows = null;
     try {
       const resp = await feedResponse;
       feedStatus = String(resp.status());
-      console.log(`  feed response: ${feedStatus} in ${Date.now() - t0}ms`);
+      const body = await resp.json().catch(() => null);
+      feedRows = Array.isArray(body) ? body.length : null;
+      console.log(`  feed response: ${feedStatus} in ${Date.now() - t0}ms, rows=${feedRows}`);
     } catch {
       console.log('  feed response: TIMED OUT after 60000ms');
     }
-    // Give React a tick to paint the rows the response produced.
-    await page.locator('a[href^="/roommates/"], :text("You\'ve seen everyone")')
-      .first().waitFor({ state: 'visible', timeout: 15000 })
-      .catch(() => {});
+    // Wait for the rows the response actually contained. The empty state also
+    // renders on the very first paint, before useAsync has set loading, so
+    // waiting on that text matched a transient pre-fetch frame and the count was
+    // taken before React had painted anything - that is what produced a steady
+    // "cards=0" against a feed that had in fact answered with candidates.
+    // If the response had rows, a card must appear. If it had none, the empty
+    // state is the correct outcome and there is nothing to wait for.
+    if (feedRows > 0) {
+      await page.locator('a[href^="/roommates/"]').first()
+        .waitFor({ state: 'attached', timeout: 20000 })
+        .catch(() => console.log('  WARNING: feed returned rows but no card rendered'));
+    }
     const cards = await page.locator('a[href^="/roommates/"]').count();
+    if (feedRows > 0 && cards !== feedRows) {
+      console.log(`  MISMATCH: feed returned ${feedRows} rows but ${cards} cards rendered`);
+    }
     console.log('  api:', apiLog.join(' | ') || '(no api calls)');
     console.log('  body:', (await page.locator('body').innerText()).slice(0, 160).replace(/\n+/g, ' | '));
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
