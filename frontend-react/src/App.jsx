@@ -25,6 +25,7 @@ import ComparePage from './pages/ComparePage';
 import AgreementEditor from './pages/AgreementEditor';
 import AgreementsPage from './pages/AgreementsPage';
 import DemoModePage from './pages/DemoModePage';
+import LivingDnaPage from './pages/LivingDnaPage';
 
 const PrivateRoute = ({ children }) => {
   const isAuthenticated = auth.isAuthenticated();
@@ -84,6 +85,7 @@ function App() {
           <Route path="/shortlist" element={<PrivateRoute><ShortlistPage /></PrivateRoute>} />
           <Route path="/agreements" element={<PrivateRoute><AgreementsPage /></PrivateRoute>} />
           <Route path="/demo" element={<PrivateRoute><DemoModePage /></PrivateRoute>} />
+  <Route path="/living-dna" element={<PrivateRoute><LivingDnaPage /></PrivateRoute>} />
           {/* Public. Only signed-in users are pushed into the app. */}
           <Route
             path="/"
