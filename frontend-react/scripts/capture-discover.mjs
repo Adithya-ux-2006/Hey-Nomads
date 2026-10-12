@@ -13,6 +13,11 @@ const browser = await chromium.launch();
 try {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
   const page = await ctx.newPage();
+  // Log every API status so an empty feed is distinguishable from an auth
+  // failure, a server error and a network timeout.
+  const apiLog = [];
+  page.on('response', r => { if (r.url().includes('/api/')) apiLog.push(`${r.status()} ${r.url().split('/api/')[1]}`); });
+  page.on('pageerror', e => apiLog.push('PAGEERROR ' + e.message.slice(0, 80)));
 
   // Plain fetch, not page.request: Playwright's request context resolved this
   // call but the row never landed, so the feed had nothing to render.
@@ -54,14 +59,20 @@ try {
   await db.connect();
   await db.end();
 
-  await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(t => localStorage.setItem('authToken', t), me.token);
+  // Seed the token before ANY document loads. Navigating to /login first and
+  // setting localStorage afterwards looks equivalent and is not: the login
+  // screen mounts, resets auth state, and the later /roommates load renders
+  // with no token. That is why Discover came back empty while the API itself
+  // was returning candidates correctly.
+  await ctx.addInitScript(t => localStorage.setItem('authToken', t), me.token);
 
   for (const [w, h, tag] of [[1440, 1100, '1440'], [390, 844, '390']]) {
     await page.setViewportSize({ width: w, height: h });
     await page.goto(`${BASE}/roommates`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(3500);
     const cards = await page.locator('a[href^="/roommates/"]').count();
+    console.log('  api:', apiLog.join(' | ') || '(no api calls)');
+    console.log('  body:', (await page.locator('body').innerText()).slice(0, 160).replace(/\n+/g, ' | '));
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     console.log(`${tag}: cards=${cards} overflow=${overflow}`);
     await page.screenshot({ path: `screenshots/redesign-discover-${tag}.png`, fullPage: true });
