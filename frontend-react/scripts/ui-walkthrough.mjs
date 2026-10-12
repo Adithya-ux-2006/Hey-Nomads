@@ -213,9 +213,12 @@ try {
     bId = (await db.query('SELECT id FROM users WHERE email = $1', [B.email])).rows[0].id;
     await openConstitution(A.page, bId);
     await proposeRule(A.page, 'Rent is 980 EUR a month, split evenly.');
+    // proposeRule waits for the rule to be attached and visible, which is the
+    // real condition. Re-reading innerText could race the refetch re-render.
+    await A.page.getByText('Rent is 980 EUR a month, split evenly.').first()
+      .waitFor({ state: 'visible', timeout: 20000 });
     const t = await A.page.locator('body').innerText();
-    assert(t.includes('Rent is 980 EUR'), 'rule not visible after proposing');
-    assert(t.includes('proposed'), 'rule did not start as proposed');
+    assert(/proposed|Proposed/i.test(t), `rule did not start as proposed: ${t.slice(0, 200)}`);
     await A.page.screenshot({ path: 'screenshots/walk-constitution-proposed-1440.png', fullPage: true });
     shots.push('walk-constitution-proposed-1440.png');
     return 'proposed';
