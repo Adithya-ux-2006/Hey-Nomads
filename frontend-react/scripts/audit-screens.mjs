@@ -105,6 +105,16 @@ const SCREENS = [
       '**/api/living-dna/questions': ldQuestions,
       '**/api/living-dna/me': ldMinePartial,
     } },
+  { name: 'living-dna-privacy', path: '/living-dna', click: 'Privacy', populated: {
+      '**/api/living-dna/questions': ldQuestions,
+      '**/api/living-dna/me': ldMinePartial,
+    } },
+  { name: 'living-dna-constitution', path: '/living-dna?with=' + OTHER_ID, click: 'Constitution', populated: {
+      '**/api/living-dna/questions': ldQuestions,
+      '**/api/living-dna/me': ldMinePartial,
+      ['**/api/living-dna/compare/' + OTHER_ID]: ldCompare,
+      ['**/api/living-dna/constitution/' + OTHER_ID]: ldConstitution,
+    } },
   { name: 'living-dna-compare', path: '/living-dna?with=' + OTHER_ID, populated: {
       '**/api/living-dna/questions': ldQuestions,
       '**/api/living-dna/me': ldMinePartial,
@@ -169,6 +179,15 @@ const load = async (screen, scenario) => {
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 120)); });
 
   await page.goto(`${BASE}${screen.path}`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+  if (screen.click) {
+    // Scoped to the section nav and matched on text: getByRole with an exact
+    // name collided and threw, which was swallowed and read as "not clickable".
+    const tab = page.locator('nav[aria-label="Living DNA sections"] button', { hasText: screen.click }).first();
+    await tab.waitFor({ state: 'visible', timeout: 10000 })
+      .then(() => tab.click({ timeout: 10000 }))
+      .catch(() => console.log('  (tab not clickable:', screen.click, ')'));
+    await page.waitForTimeout(600);
+  }
   // A fixed settle is acceptable here: this is a screenshot audit, not an
   // assertion suite, and the assertions live in qa-discover-ui.mjs.
   await page.waitForTimeout(2500);

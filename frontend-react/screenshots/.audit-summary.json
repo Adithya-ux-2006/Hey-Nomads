@@ -120,6 +120,66 @@
     "overflow": false
   },
   {
+    "file": "screenshots/living-dna-privacy-populated-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-privacy-populated-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-privacy-empty-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-privacy-empty-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-privacy-error-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-privacy-error-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-constitution-populated-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-constitution-populated-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-constitution-empty-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-constitution-empty-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-constitution-error-1440.png",
+    "tag": "1440",
+    "overflow": false
+  },
+  {
+    "file": "screenshots/living-dna-constitution-error-390.png",
+    "tag": "390",
+    "overflow": false
+  },
+  {
     "file": "screenshots/living-dna-compare-populated-1440.png",
     "tag": "1440",
     "overflow": false
