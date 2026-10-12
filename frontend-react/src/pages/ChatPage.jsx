@@ -120,7 +120,11 @@ export default function ChatPage() {
 
   return (
     <Layout>
-      <div className="flex flex-col h-full bg-surface-bg" style={{ height: '100dvh' }}>
+      {/* Layout reserves pb-24 (6rem) for the fixed bottom nav. Claiming a full
+          100dvh on top of that padding pushed the composer down onto the nav
+          itself, clipping the send button on mobile. Fill the space Layout
+          actually left instead. */}
+      <div className="flex flex-col bg-surface-bg h-[calc(100dvh-6rem)]">
         <header className="flex items-center gap-3 p-3 border-b border-surface-border bg-surface-card">
           <button
             type="button"

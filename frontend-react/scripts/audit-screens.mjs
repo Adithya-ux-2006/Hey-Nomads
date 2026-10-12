@@ -61,8 +61,12 @@ const load = async (screen, scenario) => {
         body: JSON.stringify({ error: 'Something went wrong' }) });
     }
     if (isSessionProbe) {
+      // restoreSession() reads `user.id` off the TOP level of this response.
+      // Returning it nested under `user` stored the literal string "undefined"
+      // as the user id, which made Number() return NaN and rendered every
+      // message - including the viewer's own - as if it were someone else's.
       return route.fulfill({ status: 200, contentType: 'application/json',
-        body: JSON.stringify({ user: { id: ME, name: 'Tester' } }) });
+        body: JSON.stringify({ id: ME, name: 'Tester' }) });
     }
 
     // 'empty' must actually be empty. Falling through to the populated fixture
