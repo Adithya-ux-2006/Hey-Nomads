@@ -1234,7 +1234,23 @@ app.get('/api/conversations/:otherUserId', authMiddleware, async (req, res) => {
        JOIN conversation_members cm2 ON cm2.conversation_id = c.id AND cm2.user_id = $2`,
       [req.userId, otherUserId]
     );
-    if (convResult.rows.length === 0) return res.json([]);
+    if (convResult.rows.length === 0) {
+      // Membership is enforced by the join above, so an outsider cannot read
+      // anyone else's messages - but returning 200 with [] made "you are not
+      // authorised" indistinguishable from "this thread is empty", and the chat
+      // screen rendered that as "No messages yet". A matched pair with no
+      // messages yet is a genuinely empty thread and still gets []; anyone else
+      // is refused.
+      const match = await query(
+        `SELECT id FROM matches WHERE status = 'matched' AND
+         ((user_a_id = $1 AND user_b_id = $2) OR (user_b_id = $1 AND user_a_id = $2)) LIMIT 1`,
+        [req.userId, otherUserId]
+      );
+      if (match.rows.length === 0) {
+        return res.status(403).json({ error: 'You can only read conversations with your matches' });
+      }
+      return res.json([]);
+    }
 
     const messages = await query(
       `SELECT m.id, m.sender_id, m.content, m.read_at, m.created_at,

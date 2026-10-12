@@ -93,7 +93,7 @@ try {
       method: 'POST', headers: H(me.token),
       body: JSON.stringify({ receiver_id: conversationUserId, message: 'Still looking in Lisbon?' }),
     });
-    assert.equal(s.status, 200);
+    assert.equal(s.status, 201, `POST /api/messages -> ${s.status} ${await s.clone().text()}`);
     const c = await fetch(`${BASE}/api/conversations/${conversationUserId}`, { headers: H(me.token) });
     assert.equal(c.status, 200);
     const convo = await c.json();
@@ -119,11 +119,13 @@ try {
     assert.equal(mine.sharing.share_preferences, false, 'preferences shared by default');
     assert.equal(mine.sharing.share_boundaries, false, 'boundaries shared by default');
 
-    const theirs = await (await fetch(`${BASE}/api/living-dna/compare/${conversationUserId}`, { headers: H(them.token) })).json();
-    assert.equal(theirs.iHaveShared, false, 'comparer reports sharing they have not enabled');
-    assert.ok(theirs.notAnsweredByThem || theirs.compared === 0,
-      'another person\'s answers were exposed before sharing was enabled');
-    return 'nothing shared, nothing visible';
+    const res = await fetch(`${BASE}/api/living-dna/compare/${conversationUserId}`, { headers: H(me.token) });
+    assert.equal(res.status, 403, `compare before consent -> ${res.status}`);
+    const body = await res.json();
+    assert.match(body.error, /not chosen to share/i, `unexpected reason: ${body.error}`);
+    // No other person's answer text may appear anywhere in the refusal.
+    assert.ok(!JSON.stringify(body).includes('bins'), 'private answer text leaked into the refusal');
+    return 'refused while they share nothing';
   });
 
   await step('Constitution acceptance is one-sided until both accept', async () => {
@@ -131,17 +133,51 @@ try {
     assert.equal(before.iHaveAccepted, false, 'accepted before accepting');
     assert.equal(before.mutuallyAccepted, false, 'mutual before anyone accepted');
 
+    const tooEarly = await fetch(`${BASE}/api/living-dna/constitution/${conversationUserId}/accept`, { method: 'POST', headers: H(me.token) });
+    assert.equal(tooEarly.status, 409, 'an empty constitution was accepted');
+
+    const proposed = await fetch(`${BASE}/api/living-dna/constitution/${conversationUserId}/rules`, {
+      method: 'POST', headers: H(me.token),
+      body: JSON.stringify({ category: 'Rent & expenses', rule_text: 'Rent is 980 EUR a month, split evenly, due on the 1st.' }),
+    });
+    assert.ok(proposed.status < 300, `propose rule -> ${proposed.status}`);
     await fetch(`${BASE}/api/living-dna/constitution/${conversationUserId}/accept`, { method: 'POST', headers: H(me.token) });
 
     const afterMine = await (await fetch(`${BASE}/api/living-dna/constitution/${conversationUserId}`, { headers: H(me.token) })).json();
-    assert.equal(afterMine.iHaveAccepted, true, 'acceptance did not record');
+    assert.equal(afterMine.iHaveAccepted, true, `after accept: ${JSON.stringify(afterMine).slice(0, 180)}`);
     assert.equal(afterMine.theyHaveAccepted, false, 'the other side was accepted for me');
     assert.equal(afterMine.mutuallyAccepted, false, 'mutual claimed with one acceptance');
 
-    await fetch(`${BASE}/api/living-dna/constitution/${conversationUserId}/accept`, { method: 'POST', headers: H(them.token) });
+    const theirAccept = await fetch(`${BASE}/api/living-dna/constitution/${me.user.id}/accept`, { method: 'POST', headers: H(them.token) });
+    assert.ok(theirAccept.status < 300, `their accept -> ${theirAccept.status} ${await theirAccept.clone().text()}`);
     const both = await (await fetch(`${BASE}/api/living-dna/constitution/${conversationUserId}`, { headers: H(me.token) })).json();
     assert.equal(both.mutuallyAccepted, true, 'mutual not reached after both accepted');
-    return 'one-sided then mutual';
+
+    // Adding a rule reopens the document for both sides.
+    const reopened2 = await fetch(`${BASE}/api/living-dna/constitution/${me.user.id}/rules`, {
+      method: 'POST', headers: H(them.token),
+      body: JSON.stringify({ category: 'Cleaning & chores', rule_text: 'Kitchen cleaned after every use.' }),
+    });
+    assert.ok(reopened2.status < 300, `rule add -> ${reopened2.status}`);
+    const reopened = await (await fetch(`${BASE}/api/living-dna/constitution/${conversationUserId}`, { headers: H(me.token) })).json();
+    assert.equal(reopened.mutuallyAccepted, false, 'mutual survived a rule change');
+    return '409 when empty, one-sided, mutual, reopened';
+  });
+
+  await step('an outsider cannot send a message either', async () => {
+    const outsiderEmail = `${NS}.outsider2@gmail.com`;
+    emails.push(outsiderEmail);
+    const r = await fetch(`${BASE}/api/auth/register`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: outsiderEmail, password: 'Verify12345!', name: 'E2E outsider2' }),
+    });
+    const { token } = await r.json();
+    const s = await fetch(`${BASE}/api/messages`, {
+      method: 'POST', headers: H(token),
+      body: JSON.stringify({ receiver_id: conversationUserId, message: 'let me in' }),
+    });
+    assert.ok(s.status === 403 || s.status === 400, `outsider write got ${s.status}`);
+    return `write denied with ${s.status}`;
   });
 
   await step('a non-journey account cannot read the conversation', async () => {
