@@ -83,14 +83,27 @@ try {
 
   for (const [w, h, tag] of [[1440, 1100, '1440'], [390, 844, '390']]) {
     await page.setViewportSize({ width: w, height: h });
+    const t0 = Date.now();
+    // Wait for the actual feed RESPONSE, not for a piece of page text.
+    // `visible.length === 0` renders the empty state during the very first
+    // paint, before useAsync has set loading, so waiting on that text matched
+    // a transient pre-fetch frame and the count was taken before the request
+    // had even been sent. Awaiting the response is unambiguous.
+    const feedResponse = page.waitForResponse(
+      r => r.url().includes('/api/roommates/recommended'), { timeout: 60000 }
+    );
     await page.goto(`${BASE}/roommates`, { waitUntil: 'domcontentloaded' });
-    // Wait for the feed to SETTLE, not for a fixed sleep. calcCompatibility runs
-    // per candidate and this branch's link is intermittent, so a fixed wait
-    // measured the page mid-flight and reported an empty feed for a request the
-    // API had already answered with candidates (observed: rows=2 arriving after
-    // the count). Either a card or the settled empty state means loading is done.
+    let feedStatus = 'NO RESPONSE';
+    try {
+      const resp = await feedResponse;
+      feedStatus = String(resp.status());
+      console.log(`  feed response: ${feedStatus} in ${Date.now() - t0}ms`);
+    } catch {
+      console.log('  feed response: TIMED OUT after 60000ms');
+    }
+    // Give React a tick to paint the rows the response produced.
     await page.locator('a[href^="/roommates/"], :text("You\'ve seen everyone")')
-      .first().waitFor({ state: 'visible', timeout: 60000 })
+      .first().waitFor({ state: 'visible', timeout: 15000 })
       .catch(() => {});
     const cards = await page.locator('a[href^="/roommates/"]').count();
     console.log('  api:', apiLog.join(' | ') || '(no api calls)');

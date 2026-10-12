@@ -47,9 +47,17 @@ function authMiddleware(req, res, next) {
   }
 }
 
+// Finite pool bounds. pg defaults to max:10 but an *infinite* connect wait,
+// which on a flaky link means one hung connection is never released and every
+// later request queues forever - observed as the API answering only /auth/me.
+// A finite connect timeout turns that silent wedge into a normal error the
+// route's catch can report.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
+  max: 10,
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000,
 });
 
 // pg's pool already acquires, queries and releases a client per call, so this
@@ -680,28 +688,58 @@ const WEIGHT_KEYS = {
   movein: 'movein_weight', interests: 'interests_weight', habits: 'habits_weight',
 };
 
-async function calcCompatibility(userId, candidateId, weights) {
-  // Fetch both profiles
-  const [meResult, themResult, meLangs, themLangs] = await Promise.all([
+// Scoring used to issue six queries per candidate: both profiles, both
+// language lists and the whole cities cost table. For a feed of ~28 candidates
+// that is ~170 sequential round-trips, which is why this endpoint measured ~10s
+// while every other route answered in ~230ms.
+//
+// Nothing it reads about the requester changes between candidates, and the
+// candidate profiles can be fetched in one query. So load the context once and
+// score in memory. The arithmetic is untouched - only the round-trip count.
+async function loadScoreContext(userId, candidateIds) {
+  const ids = candidateIds.length ? candidateIds : [userId];
+  // u.id is aliased because `p.*` may itself carry an `id` column, and node-pg
+  // lets a later duplicate column name overwrite an earlier one.
+  const [meResult, allProfiles, allLangs, costRows] = await Promise.all([
     query(`SELECT u.interests, u.country, u.moving_to, p.* FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = $1`, [userId]),
-    query(`SELECT u.interests, u.country, u.moving_to, p.* FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = $1`, [candidateId]),
-    query(`SELECT l.name FROM languages l JOIN user_languages ul ON l.id = ul.language_id WHERE ul.user_id = $1`, [userId]),
-    query(`SELECT l.name FROM languages l JOIN user_languages ul ON l.id = ul.language_id WHERE ul.user_id = $1`, [candidateId]),
+    query(`SELECT u.id AS cand_id, u.interests, u.country, u.moving_to, p.* FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = ANY($1::int[])`, [ids]),
+    query(`SELECT ul.user_id, l.name FROM languages l JOIN user_languages ul ON l.id = ul.language_id WHERE ul.user_id = ANY($1::int[])`, [ids]),
+    query(`SELECT LOWER(name) AS name, cost_level FROM cities`),
   ]);
 
-  const me = meResult.rows[0];
-  const them = themResult.rows[0];
+  const langsById = new Map();
+  for (const r of allLangs.rows) {
+    if (!langsById.has(r.user_id)) langsById.set(r.user_id, []);
+    langsById.get(r.user_id).push(r.name);
+  }
+
+  return {
+    me: meResult.rows[0],
+    meLangs: langsById.get(userId) || [],
+    themById: new Map(allProfiles.rows.map(r => [r.cand_id, r])),
+    langsById,
+    costByCity: new Map(costRows.rows.map(r => [r.name, r.cost_level || 3])),
+  };
+}
+
+// Single-candidate entry point. The swipe, detail and settlement callers keep
+// using this unchanged.
+async function calcCompatibility(userId, candidateId, weights) {
+  const ctx = await loadScoreContext(userId, [candidateId]);
+  return scoreCompatibility(ctx, candidateId, weights);
+}
+
+// Pure. Same scoring code as before, reading preloaded rows.
+function scoreCompatibility(ctx, candidateId, weights) {
+  const me = ctx.me;
+  const them = ctx.themById.get(candidateId);
   if (!me || !them) return { score: 0, breakdown: {}, reasons: [] };
 
   // Cost level (1-5) of the city each person is moving to, used to make
   // budgets comparable across currencies. Missing city => level 3, the
   // midpoint, so an unset destination does not distort the score.
-  const costRows = await query(
-    `SELECT LOWER(name) AS name, cost_level FROM cities`
-  );
-  const costByCity = new Map(costRows.rows.map(r => [r.name, r.cost_level || 3]));
   const costOf = (row) =>
-    costByCity.get(String(row.moving_to || row.city || '').toLowerCase()) || 3;
+    ctx.costByCity.get(String(row.moving_to || row.city || '').toLowerCase()) || 3;
   const meCost = costOf(me);
   const themCost = costOf(them);
 
@@ -805,8 +843,8 @@ async function calcCompatibility(userId, candidateId, weights) {
   }
   if (me.work_schedule && them.work_schedule && me.work_schedule === them.work_schedule) { habitsScore += 3; reasons.push({ text: 'Same work schedule', type: 'positive' }); }
   if (me.languages && them.languages) {
-    const myLangs = (meLangs.rows||[]).map(l => l.name);
-    const theirLangs = (themLangs.rows||[]).map(l => l.name);
+    const myLangs = ctx.meLangs;
+    const theirLangs = ctx.langsById.get(candidateId) || [];
     const sharedLangs = myLangs.filter(l => theirLangs.includes(l));
     if (sharedLangs.length > 0) { habitsScore += 2; reasons.push({ text: `Share ${sharedLangs.join(', ')}`, type: 'positive' }); }
   }
@@ -963,15 +1001,20 @@ let where = `WHERE u.id != $1 AND ${await realOnlySql('u')}`;
       [...params, parseInt(limit), offset]
     );
 
-    // Score candidates
-    const results = [];
-    for (const c of candidates.rows) {
-      if (swipedSet.has(c.id)) continue;
-      const { score, breakdown, reasons } = await calcCompatibility(req.userId, c.id, weights);
-      results.push({ ...c, score, breakdown, reasons });
-    }
+    // Score candidates. Everything the scorer needs about the requester is the
+    // same for every candidate, so it is loaded once here and the scoring runs
+    // in memory. This replaces six queries per candidate - the old loop issued
+    // them sequentially, which is what made this route ~10s.
+    const scoreable = candidates.rows.filter(c => !swipedSet.has(c.id));
+    const ctx = await loadScoreContext(req.userId, scoreable.map(c => c.id));
+    const results = scoreable.map(c => ({ ...c, ...scoreCompatibility(ctx, c.id, weights) }));
 
-    results.sort((a, b) => b.score - a.score);
+    // Score descending. The tie-breakers make the order deterministic: the SQL
+    // already returns created_at DESC, and Array#sort is stable, so this
+    // reproduces that order exactly while stopping rows with an identical score
+    // and timestamp from reshuffling between requests.
+    results.sort((a, b) =>
+      b.score - a.score || new Date(b.created_at) - new Date(a.created_at) || a.id - b.id);
     res.json(results.slice(0, parseInt(limit)));
   } catch (err) {
     console.error('Get roommates error:', err);
