@@ -96,6 +96,13 @@ export default function LandingPage() {
             <p className="mt-1 text-text-secondary text-sm">
               Sample profiles you can like, match and chat with. No sign-up, no real account, nothing saved.
             </p>
+            <Link
+              to="/presentation"
+              className="inline-flex items-center gap-1.5 mt-3 text-sm font-semibold text-brand-teal hover:underline underline-offset-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal rounded"
+            >
+              Or run the guided walkthrough
+              <ArrowRight size={14} aria-hidden="true" />
+            </Link>
           </div>
           <Link
             to="/demo"
