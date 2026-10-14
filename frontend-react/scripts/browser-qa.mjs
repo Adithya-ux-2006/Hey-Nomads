@@ -4,6 +4,7 @@
 //
 // Usage: node scripts/browser-qa.mjs [baseUrl]
 import { chromium } from 'playwright';
+import fs from 'fs';
 import path from 'path';
 
 // This script registers accounts. Refuse to do that to the deployed database.
@@ -15,6 +16,22 @@ const results = [];
 const record = (name, pass, detail) => {
   results.push({ name, pass, detail });
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
+};
+
+// Full-page evidence for each screen this suite drives. Kept best-effort: a
+// screenshot that cannot be taken must never turn a passing run into a failure.
+const SHOT_DIR = path.resolve(process.cwd(), 'screenshots', 'qa');
+const shoot = async (page, label) => {
+  try {
+    fs.mkdirSync(SHOT_DIR, { recursive: true });
+    const file = path.join(SHOT_DIR, `browser-${label}.png`);
+    await page.screenshot({ path: file, fullPage: true });
+    console.log(`SHOT  screenshots/qa/browser-${label}.png`);
+    return file;
+  } catch (err) {
+    console.log(`SHOT_FAIL  ${label}: ${err.message}`);
+    return null;
+  }
 };
 
 const api = async (path, { method = 'GET', body, token } = {}) => {
@@ -103,6 +120,7 @@ await likeA.click();
     record('B: one-sided like does NOT claim a match', !isMatch, isMatch ? 'banner claimed a match' : 'no match claimed');
     const links = await banner.locator('a').count().catch(() => 0);
     record('B: no Message/Agreement links on a one-sided like', links === 0, `${links} link(s) found`);
+    await shoot(page, 'onesided-like');
     await page.close();
   }
 
@@ -162,6 +180,7 @@ await likeB.waitFor({ state: 'visible', timeout: 25000 });
     await page.goBack({ waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(800);
     record('E: browser Back works', !/\/agreements/.test(page.url()), page.url().replace(BASE, ''));
+    await shoot(page, 'agreements');
     await page.close();
   }
 
@@ -186,10 +205,16 @@ await likeB.waitFor({ state: 'visible', timeout: 25000 });
     const status = page.locator('div[role="status"]').first();
     const statusText = (await status.count()) ? (await status.innerText()).replace(/\s+/g, ' ').trim() : '';
     record('C: no false success is shown', !/You matched/i.test(statusText), statusText.slice(0, 80) || 'no success banner');
+    await shoot(page, 'failed-like');
     await page.close();
   }
 
   // ── Test D: Demo Mode ──
+  // Demo Mode is a hub that opens the real routes on canned data, so drive it
+  // the way a visitor does: enter from the hub, confirm the feed comes up on
+  // simulated profiles and a like pays off. The assertion unique to this suite
+  // is the last one -- a live session must still produce no writes. Tour depth,
+  // chat and identity-leak behaviour are owned by demo-tour-qa.mjs.
   {
     const page = await browser.newPage();
     await login(page, A);
@@ -203,32 +228,36 @@ await likeB.waitFor({ state: 'visible', timeout: 25000 });
     });
     page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
     await page.goto(`${BASE}/demo`, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(1500);
 
-    const bannerText = await page.locator('text=Demo Mode').count();
-    record('D: Demo Mode explains itself', bannerText > 0);
+    const hub = await page.getByText('Take the tour').count();
+    record('D: the demo hub explains itself', hub > 0, `${hub} heading(s)`);
+    const disclaimer = await page.getByText(/nothing you do here is saved/).count();
+    record('D: the hub says nothing is saved', disclaimer > 0);
 
-    const demoBadges = await page.locator('text=Demo').count();
-    record('D: demo profiles are labelled', demoBadges > 1, `${demoBadges - 1} badge(s)`);
+    await page.getByRole('button', { name: 'Start demo at Feed' }).click();
+    await page.waitForURL('**/roommates', { timeout: 20000 }).catch(() => {});
+    record('D: the tour opens the real feed route',
+      /\/roommates$/.test(new URL(page.url()).pathname), new URL(page.url()).pathname);
 
-    const likeBtn = page.locator('button[aria-label^="Like sample profile"]').first();
-    if (await likeBtn.count()) {
-      await likeBtn.click();
-      await page.waitForTimeout(1200);
-      const matched = await page.locator('text=Simulated matches').count();
-      record('D: a demo like produces a simulated match', matched > 0);
-    } else {
-      record('D: a demo like produces a simulated match', false, 'no demo like button rendered');
+    // Absence is a failure, never a silent skip: a control that stopped
+    // rendering would otherwise pass this block by rendering nothing at all.
+    const fed = await page.waitForSelector('[aria-label^="Like "]', { timeout: 25000 })
+      .then(() => true).catch(() => false);
+    const cards = fed ? await page.locator('[aria-label^="Like "]').count() : 0;
+    record('D: the feed renders likeable cards from demo data', fed && cards > 0, `${cards} card(s)`);
+
+    let payoff = false;
+    if (cards > 0) {
+      await page.locator('[aria-label^="Like "]').first().click();
+      payoff = await page.getByText(/You matched with/).waitFor({ timeout: 15000 })
+        .then(() => true).catch(() => false);
     }
-    const sendBtn = page.locator('button:has-text("Send")');
-    if (await sendBtn.count()) {
-      await page.fill('input[aria-label="Simulated chat message"]', 'hello from QA');
-      await sendBtn.click();
-      await page.waitForTimeout(800);
-      const echoed = await page.locator('text=hello from QA').count();
-      record('D: simulated chat echoes locally', echoed > 0);
-    }
+    record('D: a demo like produces the simulated match', payoff,
+      payoff ? 'match payoff shown' : 'no payoff rendered');
+
     record('D: demo mode issues no API writes', writes.length === 0, writes.join(', ') || 'zero write requests');
+    await shoot(page, 'demo-mode');
     await page.close();
   }
 

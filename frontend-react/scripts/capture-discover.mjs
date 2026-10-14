@@ -4,6 +4,10 @@
 import { chromium } from 'playwright';
 import pg from 'pg';
 
+// This script registers run-scoped accounts. Refuse to do that to the deployed
+// database -- see require-test-db.mjs.
+await import('./require-test-db.mjs');
+
 const BASE = process.argv[2] || 'http://127.0.0.1:5199';
 const STAMP = Date.now();
 const PREFIX = `shot${STAMP}`;

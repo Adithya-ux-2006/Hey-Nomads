@@ -34,31 +34,140 @@ async function signUpAndOnboard(context, tag, city, budget) {
   await page.locator('button[type=submit]').click();
   await page.waitForURL(/\/onboarding/, { timeout: 20000 });
 
-  // Onboarding is a multi-step form. Answer whatever the current step offers,
-  // then finish. Steps that need a free-text or a city pick are skipped.
-  for (let i = 0; i < 8; i++) {
+  // Onboarding is a multi-step form. The nav button is labelled "Continue"
+  // until the last step, which is "Finish and see matches" -- matching only
+  // "Next" made this loop exit on iteration one, so every account was left
+  // half-onboarded with no city, no budget and onboarding_complete = false.
+  // Fill whichever step is on screen. This has to run before the button check,
+  // because the last step's "Finish and see matches" button is itself the one
+  // the interests gate keeps disabled.
+  const fillStep = async () => {
+    // The interests step disables its button until three are picked. Selecting
+    // by "already selected count" keeps a second pass idempotent instead of
+    // toggling the first chip back off.
+    if (await page.getByText('Select at least 3 interests').count()) {
+      const chips = page.locator('div.flex.flex-wrap.gap-3 > button');
+      const selected = page.locator('div.flex.flex-wrap.gap-3 > button.bg-brand-coral');
+      for (let k = await selected.count(); k < 3 && await chips.count() > k; k++) {
+        await chips.nth(k).click().catch(() => {});
+      }
+    }
+
+    const budgetInput = page.locator('#ob-budget');
+    if (await budgetInput.count()) await budgetInput.fill(String(budget)).catch(() => {});
+    const dateInput = page.locator('#ob-date');
+    if (await dateInput.count()) await dateInput.fill('2026-12-01').catch(() => {});
+
+    // City chips come from a fetch, so they may still be skeletons on the
+    // first pass. Wait for them rather than stepping past the whole step.
+    // City chips come from a fetch and are data-driven, so the requested city
+    // may simply not exist in this environment. Fall back to the first chip
+    // rather than silently stepping past the step with no destination at all.
+    if (await page.getByText('Where are you moving?').count()) {
+      let cityChip = page.getByRole('button', { name: new RegExp(`^\\s*${city}\\s*$`, 'i') }).first();
+      await cityChip.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {});
+      if (!(await cityChip.count())) {
+        cityChip = page.locator('div.flex.flex-wrap.gap-2 > button').first();
+        await cityChip.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {});
+      }
+      if (await cityChip.count()) await cityChip.click().catch(() => {});
+    }
+  };
+
+  for (let i = 0; i < 12; i++) {
+    await fillStep();
+
     const finish = page.getByRole('button', { name: /Finish and see matches/i });
-    if (await finish.count()) { await finish.click().catch(() => {}); break; }
-    const next = page.getByRole('button', { name: /^Next$/i });
-    if (!(await next.count())) break;
+    if (await finish.count()) {
+      await finish.click().catch(() => {});
+      await page.waitForURL(u => !u.pathname.includes('/onboarding'), { timeout: 25000 }).catch(() => {});
+      break;
+    }
+    const next = page.getByRole('button', { name: /^(Next|Continue)$/i });
+    if (!(await next.count())) { console.log(`    [onb ${i}] no Continue/Finish -- url=${page.url()}`); break; }
     await next.click().catch(() => {});
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(300);
   }
   await page.waitForTimeout(800);
-  return { page, email };
+  // Fail loudly if the walk did not finish. A half-onboarded account silently
+  // degrades every later check -- empty profile, weak feed score, no match --
+  // so it must not be allowed to pass as "registered".
+  const state = (await db.query(
+    'SELECT onboarding_complete, moving_to FROM users WHERE email = $1', [email])).rows[0];
+  if (!state?.onboarding_complete) {
+    throw new Error(`onboarding did not complete for ${email} (url=${page.url()})`);
+  }
+  return { page, email, movingTo: state.moving_to };
 }
 
 try {
   console.log('\nREAL UI WALKTHROUGH\n');
+
+  // ── Demo leg: runs first, while nobody is signed in ──
+  // A visitor can walk the product without an account. The identity must be
+  // the synthetic one, no stored credentials may ride along, and a refresh
+  // must not strand them on the sign-in form.
+  await step('demo: the tour gives a synthetic identity that survives a refresh', async () => {
+    const ctxD = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const p = await ctxD.newPage();
+    await p.goto(`${BASE}/demo`, { waitUntil: 'networkidle' });
+    await p.getByText('Take the tour').waitFor({ timeout: 20000 });
+    await p.getByRole('button', { name: 'Start demo at Feed' }).click();
+    await p.waitForURL('**/roommates', { timeout: 20000 });
+    await p.getByText(/Demo Mode/).first().waitFor({ timeout: 20000 });
+
+    const stored = await p.evaluate(() => ({
+      token: localStorage.getItem('authToken'),
+      userId: localStorage.getItem('userId'),
+      userName: localStorage.getItem('userName'),
+    }));
+    assert(stored.token === null && stored.userId === null && stored.userName === null,
+      `the tour carried a real identity: ${JSON.stringify(stored)}`);
+
+    await p.reload({ waitUntil: 'networkidle' });
+    await p.getByText(/Demo Mode/).first().waitFor({ timeout: 20000 });
+    assert(!p.url().includes('/login'), `a refresh bounced the visitor to ${p.url()}`);
+    await p.screenshot({ path: 'screenshots/walk-demo-390.png', fullPage: true });
+    shots.push('walk-demo-390.png');
+    await ctxD.close();
+    return 'no stored identity, refresh keeps the tour';
+  });
 
   const ctxA = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const ctxB = await browser.newContext({ viewport: { width: 390, height: 844 } });
 
   let A, B;
   await step('registration through the real form lands on onboarding', async () => {
-    A = await signUpAndOnboard(ctxA, 'alex', 'Lisbon', 980);
-    B = await signUpAndOnboard(ctxB, 'blair', 'Lisbon', 980);
+    A = await signUpAndOnboard(ctxA, 'alex', 'London', 980);
+    B = await signUpAndOnboard(ctxB, 'blair', 'London', 980);
     return `${A.email}`;
+  });
+
+  // A finished account must not be sent back through onboarding on every
+  // reload -- the gate exists to catch an unfinished one, not to trap a
+  // finished one.
+  await step('completed onboarding persists instead of replaying', async () => {
+    await A.page.goto(`${BASE}/discover`, { waitUntil: 'networkidle' });
+    assert(!A.page.url().includes('/onboarding'), `first visit returned ${A.page.url()}`);
+    await A.page.reload({ waitUntil: 'networkidle' });
+    await A.page.waitForTimeout(600);
+    assert(!A.page.url().includes('/onboarding'), `reload returned ${A.page.url()}`);
+    return `stays on ${new URL(A.page.url()).pathname}`;
+  });
+
+  await step('the profile shows the details the account was created with', async () => {
+    await A.page.goto(`${BASE}/profile`, { waitUntil: 'networkidle' });
+    await A.page.getByRole('heading', { name: /Walk alex/i }).waitFor({ timeout: 25000 });
+    const text = await A.page.locator('body').innerText();
+    const dbCity = (await db.query(
+      'SELECT moving_to, country FROM users WHERE email = $1', [A.email])).rows[0];
+    assert(A.movingTo && text.includes(A.movingTo),
+      `the profile does not show the city the account onboarded with. ` +
+      `wanted=${A.movingTo} db=${JSON.stringify(dbCity)} ` +
+      `detail grid says: ${text.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 25).join(' | ')}`);
+    await A.page.screenshot({ path: 'screenshots/walk-alex-profile-1440.png', fullPage: true });
+    shots.push('walk-alex-profile-1440.png');
+    return 'name and city rendered';
   });
 
   await step('an unauthenticated visitor is refused the feed', async () => {
@@ -71,35 +180,85 @@ try {
     return 'redirected to /login';
   });
 
-  await step('the feed shows the other account as a real card', async () => {
-    await A.page.goto(`${BASE}/roommates`, { waitUntil: 'domcontentloaded' });
-    const card = A.page.locator('a[href^="/roommates/"]').first();
-    await card.waitFor({ state: 'attached', timeout: 30000 });
+  await step('the feed shows the other account and explains why', async () => {
+    const aId = (await db.query('SELECT id FROM users WHERE email = $1', [A.email])).rows[0].id;
+    const bId = (await db.query('SELECT id FROM users WHERE email = $1', [B.email])).rows[0].id;
+    await A.page.goto(`${BASE}/roommates`, { waitUntil: 'networkidle' });
+    await A.page.waitForSelector('a[href^="/roommates/"]', { timeout: 30000 });
     const n = await A.page.locator('a[href^="/roommates/"]').count();
     assert(n > 0, 'no cards');
-    const href = await card.getAttribute('href');
-    assert(!href.endsWith('/1'), 'self profile offered');
+    assert((await A.page.locator(`a[href="/roommates/${aId}"]`).count()) === 0,
+      'the signed-in account was offered itself');
+    assert((await A.page.locator(`a[href="/roommates/${bId}"]`).count()) > 0,
+      await (async () => {
+        // Diagnostics: the feed is paged and score-sorted, so "not in the feed"
+        // can mean ranked low, filtered out, or never scored. Say which.
+        const hrefs = await A.page.locator('a[href^="/roommates/"]').evaluateAll(
+          els => els.map(e => e.getAttribute('href').split('/')[2]));
+        const st = (await db.query(
+          `SELECT u.id, u.email, u.onboarding_complete,
+                  (p.user_id IS NOT NULL) AS has_profile, p.city, p.budget
+           FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+           WHERE u.id = ANY($1::int[])`, [[aId, bId]])).rows;
+        const token = await A.page.evaluate(() => localStorage.getItem('authToken'));
+        const feed = await fetch(`${process.env.API_BASE || 'http://127.0.0.1:3100'}/api/roommates/recommended`,
+          { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
+        const body = await A.page.locator('body').innerText();
+        return 'cards=[' + hrefs.join(',') + '] a=' + aId + ' b=' + bId +
+          ' state=' + JSON.stringify(st) +
+          ' apiN=' + (Array.isArray(feed) ? feed.length : JSON.stringify(feed).slice(0, 80)) +
+          ' apiIds=' + (Array.isArray(feed) ? feed.map(x => x.id).join(',') : '') +
+          ' emptyState=' + /none available right now/i.test(body) +
+          ' token=' + (token ? 'yes' : 'NO');
+      })());
+
+    // A percentage without a reason is the defect this journey exists to catch,
+    // so require plain-language reason text on the cards.
+    const chips = await A.page.locator('.rounded-full.text-xs.font-semibold').allInnerTexts();
+    const reasons = chips.map(t => t.trim()).filter(Boolean);
+    assert(reasons.length > 0, 'no plain-language reason on any card');
+
     await A.page.screenshot({ path: `screenshots/walk-alex-discover-1440.png`, fullPage: true });
     shots.push('walk-alex-discover-1440.png');
-    return `${n} card(s), first ${href}`;
+    return `${n} card(s), reasons: ${reasons.slice(0, 2).join(' / ')}`;
   });
 
-  await step('liking through the card action removes it from the feed', async () => {
+  await step('liking a person removes them from the feed', async () => {
+    const bId = (await db.query('SELECT id FROM users WHERE email = $1', [B.email])).rows[0].id;
+    await A.page.goto(`${BASE}/roommates`, { waitUntil: 'networkidle' });
+    await A.page.waitForSelector('a[href^="/roommates/"]', { timeout: 30000 });
     const before = await A.page.locator('a[href^="/roommates/"]').count();
-    await A.page.getByRole('button', { name: /^Like / }).first().click();
-    await A.page.waitForTimeout(1500);
+
+    const like = A.page.locator(`button[data-roommate-id="${bId}"]`);
+    assert(await like.count() > 0, 'no like control for the other test account');
+    await like.click();
+    await A.page.waitForTimeout(1800);
+
+    await A.page.reload({ waitUntil: 'networkidle' });
+    await A.page.waitForTimeout(800);
+    const stillThere = await A.page.locator(`a[href="/roommates/${bId}"]`).count();
+    assert(stillThere === 0, 'an already-liked person is still being recommended');
     const after = await A.page.locator('a[href^="/roommates/"]').count();
-    assert(after < before, `feed did not shrink: ${before} -> ${after}`);
-    return `${before} -> ${after}`;
+    // A full page refills from the next candidate, so the card count only
+    // drops while the feed has spare rows. Assert the drop when it can happen
+    // and never let the feed go empty.
+    assert(after > 0, 'the feed emptied after a single like');
+    if (before < 20) assert(after < before, `feed did not shrink: ${before} -> ${after}`);
+    return `${before} -> ${after}, liked person no longer offered`;
   });
 
   await step('the second participant likes back and a match forms', async () => {
-    await B.page.goto(`${BASE}/roommates`, { waitUntil: 'domcontentloaded' });
-    const like = B.page.getByRole('button', { name: /^Like / }).first();
+    const aId = (await db.query('SELECT id FROM users WHERE email = $1', [A.email])).rows[0].id;
+    await B.page.goto(`${BASE}/roommates`, { waitUntil: 'networkidle' });
+    await B.page.waitForSelector('a[href^="/roommates/"]', { timeout: 30000 });
+    // Target the first participant specifically: liking "whatever is first"
+    // only forms a match by accident when the feed happens to be tiny.
+    const like = B.page.locator(`button[data-roommate-id="${aId}"]`);
     await like.waitFor({ state: 'visible', timeout: 30000 });
     await like.click();
-    await B.page.waitForTimeout(1500);
-    await B.page.goto(`${BASE}/matches`, { waitUntil: 'domcontentloaded' });
+    await B.page.waitForTimeout(1800);
+
+    await B.page.goto(`${BASE}/matches`, { waitUntil: 'networkidle' });
     await B.page.getByText(/Walk alex/i).first().waitFor({ state: 'visible', timeout: 40000 });
     await B.page.screenshot({ path: `screenshots/walk-blair-matches-390.png`, fullPage: true });
     shots.push('walk-blair-matches-390.png');
@@ -293,6 +452,27 @@ try {
     return 'no document, no rule text, no acceptance state';
   });
 
+  await step('logging out guards the app and the account can sign back in', async () => {
+    await A.page.goto(`${BASE}/profile`, { waitUntil: 'networkidle' });
+    await A.page.getByRole('button', { name: 'Log out' }).click();
+    await A.page.waitForURL(/\/login/, { timeout: 25000 });
+
+    await A.page.goto(`${BASE}/roommates`, { waitUntil: 'networkidle' });
+    assert(A.page.url().includes('/login'), `private route stayed open after logout: ${A.page.url()}`);
+
+    await A.page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
+    await A.page.locator('#login-email').fill(A.email);
+    await A.page.locator('#login-password').fill('Verify12345!');
+    await A.page.locator('button[type=submit]').click();
+    await A.page.waitForURL(u => !u.pathname.includes('/login'), { timeout: 25000 });
+
+    await A.page.goto(`${BASE}/roommates`, { waitUntil: 'networkidle' });
+    assert(!A.page.url().includes('/login'), 'signing in did not restore the session');
+    const authed = await A.page.evaluate(() => localStorage.getItem('authToken'));
+    assert(authed, 'no token stored after a successful sign-in');
+    return 'logout guards private routes, re-entry restores the session';
+  });
+
   await ctxA.close(); await ctxB.close();
 } catch (e) {
   console.log(`\nWALKTHROUGH ABORTED: ${e.message.split('\n')[0]}`);
@@ -309,6 +489,9 @@ try {
 
 console.log(`\n${passed} passed, ${failed} failed`);
 console.log('shots: ' + shots.join(', '));
+// Success-only marker, printed only when every step above passed, so a gate
+// can match it without hardcoding the step count.
+if (!failed) console.log('ui walkthrough passed');
 process.exit(failed ? 1 : 0);
 
 function assert(cond, msg) { if (!cond) throw new Error(msg); }

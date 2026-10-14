@@ -420,9 +420,11 @@ await step('messages persist, reload, and stay private to the pair', async () =>
     email: `eavesdrop.${Date.now()}@gmail.com`, password: 'Verify12345!', name: 'Eavesdropper',
   });
   assert.equal(stranger.status, 201, stranger.body?.error);
+  // An outsider is refused rather than answered with an empty thread: the chat
+  // screen renders an empty thread as "No messages yet", so 200 [] would have
+  // shown an unrelated person a private pair's chat in that empty state.
   const peek = await call('GET', `/api/conversations/${userId}`, stranger.body.token);
-  assert.equal(peek.status, 200);
-  assert.deepEqual(peek.body, [], 'an unrelated account read a private conversation');
+  assert.equal(peek.status, 403, `an unrelated account could read a conversation (${peek.status})`);
   const inbox = await call('GET', '/api/conversations', stranger.body.token);
   assert.ok(!inbox.body.some(c => c.partner_id === userId || c.partner_id === outsider.id),
     'an unrelated account saw a private conversation in its inbox');
