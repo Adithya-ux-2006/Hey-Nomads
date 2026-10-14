@@ -14,6 +14,7 @@ const SLEEP_MAP = { early: 'Early Bird', late: 'Night Owl', flexible: 'Flexible'
 const SMOKING_MAP = { yes: 'Smoker', no: 'Non-smoker', occasionally: 'Occasionally' }
 const DRINKING_MAP = { yes: 'Drinks', no: 'Non-drinker', socially: 'Socially' }
 const SOCIAL_MAP = { introvert: 'Introvert', moderate: 'Balanced', extrovert: 'Extrovert' }
+const PETS_MAP = { yes: 'Has pets', no: 'No pets', okay: 'Open to pets' }
 
 const AboutItem = ({ icon: Icon, label, value, color }) =>
   value ? (
@@ -166,43 +167,51 @@ const ProfilePage = () => {
 
         <div className="space-y-6">
           <Card className="overflow-hidden">
-            <div className="relative h-32 bg-gradient-to-r from-brand-coral via-brand-teal to-brand-amber" />
+            {/* A 96px cover (8pt grid) with no content in it used to be 128px,
+                which read as a decorative void. The avatar is pulled up by half
+                its own height so it sits evenly across the edge instead of
+                hanging below it. */}
+            <div className="relative h-24 bg-gradient-to-r from-brand-coral via-brand-teal to-brand-amber" />
             <div className="px-6 pb-6">
-              {/* The avatar overlaps the banner by -mt-14. It used to carry its
-                  own px-6 on top of this container's px-6, then a -mx-6 px-6
-                  wrapper tried to undo it and a translate-y-4 pushed Edit into
-                  the banner edge. One padding context, no compensating
-                  margins, no transforms: the parent owns horizontal padding
-                  and the pull-out only moves vertically. */}
-              <div className="flex justify-between items-end -mt-14 mb-5">
-                <div className="w-24 h-24 rounded-2xl border-4 border-white shadow-sm overflow-hidden bg-surface-muted flex-shrink-0">
-                  <UserAvatar
-                    src={profile.profile_image}
-                    name={profile.name}
-                    size="xl"
-                    className="w-full h-full"
-                  />
+              {/* `fill` hands the box to the wrapper. The avatar used to render
+                  as size xl (112px) inside a 96px overflow-hidden frame, so the
+                  initial was cropped on every profile without an image.
+                  `relative z-10` is required: the cover above is `relative`, and
+                  a positioned sibling paints over a non-positioned one, which
+                  left the top half of every avatar hidden behind the banner. */}
+              <div className="relative z-10 w-24 h-24 rounded-2xl border-4 border-white shadow-sm overflow-hidden -mt-12 mb-4 bg-surface-muted">
+                <UserAvatar
+                  src={profile.profile_image}
+                  name={profile.name}
+                  fill
+                />
+              </div>
+
+              {/* Identity and its one action share a row, so "Edit profile" is
+                  anchored to the name rather than floating against the banner. */}
+              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 mb-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-3xl font-display font-bold text-text-primary break-words min-w-0">
+                      {profile.name}{profile.age ? `, ${profile.age}` : ''}
+                    </h1>
+                    {verified && <ShieldCheck className="text-status-success flex-shrink-0" size={22} />}
+                  </div>
+
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm text-text-muted">
+                    {profile.occupation && (
+                      <span className="flex items-center gap-1.5"><Briefcase size={14} /> {profile.occupation}</span>
+                    )}
+                    {profile.city && (
+                      <span className="flex items-center gap-1.5"><MapPin size={14} /> {profile.city}{profile.country ? `, ${profile.country}` : ''}</span>
+                    )}
+                  </div>
                 </div>
+
                 {isOwn && (
-                  <ButtonLink to="/edit-profile" variant="primary" size="sm" className="mb-1 flex-shrink-0">
+                  <ButtonLink to="/edit-profile" variant="primary" size="sm" className="flex-shrink-0">
                     <Edit size={14} /> Edit profile
                   </ButtonLink>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 mb-3">
-                <h1 className="text-3xl font-display font-bold text-text-primary break-words">
-                  {profile.name}{profile.age ? `, ${profile.age}` : ''}
-                </h1>
-                {verified && <ShieldCheck className="text-status-success flex-shrink-0" size={22} />}
-              </div>
-
-              <div className="flex flex-wrap gap-4 text-sm text-text-muted mb-4">
-                {profile.occupation && (
-                  <span className="flex items-center gap-1.5"><Briefcase size={14} /> {profile.occupation}</span>
-                )}
-                {profile.city && (
-                  <span className="flex items-center gap-1.5"><MapPin size={14} /> {profile.city}{profile.country ? `, ${profile.country}` : ''}</span>
                 )}
               </div>
 
@@ -250,7 +259,7 @@ const ProfilePage = () => {
               { icon: Cigarette, label: 'Smoking', value: SMOKING_MAP[profile.smoking] || profile.smoking },
               { icon: Wine, label: 'Drinking', value: DRINKING_MAP[profile.drinking] || profile.drinking },
               { icon: Users, label: 'Social', value: SOCIAL_MAP[profile.social_level] || profile.social_level },
-              { icon: Globe, label: 'Pets', value: profile.pets },
+              { icon: Globe, label: 'Pets', value: PETS_MAP[profile.pets] || profile.pets },
             ]}
             emptyText="Lifestyle details haven't been added yet"
             isOwn={isOwn}
@@ -260,7 +269,7 @@ const ProfilePage = () => {
             title="Housing Preferences"
             items={[
               { icon: Briefcase, label: 'Budget', value: profile.budget ? `${Number(profile.budget).toLocaleString('en-IN')}/mo` : null },
-              { icon: Home, label: 'Flat Type', value: profile.flat_type?.replace(/_/g, ' ') },
+              { icon: Home, label: 'Flat Type', value: profile.flat_type?.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()) },
               { icon: Calendar, label: 'Move-in Date', value: profile.move_in_date },
             ]}
             emptyText="Housing preferences haven't been added yet"

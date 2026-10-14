@@ -330,6 +330,20 @@ export default function DiscoverPage() {
             </div>
           </div>
 
+          {/* A feed ranked from unanswered questions looks random and cannot
+              say why anyone fits. Name the cause and the fix instead of letting
+              the visitor distrust the ranking. */}
+          {!user.onboarding_complete && (
+            <div className="mb-6 rounded-2xl border border-brand-amber/40 bg-brand-amber/10 px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <p className="text-sm text-text-primary flex-1">
+                Your matches are ranked from the answers you have not given yet,
+                so they will not look explained. Finish onboarding and every
+                match comes with the reason it matched.
+              </p>
+              <ButtonLink to="/onboarding" size="sm">Finish onboarding</ButtonLink>
+            </div>
+          )}
+
           {noResults ? (
             <EmptyState
               icon={Search}
