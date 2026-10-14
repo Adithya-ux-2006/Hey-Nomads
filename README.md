@@ -126,6 +126,49 @@ use it and both return the per-category `breakdown` alongside the score.
 
 ---
 
+## Agents
+
+RIPER-5 phase agents and specialists installed under `.claude/agents/`
+(mirrored to `.codex/agents/` for Codex).
+
+| Agent | Purpose |
+|---|---|
+| `vc-research-agent` | Read-only information gathering |
+| `vc-spec-agent` | Product-discovery requirements document |
+| `vc-innovate-agent` | Discussion-only approach brainstorming |
+| `vc-plan-agent` | Writes implementation plans |
+| `vc-validate-agent` | Converts a plan into an executable contract |
+| `vc-execute-agent` | Implements an approved plan |
+| `vc-fast-mode-agent` | Compressed workflow with a safety pause |
+| `vc-update-process-agent` | Rule updates, memory, plan archiving |
+| `vc-quick-fix-agent` | Small low-risk changes without a plan |
+| `vc-tester` | Diff-aware test verification |
+| `vc-debugger` | Evidence-before-hypothesis root cause analysis |
+| `vc-code-reviewer` | Production-readiness review |
+| `vc-code-simplifier` | Clarity refactor with no behaviour change |
+| `vc-ui-ux-designer` | Design-aware frontend implementation |
+| `vc-git-manager` | Clean conventional commits |
+
+---
+
+## 33 Skills
+
+Installed under `.claude/skills/`, discovered by Codex through `.agents/skills/`.
+
+Context and discovery: `vc-context-discovery` · `vc-plan-discovery` · `vc-review-situation` · `vc-scout` · `vc-docs-seeker`
+
+Planning and specs: `vc-generate-plan` · `vc-generate-spec` · `vc-generate-phase-program` · `vc-generate-closeout` · `vc-test-coverage-plan` · `vc-generate-context`
+
+Audits and maintenance: `vc-audit-vc` · `vc-audit-context` · `vc-audit-plans` · `vc-update` · `vc-publish` · `vc-setup`
+
+Quality and review: `vc-web-testing` · `vc-security` · `vc-scenario` · `vc-predict` · `vc-validate-findings` · `vc-risk-evidence-pack`
+
+Debugging and reasoning: `vc-debug` · `vc-problem-solving` · `vc-sequential-thinking` · `vc-autoresearch` · `vc-feasibility-test`
+
+Workflow and browser: `vc-agent-browser` · `vc-agent-strategy-compare` · `vc-intent-clarify` · `vc-autopilot` · `vc-frontend-design`
+
+---
+
 ## Technologies
 
 - **Frontend**: React 18, Vite, Tailwind, Framer Motion
