@@ -18,7 +18,7 @@ const DemoModeLink = () => (
     to="/demo"
     className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-brand-amber text-white text-sm font-semibold hover:opacity-90 transition-opacity"
   >
-    Try Demo Mode
+    Take the walkthrough
   </Link>
 )
 
@@ -268,7 +268,7 @@ const handleSwipe = async (targetId, action, name) => {
                     to="/demo"
                     className="px-3 py-2 rounded-lg bg-brand-amber text-white text-xs font-semibold hover:opacity-90 transition-opacity"
                   >
-                    Try Demo Mode
+                    Take the walkthrough
                   </Link>
                 )}
               </div>
@@ -347,8 +347,9 @@ const handleSwipe = async (targetId, action, name) => {
                   </div>
 
                   {/* Without these the grid is read-only: crossing a roommate
-                      has no action attached to it, so the list never shrinks. */}
-                  <div className="flex items-center justify-center gap-4 p-3 border-t border-surface-border">
+                      has no action attached to it, so the list never shrinks.
+                      data-tour is the walkthrough's anchor; nothing else reads it. */}
+                  <div data-tour="feed-card" className="flex items-center justify-center gap-4 p-3 border-t border-surface-border">
                     <button
                       type="button"
                       aria-label={`Pass on ${roommate.name}`}

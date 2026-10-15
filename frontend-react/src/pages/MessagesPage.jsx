@@ -81,7 +81,7 @@ export default function MessagesPage() {
             description="Match with someone to start chatting!"
           />
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2" data-tour="conversation-list">
             {filtered.map((convo) => {
               const unread = convo.unread_count > 0
               return (

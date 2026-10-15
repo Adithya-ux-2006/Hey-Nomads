@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { exitDemo, isDemo, onDemoChange } from '../lib/demoMode';
+import { endTour } from '../lib/tour';
 import Navbar from './Navbar';
+import TourOverlay from './TourOverlay';
 
 export default function Layout({ children, className = '' }) {
   const navigate = useNavigate();
@@ -9,6 +11,9 @@ export default function Layout({ children, className = '' }) {
   useEffect(() => onDemoChange(setDemo), []);
 
   const leave = () => {
+    // Leaving the demo is leaving the tour. Ending only the flag would leave a
+    // coach-mark pointing at a screen the visitor has already walked out of.
+    endTour();
     exitDemo();
     navigate('/');
   };
@@ -33,6 +38,9 @@ export default function Layout({ children, className = '' }) {
         {children}
       </div>
       <Navbar />
+      {/* Coach-marks for the walkthrough. Mounted once per screen, driven by
+          the module-level step state in lib/tour, so it survives navigation. */}
+      <TourOverlay />
     </div>
   );
 }

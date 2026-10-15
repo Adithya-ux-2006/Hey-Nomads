@@ -61,7 +61,7 @@ export default function MatchesPage() {
             }
           />
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4" data-tour="match-card">
             {matches.map((match) => (
                 <Card key={match.id} className="relative p-4 flex items-center gap-4">
                   <UserAvatar
