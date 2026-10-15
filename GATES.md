@@ -103,3 +103,30 @@ No gate is marked PASS without output from the command named in CHECK.
   EXPECT: /demo tour qa passed - all \d+ checks/
   CWD: frontend-react
   EVIDENCE: automatic-evidence=v1; definition-sha256=a7eb8ef4345c75dfb92ab81ebd5e36479eb45bb22ea151db0932454a5bf7c49d; exit=0; EXPECT=matched; output-sha256=c5b39ba5e35952c0a679c76ec6ed10ecccce2dd57247f297babb749336b829f3; output-bytes=1411; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+
+- [ ] G13: Publishing /presentation to production does not write uncontrolled synthetic records into the real user database — BLOCKED (release stopped)
+  EVIDENCE: Verified the live path end to end. Netlify site `heynomads` (id
+  0b0a0cdc-79e2-4a9d-9978-d6c36b7b68f9) serves only the static bundle (repo
+  Adithya-ux-2006/Hey-Nomads, production branch `main` @ 42c324d, build
+  `npm run build`, publish `dist`, base null via netlify.toml). `/api/*` is
+  force-proxied (netlify.toml, status 200, force=true) to a separate Vercel
+  backend https://hey-nomads.vercel.app. That backend's /api/health reports it
+  is backed by the production Neon database (ep-curly-dream-axurjezu-pooler,
+  neondb). Opening /presentation calls beginPresentation() -> provision()
+  (frontend-react/src/lib/presentation.js:115-128, 79-110), which registers,
+  onboards and profiles four `qa.present.*` accounts through the REAL public
+  endpoints /auth/register, /onboarding and /profile. Therefore publishing the
+  presentation experience to the live site writes synthetic user rows into the
+  production database. Real-user isolation DOES hold on the live schema
+  (read-only information_schema check: users has no account_kind column, so the
+  pre-migration heuristic applies and `qa.present.*` matches the
+  `email NOT LIKE 'qa.%'` exclusion in account-kind.mjs NOT_REAL_EMAIL_SQL;
+  the scope guard at index.js:154-156 and presentationAuth double-check further
+  contain the token). But isolation from real users is not the same as "no
+  uncontrolled synthetic records in the real user database", which the release
+  directive forbids. No Netlify env override (VITE_API_URL) exists to point the
+  presentation page at an isolated backend (account env vars empty). RELEASE
+  STOPPED at step 4 per directive: do not publish /presentation until it is
+  provisioned against an isolated database, or the cohort is made non-writing
+  (e.g. pre-seeded fixtures or a read-only presentation path). Do not silently
+  disable the security boundary to get the site live.
