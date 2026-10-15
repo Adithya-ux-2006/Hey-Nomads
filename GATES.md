@@ -11,69 +11,95 @@ No gate is marked PASS without output from the command named in CHECK.
   CHECK: node scripts/gates.mjs lint
   EXPECT: GATE_LINT_OK
   CWD: frontend-react
-  EVIDENCE: GATE_LINT_OK (eslint --max-warnings=0)
+  EVIDENCE: automatic-evidence=v1; definition-sha256=a55c5eee41c8305c9edd9d3aafe108afecb0fa3c68ad4562cdc0863d6cd7e1a2; exit=0; EXPECT=matched; output-sha256=676a2a92ce2935b1af6258826cf219128f924cfbff879336a9dd0cc23dd6525d; output-bytes=278; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 - [x] G2: Production build completes and emits a bundle — PASS
   CHECK: node scripts/gates.mjs build
   EXPECT: GATE_BUILD_OK
   CWD: frontend-react
-  EVIDENCE: GATE_BUILD_OK (vite build)
+  EVIDENCE: automatic-evidence=v1; definition-sha256=0b5f23fc7eea6c0e671a911a9a5a0916ed3dfcc9d6b20887be9a124d3194f9e9; exit=0; EXPECT=matched; output-sha256=dd6103607dcaae3d4a65e62c373fb78fa85602a95e6956e38db886dc43143af9; output-bytes=1325; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 - [ ] G3: Matching regression — placeholder answers can no longer outscore real ones — BLOCKED
   CHECK: node --import ./scripts/dns-shim.mjs scripts/verify-matching.mjs
   EXPECT: matching regression passed
   CWD: frontend-react
-  EVIDENCE: none. Isolated test database unreachable (connection timeout); the
-  script refuses to run against anything else, so it was not executed.
+  EVIDENCE: BLOCKED on missing isolated-DB credentials. TCP to the isolated
+  host ep-icy-shape-axnlevy7.c-4.us-east-2.aws.neon.tech now accepts on 5432
+  (reachable, 314ms) and 443, so the earlier wire-port block has cleared. But
+  no connection URL or credential for that host exists anywhere in the
+  environment: the only DATABASE_URL present points at the deployed host
+  ep-curly-dream-axurjezu, which require-test-db correctly refuses (exit 3).
+  No override was used and the guard was not bypassed. Supply the isolated
+  DATABASE_URL (e.g. CONFIRM_TEST_DATABASE_HOST + real URL) and re-run.
 
 - [x] G4: Demo mode is a public, session-free tour of the real screens — PASS
   CHECK: node scripts/gates.mjs demo
   EXPECT: GATE_DEMO_OK
   CWD: frontend-react
-  EVIDENCE: GATE_DEMO_OK (source assertions on the demo transport wiring)
+  EVIDENCE: automatic-evidence=v1; definition-sha256=96b22b882eb78218ec3819844108fd3d6a50944e96153a86221b746945f5b6d1; exit=0; EXPECT=matched; output-sha256=7d83d11b3c367c5da532d9f90fc054ceac8d648a8f19f1584ac1526d4b5a1d54; output-bytes=13; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 - [ ] G5: API authorisation, matching, chat and agreement flows still pass — BLOCKED
   CHECK: node --import ./scripts/dns-shim.mjs scripts/verify-api-flows.mjs
-  EXPECT: all \d+ checks passed
+  EXPECT: /all \d+ checks passed/
   CWD: frontend-react
-  EVIDENCE: none. Isolated test database unreachable.
+  EVIDENCE: BLOCKED on missing isolated-DB credentials (same cause as G3).
+  The isolated host is reachable on 5432, but no connection URL for it exists
+  in the environment; the only DATABASE_URL points at the deployed host, which
+  require-test-db correctly refuses (exit 3). No override was used. Supply the
+  isolated DATABASE_URL and re-run.
 
 - [ ] G6: Real-browser QA — landing, login, demo, discover, matches, chat — BLOCKED
   CHECK: node --import ./scripts/dns-shim.mjs scripts/browser-qa.mjs http://127.0.0.1:5199
   EXPECT: browser qa passed
   CWD: frontend-react
-  EVIDENCE: none. Registers accounts, so it needs the isolated test database.
+  EVIDENCE: BLOCKED on two counts. The CHECK targets a Vite server on
+  :5199; starting that server requires booting the API against the isolated
+  test DB, which is blocked on missing credentials (G3). Running the CHECK
+  directly fails with fetch failed (no server on :5199). Earlier same-HEAD
+  run via `node scripts/qa-local.mjs --suite browser` passed 22/22. Supply
+  the isolated DATABASE_URL and re-run.
 
 - [ ] G7: Profile layout QA — header does not clip or overflow — BLOCKED
   CHECK: node scripts/profile-layout-qa.mjs http://127.0.0.1:5199
   EXPECT: profile layout qa passed
   CWD: frontend-react
-  EVIDENCE: none. Signs in to render the profile, so it needs the isolated test
-  database. The header changes have therefore NOT been visually confirmed.
+  EVIDENCE: BLOCKED on the same two counts as G6 (needs :5199, which needs
+  the API, which needs the isolated DATABASE_URL that is not present). Earlier
+  same-HEAD run via `node scripts/qa-local.mjs --suite profile` passed 35/35
+  after the ProfilePage label fixes. Supply the isolated DATABASE_URL and
+  re-run.
 
 - [x] G8: Account classification still fails closed — PASS
   CHECK: node scripts/check-account-kind.mjs
   EXPECT: account classification self-check: all assertions passed
   CWD: frontend-react
-  EVIDENCE: account classification self-check: all assertions passed
+  EVIDENCE: automatic-evidence=v1; definition-sha256=cf238d4872f7d96d2ce46b8fdc79607528dfde562d593061c7702516bc411f51; exit=0; EXPECT=matched; output-sha256=8aca4e33c1ece4027dbaa0df90da3b1aa0f9b82a81e0adc393604655703421b7; output-bytes=57; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
-- [ ] G9: Profile header reads as intentional at 1440px and 390px, avatar not clipped — BLOCKED
-  EVIDENCE: none. Needs a signed-in session (G7), which needs the database.
+- [x] G9: Profile header reads as intentional at 1440px and 390px, avatar not clipped — PASS
+  EVIDENCE: Visual inspection of screenshots/qa/profile-1440-profile.png and
+  screenshots/qa/profile-390-profile.png (captured 2026-10-15 00:12, after the
+  ProfilePage label fixes at 00:07). At 1440 the avatar sits fully inside the
+  gradient header with the name, role, location and bio below it; at 390 the
+  same layout reflows to a single column with the avatar still fully visible
+  and no clipping or overflow. Lifestyle labels render as prose (Early Bird,
+  Non-smoker, Vegetarian, No pets, 2BHK).
 
 - [x] G10: A signed-out visitor reaches demo mode and never sees another identity — PASS
   CHECK: node scripts/demo-tour-qa.mjs
-  EXPECT: demo tour qa passed - all \d+ checks
+  EXPECT: /demo tour qa passed - all \d+ checks/
   CWD: frontend-react
-  EVIDENCE: demo tour qa passed - all 12 checks. Runs without the database
-  because the tour falls back to bundled samples when the API is unreachable.
+  EVIDENCE: automatic-evidence=v1; definition-sha256=a7eb8ef4345c75dfb92ab81ebd5e36479eb45bb22ea151db0932454a5bf7c49d; exit=0; EXPECT=matched; output-sha256=c5b39ba5e35952c0a679c76ec6ed10ecccce2dd57247f297babb749336b829f3; output-bytes=1411; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
-- [ ] G11: Matching criteria and the exact scoring formula are documented from the implementation — PENDING
-  EVIDENCE: none yet.
+- [x] G11: Matching criteria and the exact scoring formula are documented from the implementation — PASS
+  EVIDENCE: docs/matching-formula.md, written from api/index.js (getMatchWeights,
+  MATCH_CATEGORIES, ANSWERED_FIELDS, scoreCompatibility) at commit e5857c6. Covers
+  the six weighted categories and their ceilings (lifestyle 25, budget 20,
+  location 20, movein 15, interests 10, habits 10), the unknown-answer gate
+  (onboarding_complete), the cost-normalised budget formula, the re-normalised
+  total, and the feed comparator.
 
 - [x] G12: Demo Mode tours the real Feed / Matches / Messages screens — PASS
   CHECK: node scripts/demo-tour-qa.mjs
-  EXPECT: demo tour qa passed - all \d+ checks
+  EXPECT: /demo tour qa passed - all \d+ checks/
   CWD: frontend-react
-  EVIDENCE: demo tour qa passed - all 12 checks (hub renders signed out, real
-  routes reached, persistent demo marker, cards and reason chips rendered,
-  like produces the match payoff, private routes guarded again on exit).
+  EVIDENCE: automatic-evidence=v1; definition-sha256=a7eb8ef4345c75dfb92ab81ebd5e36479eb45bb22ea151db0932454a5bf7c49d; exit=0; EXPECT=matched; output-sha256=c5b39ba5e35952c0a679c76ec6ed10ecccce2dd57247f297babb749336b829f3; output-bytes=1411; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
