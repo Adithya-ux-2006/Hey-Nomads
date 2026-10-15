@@ -30,6 +30,20 @@ const GREETINGS = [
 ];
 
 export function mountPresentation(app, deps) {
+  // Fail closed. The cohort is built by the page through the ordinary public
+  // endpoints (/auth/register, /onboarding, /profile), so mounting these
+  // routes against a production database would let any visitor create four
+  // synthetic `qa.present.*` rows in the real user table. Without an explicit
+  // PRESENTATION_ENABLED=1 (local QA and isolated environments set it in
+  // their own .env / env vars) every route below stays unmounted: the page's
+  // session call 404s, beginPresentation() throws, and provision() never runs.
+  if (process.env.PRESENTATION_ENABLED !== '1') {
+    app.use('/api/presentation', (req, res) => {
+      res.status(404).json({ error: 'Not found' });
+    });
+    return;
+  }
+
   const { query, jwt, JWT_SECRET, Sentry, rateLimit,
     getMatchWeights, loadScoreContext, scoreCompatibility, calcCompatibility } = deps;
 
