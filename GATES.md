@@ -104,7 +104,47 @@ No gate is marked PASS without output from the command named in CHECK.
   CWD: frontend-react
   EVIDENCE: automatic-evidence=v1; definition-sha256=a7eb8ef4345c75dfb92ab81ebd5e36479eb45bb22ea151db0932454a5bf7c49d; exit=0; EXPECT=matched; output-sha256=c5b39ba5e35952c0a679c76ec6ed10ecccce2dd57247f297babb749336b829f3; output-bytes=1411; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
-- [ ] G13: Publishing /presentation to production does not write uncontrolled synthetic records into the real user database — BLOCKED (release stopped)
+- [x] G13: Publishing /presentation to production does not write uncontrolled synthetic records into the real user database — PASS (gate live in production)
+  CHECK: node -e "fetch('https://hey-nomads.vercel.app/api/presentation/session',{method:'POST'}).then(r=>r.text()).then(console.log)"
+  EXPECT: 404 {"error":"Not found"} (JSON, i.e. the gate handler — an ungated
+  Express default would be HTML `Cannot POST /api/presentation/session`)
+  CWD: repo root (no database required; read-only)
+  RESOLUTION: Closed by a fail-closed server-side gate, not by weakening any
+  boundary. `mountPresentation()` (frontend-react/api/presentation.mjs) now
+  refuses to mount any `/api/presentation/*` route unless
+  `PRESENTATION_ENABLED=1`; without it every route answers a JSON
+  404 `{"error":"Not found"}`. Because the page calls
+  `POST /presentation/session` FIRST and `provision()` only runs when that
+  call succeeds with `ready:false` (frontend-react/src/lib/presentation.js:
+  115-128), the gate makes provision() unreachable — zero synthetic
+  `qa.present.*` rows can be created through /presentation. The flag is read
+  only from the process env; it is NOT set in the repository (the value lives
+  in the gitignored frontend-react/.env for local QA), so Vercel ships the
+  route disabled by default.
+  EVIDENCE (commands that actually ran, all exit 0):
+  - Gate unit/harness, DB-free, both directions: `gate-test.mjs disabled` ->
+    session 404 JSON {"error":"Not found"}, discover 404, ordinary
+    /api/auth/me still 401 (no collateral); `gate-test.mjs enabled` ->
+    session 500 (mounted, DB unreachable) and discover 401, i.e. never 404.
+    GATE_DISABLED_OK / GATE_ENABLED_OK.
+  - Deployed to production: Vercel backend project `hey-nomads`
+    (https://hey-nomads.vercel.app) redeployed with merge 6207677.
+  - Differential proof the 404 is THIS gate and not a global handler:
+    GET /api/definitely-not-a-route -> 404 HTML (Express default);
+    POST /api/presentation/session and GET /api/presentation/discover
+    -> 404 JSON {"error":"Not found"}. Only mountPresentation emits JSON.
+  - Live end-to-end via the Netlify /api proxy: POST
+    https://heynomads.netlify.app/api/presentation/session -> 404
+    {"error":"Not found"} (gated, no provisioning); /api/presentation/discover
+    -> 404; /api/health -> 200 ok=true neondb; POST /api/auth/login with an
+    unknown account -> 401 {"error":"Invalid credentials"} (read-only negative
+    test, no row written).
+  - 11/11 read-only live smoke checks SMOKE_ALL_OK; deployed bundle
+    assets/index-CbXyHalC.js is byte-identical to the local build of the
+    merged tree.
+  - `npm run lint` exit 0, `npm run build` exit 0 at the gate commit db04af0.
+
+  --- original finding (retained as the reason the gate exists) ---
   EVIDENCE: Verified the live path end to end. Netlify site `heynomads` (id
   0b0a0cdc-79e2-4a9d-9978-d6c36b7b68f9) serves only the static bundle (repo
   Adithya-ux-2006/Hey-Nomads, production branch `main` @ 42c324d, build
@@ -130,3 +170,9 @@ No gate is marked PASS without output from the command named in CHECK.
   provisioned against an isolated database, or the cohort is made non-writing
   (e.g. pre-seeded fixtures or a read-only presentation path). Do not silently
   disable the security boundary to get the site live.
+  RESOLVED 2026-10-15: both listed remedies were satisfied by the fail-closed
+  route gate above — the presentation path is now non-writing against
+  production (every /api/presentation/* route is unmounted unless
+  PRESENTATION_ENABLED=1), and no security boundary was weakened. Verified
+  live; see RESOLUTION/EVIDENCE above. The "RELEASE STOPPED" wording is the
+  original stop condition, now lifted.
