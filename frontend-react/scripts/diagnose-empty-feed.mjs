@@ -7,6 +7,12 @@
 // and after, so a failed cleanup is visible rather than silent.
 import pg from 'pg';
 
+// This script registers run-scoped accounts and opens a direct connection.
+// Refuse to do that to the deployed database -- see require-test-db.mjs. The
+// import is awaited before the client is constructed, so there is no path to
+// a connection without the check having run first.
+await import('./require-test-db.mjs');
+
 const BASE = process.argv[2] || 'http://127.0.0.1:3100';
 const STAMP = Date.now();
 const NS = `feedadj${STAMP}`;           // reserved namespace, 13-digit stamp

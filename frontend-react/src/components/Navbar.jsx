@@ -26,6 +26,31 @@ export default function Navbar() {
     navigate('/login');
   };
 
+  // The signed-out visitor can only reach the landing and demo pages, so the
+  // private links and the Log out control would do nothing but point them at a
+  // sign-in form. Re-evaluated on every route change, which is when login and
+  // logout also navigate.
+  if (!auth.isAuthenticated()) {
+    return (
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-surface-border z-50 pb-[env(safe-area-inset-bottom)]">
+        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-center gap-3">
+          <NavLink
+            to="/login"
+            className="px-5 py-2.5 rounded-xl bg-brand-coral text-white text-sm font-bold hover:bg-brand-coral-dark transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral focus-visible:ring-offset-2"
+          >
+            Log in
+          </NavLink>
+          <NavLink
+            to="/register"
+            className="px-5 py-2.5 rounded-xl border border-surface-border text-text-secondary text-sm font-bold hover:text-text-primary transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral"
+          >
+            Create account
+          </NavLink>
+        </div>
+      </nav>
+    );
+  }
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-surface-border z-50 pb-[env(safe-area-inset-bottom)]">
       <div className="max-w-lg mx-auto px-2">
@@ -34,7 +59,7 @@ export default function Navbar() {
             <NavLink
               key={to}
               to={to}
-              className="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral"
+              className="flex flex-col items-center gap-0.5 px-1 sm:px-3 py-2 rounded-xl transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral"
               // Children-as-function gives us isActive in scope, so the icon weight
               // can reflect state instead of being handed a function to strokeWidth.
               children={({ isActive }) => (
@@ -56,8 +81,11 @@ export default function Navbar() {
 
         {/* Secondary row. Matches, shortlist, events and the settling-in checklist
           were only reachable from detail pages and fallback branches, which
-          made the shortlist in particular impossible to get back to. */}
-        <div className="flex items-center justify-around pb-1.5">
+          made the shortlist in particular impossible to get back to.
+          Seven links cannot fit a 360px phone in one line -- "Log out" sat past
+          the right edge and was unreachable -- so this row wraps instead of
+          clipping. Nothing is hidden behind a swipe. */}
+        <div className="flex flex-wrap items-center justify-center gap-x-1 pb-1.5">
           {secondaryItems.map(({ to, label }) => (
             <NavLink
               key={to}

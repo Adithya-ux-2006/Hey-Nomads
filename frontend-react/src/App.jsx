@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { auth, clearAuth } from './lib/api';
+import { isDemo } from './lib/demoMode';
 import { Spinner } from './components/UI';
 
 import LandingPage from './pages/LandingPage';
@@ -25,9 +26,14 @@ import ComparePage from './pages/ComparePage';
 import AgreementEditor from './pages/AgreementEditor';
 import AgreementsPage from './pages/AgreementsPage';
 import DemoModePage from './pages/DemoModePage';
+import PresentationPage from './pages/PresentationPage';
 import LivingDnaPage from './pages/LivingDnaPage';
 
 const PrivateRoute = ({ children }) => {
+  // Demo Mode tours the real screens with no account, so the guard has to let
+  // the visitor through while the flag is set - and the flag is only ever set
+  // by opening Demo Mode, never by a stored token.
+  if (isDemo()) return children;
   const isAuthenticated = auth.isAuthenticated();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return children;
@@ -40,7 +46,9 @@ function App() {
     let isMounted = true;
     const init = async () => {
       const { session } = await auth.restoreSession();
-      if (!session) clearAuth();
+      // Nothing to clear when there simply was no token - and clearing would
+      // end a demo tour that is mid-refresh, stranding the visitor on /login.
+      if (!session && !isDemo()) clearAuth();
       if (isMounted) {
         setAuthReady(true);
       }
@@ -84,8 +92,15 @@ function App() {
           <Route path="/edit-profile" element={<PrivateRoute><EditProfilePage /></PrivateRoute>} />
           <Route path="/shortlist" element={<PrivateRoute><ShortlistPage /></PrivateRoute>} />
           <Route path="/agreements" element={<PrivateRoute><AgreementsPage /></PrivateRoute>} />
-          <Route path="/demo" element={<PrivateRoute><DemoModePage /></PrivateRoute>} />
-  <Route path="/living-dna" element={<PrivateRoute><LivingDnaPage /></PrivateRoute>} />
+          {/* Public on purpose: demo mode fetches the seeded samples with no
+              token, needs no session, and must not inherit whatever account
+              happens to be signed in on this browser. */}
+          <Route path="/demo" element={<DemoModePage />} />
+          {/* Public on purpose, for the same reason /demo is: the guided
+              walkthrough runs on its own scoped session and must not inherit
+              whatever account happens to be signed in on this browser. */}
+          <Route path="/presentation" element={<PresentationPage />} />
+          <Route path="/living-dna" element={<PrivateRoute><LivingDnaPage /></PrivateRoute>} />
           {/* Public. Only signed-in users are pushed into the app. */}
           <Route
             path="/"

@@ -16,9 +16,12 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      const { error: authError } = await auth.signIn({ email, password });
+      const { data, error: authError } = await auth.signIn({ email, password });
       if (authError) throw new Error(authError.message || 'Invalid credentials');
-      navigate('/discover', { replace: true });
+      // A ranked feed is built from the lifestyle answers onboarding collects.
+      // Sending an unfinished account straight to Discover produced a feed that
+      // looked random and could not explain a single match.
+      navigate(data?.user?.onboarding_complete ? '/discover' : '/onboarding', { replace: true });
     } catch (err) {
       setError(err.message || 'Network error');
     } finally {

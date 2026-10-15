@@ -48,7 +48,7 @@ export default function LandingPage() {
               <ArrowRight size={18} aria-hidden="true" />
             </Link>
             <Link
-              to="/login"
+              to="/demo"
               className="inline-flex items-center justify-center px-7 py-3.5 rounded-xl border-2 border-white/70 text-white font-bold hover:bg-white/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-coral"
             >
               Try the demo account
@@ -94,11 +94,18 @@ export default function LandingPage() {
           <div>
             <h2 className="text-xl font-bold text-text-primary">Try it without signing up</h2>
             <p className="mt-1 text-text-secondary text-sm">
-              One demo account, already set up with real matches and messages.
+              Sample profiles you can like, match and chat with. No sign-up, no real account, nothing saved.
             </p>
+            <Link
+              to="/presentation"
+              className="inline-flex items-center gap-1.5 mt-3 text-sm font-semibold text-brand-teal hover:underline underline-offset-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal rounded"
+            >
+              Or run the guided walkthrough
+              <ArrowRight size={14} aria-hidden="true" />
+            </Link>
           </div>
           <Link
-            to="/login"
+            to="/demo"
             className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-brand-teal text-white font-bold hover:bg-brand-teal-dark transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal focus-visible:ring-offset-2 self-start"
           >
             <Sparkles size={17} aria-hidden="true" />

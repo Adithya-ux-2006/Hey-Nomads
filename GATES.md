@@ -1,60 +1,132 @@
-# Gates: Hey Nomads production verification
+# Gates: Hey Nomads repair loop (demo/auth, matching, profile layout)
 
-Scope: Prove the app builds, passes its own verification suites, and ships a
-deploy contract that routes API traffic to the backend, before claiming the
-hosted product works.
+OWNS: frontend-react/api/**, frontend-react/src/**, frontend-react/scripts/**, frontend-react/netlify.toml, netlify.toml, GATES.md
 
-OWNS: frontend-react/scripts/verify-deploy-contract.mjs
+Scope: Make the real application work — safe predictable demo/auth, an explainable and correct matching algorithm with honest reason strings, and a corrected profile header — verified against the live app on the approved isolated test database.
 
-- [x] G1: The linter reports no errors, which is the only gate that caught the
-      shipped RoommatesPage crash (six identifiers used in JSX but absent from
-      the import list; Vite does not flag this, ESLint does)
-  CHECK: npx eslint . --max-warnings=0 && echo lint verification passed
-  EXPECT: lint verification passed
+Status legend: PASS = ran and emitted its token. BLOCKED = command could not run.
+No gate is marked PASS without output from the command named in CHECK.
+
+- [x] G1: Production source lints clean with zero warnings — PASS
+  CHECK: node scripts/gates.mjs lint
+  EXPECT: GATE_LINT_OK
   CWD: frontend-react
-  EVIDENCE: automatic-evidence=v1; definition-sha256=e3172f20dcca0abec36a21627a1a4fc103d1d87a9913231ef42ab77f82541b5f; exit=0; EXPECT=matched; output-sha256=df4094802875cdfe7d44579e3d881cd392ccfb41d03378b2926cfc112d8db201; output-bytes=26; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=a55c5eee41c8305c9edd9d3aafe108afecb0fa3c68ad4562cdc0863d6cd7e1a2; exit=0; EXPECT=matched; output-sha256=676a2a92ce2935b1af6258826cf219128f924cfbff879336a9dd0cc23dd6525d; output-bytes=278; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
-- [x] G2: The production bundle is emitted and contains an entry document
-  CHECK: node scripts/verify-deploy-contract.mjs
-  EXPECT: deploy contract verification passed
+- [x] G2: Production build completes and emits a bundle — PASS
+  CHECK: node scripts/gates.mjs build
+  EXPECT: GATE_BUILD_OK
   CWD: frontend-react
-  EVIDENCE: automatic-evidence=v1; definition-sha256=65706663589694f53e58bba0cb5a2c31f0a9ed72527e0d85fbf7414109ae5a51; exit=0; EXPECT=matched; output-sha256=467c3585552ede8a052140075671fd6576e2f4e0c61ce94391a40cd1d6bbeaf0; output-bytes=97; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=0b5f23fc7eea6c0e671a911a9a5a0916ed3dfcc9d6b20887be9a124d3194f9e9; exit=0; EXPECT=matched; output-sha256=dd6103607dcaae3d4a65e62c373fb78fa85602a95e6956e38db886dc43143af9; output-bytes=1325; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
-- [x] G3: A production build succeeds and writes dist/index.html
-  CHECK: npm run build
-  EXPECT: built in
+- [ ] G3: Matching regression — placeholder answers can no longer outscore real ones — BLOCKED
+  CHECK: node --import ./scripts/dns-shim.mjs scripts/verify-matching.mjs
+  EXPECT: matching regression passed
   CWD: frontend-react
-  EVIDENCE: automatic-evidence=v1; definition-sha256=a1d2ebbc1b73d4766fbe4a0d940b96e14f2528e36ae08fa35712ebeae4f5eaec; exit=0; EXPECT=matched; output-sha256=390dab01f895504314d04cfd08834d3edff446af3f4afb7840c4e7d3e5979d7b; output-bytes=1090; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+  EVIDENCE: BLOCKED on missing isolated-DB credentials. TCP to the isolated
+  host ep-icy-shape-axnlevy7.c-4.us-east-2.aws.neon.tech now accepts on 5432
+  (reachable, 314ms) and 443, so the earlier wire-port block has cleared. But
+  no connection URL or credential for that host exists anywhere in the
+  environment: the only DATABASE_URL present points at the deployed host
+  ep-curly-dream-axurjezu, which require-test-db correctly refuses (exit 3).
+  No override was used and the guard was not bypassed. Supply the isolated
+  DATABASE_URL (e.g. CONFIRM_TEST_DATABASE_HOST + real URL) and re-run.
 
-- [x] G4: The backend security suite passes all of its checks
-  CHECK: npm run verify:security
-  EXPECT: 10/10 checks passed
+- [x] G4: Demo mode is a public, session-free tour of the real screens — PASS
+  CHECK: node scripts/gates.mjs demo
+  EXPECT: GATE_DEMO_OK
   CWD: frontend-react
-  EVIDENCE: automatic-evidence=v1; definition-sha256=acf3681434a4a6e2a68cbcea16cde8261da01f1915dacad18c96112b91d2b20e; exit=0; EXPECT=matched; output-sha256=7b0edefd4608220cc22b53a3ff4edba4b98b0c14f848c15bba8a26811b9d9ab8; output-bytes=5673; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=96b22b882eb78218ec3819844108fd3d6a50944e96153a86221b746945f5b6d1; exit=0; EXPECT=matched; output-sha256=7d83d11b3c367c5da532d9f90fc054ceac8d648a8f19f1584ac1526d4b5a1d54; output-bytes=13; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
-- [x] G5: The settlement and resource fixtures resolve working links
-  CHECK: npm run verify:fixtures
-  EXPECT: all 9 checks passed
+- [ ] G5: API authorisation, matching, chat and agreement flows still pass — BLOCKED
+  CHECK: node --import ./scripts/dns-shim.mjs scripts/verify-api-flows.mjs
+  EXPECT: /all \d+ checks passed/
   CWD: frontend-react
-  EVIDENCE: automatic-evidence=v1; definition-sha256=1a1aeb42626c8c402df8a98743caef11e52ac9324004f388df9427b2cfdeb429; exit=0; EXPECT=matched; output-sha256=65b0903a685c90faf7cddc941511876c49886f689f7293f91ce01724651f1065; output-bytes=3566; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+  EVIDENCE: BLOCKED on missing isolated-DB credentials (same cause as G3).
+  The isolated host is reachable on 5432, but no connection URL for it exists
+  in the environment; the only DATABASE_URL points at the deployed host, which
+  require-test-db correctly refuses (exit 3). No override was used. Supply the
+  isolated DATABASE_URL and re-run.
 
-- [x] G6: Auth, onboarding, matching, settlement, events and agreements round-trip
-      against the real database
-  CHECK: npm run verify:api
-  EXPECT: all 21 checks passed
+- [ ] G6: Real-browser QA — landing, login, demo, discover, matches, chat — BLOCKED
+  CHECK: node --import ./scripts/dns-shim.mjs scripts/browser-qa.mjs http://127.0.0.1:5199
+  EXPECT: browser qa passed
   CWD: frontend-react
-  EVIDENCE: automatic-evidence=v1; definition-sha256=78dda9ff05ee41d7b7db438722ab9ca7697488a865585cb3f00e281658d2671d; exit=0; EXPECT=matched; output-sha256=565090215bc741369b702e61bd427c031a113fa2a6095c9d33c74d32f6fd892a; output-bytes=2429; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+  EVIDENCE: BLOCKED on two counts. The CHECK targets a Vite server on
+  :5199; starting that server requires booting the API against the isolated
+  test DB, which is blocked on missing credentials (G3). Running the CHECK
+  directly fails with fetch failed (no server on :5199). Earlier same-HEAD
+  run via `node scripts/qa-local.mjs --suite browser` passed 22/22. Supply
+  the isolated DATABASE_URL and re-run.
 
-- [ ] G7: The Netlify deployment actually serves /api/* instead of the SPA shell
-  EVIDENCE: pending
+- [ ] G7: Profile layout QA — header does not clip or overflow — BLOCKED
+  CHECK: node scripts/profile-layout-qa.mjs http://127.0.0.1:5199
+  EXPECT: profile layout qa passed
+  CWD: frontend-react
+  EVIDENCE: BLOCKED on the same two counts as G6 (needs :5199, which needs
+  the API, which needs the isolated DATABASE_URL that is not present). Earlier
+  same-HEAD run via `node scripts/qa-local.mjs --suite profile` passed 35/35
+  after the ProfilePage label fixes. Supply the isolated DATABASE_URL and
+  re-run.
 
-<!--
-G7 is manual because triggering and observing the hosted Netlify build requires
-the maintainer's Netlify account. G2 proves the contract is declared correctly
-and that the proxy target is alive; G7 is the only proof that the host honours
-it. Do not read G2 as a substitute.
+- [x] G8: Account classification still fails closed — PASS
+  CHECK: node scripts/check-account-kind.mjs
+  EXPECT: account classification self-check: all assertions passed
+  CWD: frontend-react
+  EVIDENCE: automatic-evidence=v1; definition-sha256=cf238d4872f7d96d2ce46b8fdc79607528dfde562d593061c7702516bc411f51; exit=0; EXPECT=matched; output-sha256=8aca4e33c1ece4027dbaa0df90da3b1aa0f9b82a81e0adc393604655703421b7; output-bytes=57; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
-If a gate becomes genuinely impossible, keep the gate and add a column-1 line
-`ABANDON: G7 <reason and handoff>`. Abandonment is terminal handoff, never
-success, and it is not a way to mark a manual gate as passed.
--->
+- [x] G9: Profile header reads as intentional at 1440px and 390px, avatar not clipped — PASS
+  EVIDENCE: Visual inspection of screenshots/qa/profile-1440-profile.png and
+  screenshots/qa/profile-390-profile.png (captured 2026-10-15 00:12, after the
+  ProfilePage label fixes at 00:07). At 1440 the avatar sits fully inside the
+  gradient header with the name, role, location and bio below it; at 390 the
+  same layout reflows to a single column with the avatar still fully visible
+  and no clipping or overflow. Lifestyle labels render as prose (Early Bird,
+  Non-smoker, Vegetarian, No pets, 2BHK).
+
+- [x] G10: A signed-out visitor reaches demo mode and never sees another identity — PASS
+  CHECK: node scripts/demo-tour-qa.mjs
+  EXPECT: /demo tour qa passed - all \d+ checks/
+  CWD: frontend-react
+  EVIDENCE: automatic-evidence=v1; definition-sha256=a7eb8ef4345c75dfb92ab81ebd5e36479eb45bb22ea151db0932454a5bf7c49d; exit=0; EXPECT=matched; output-sha256=c5b39ba5e35952c0a679c76ec6ed10ecccce2dd57247f297babb749336b829f3; output-bytes=1411; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+
+- [x] G11: Matching criteria and the exact scoring formula are documented from the implementation — PASS
+  EVIDENCE: docs/matching-formula.md, written from api/index.js (getMatchWeights,
+  MATCH_CATEGORIES, ANSWERED_FIELDS, scoreCompatibility) at commit e5857c6. Covers
+  the six weighted categories and their ceilings (lifestyle 25, budget 20,
+  location 20, movein 15, interests 10, habits 10), the unknown-answer gate
+  (onboarding_complete), the cost-normalised budget formula, the re-normalised
+  total, and the feed comparator.
+
+- [x] G12: Demo Mode tours the real Feed / Matches / Messages screens — PASS
+  CHECK: node scripts/demo-tour-qa.mjs
+  EXPECT: /demo tour qa passed - all \d+ checks/
+  CWD: frontend-react
+  EVIDENCE: automatic-evidence=v1; definition-sha256=a7eb8ef4345c75dfb92ab81ebd5e36479eb45bb22ea151db0932454a5bf7c49d; exit=0; EXPECT=matched; output-sha256=c5b39ba5e35952c0a679c76ec6ed10ecccce2dd57247f297babb749336b829f3; output-bytes=1411; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
+
+- [ ] G13: Publishing /presentation to production does not write uncontrolled synthetic records into the real user database — BLOCKED (release stopped)
+  EVIDENCE: Verified the live path end to end. Netlify site `heynomads` (id
+  0b0a0cdc-79e2-4a9d-9978-d6c36b7b68f9) serves only the static bundle (repo
+  Adithya-ux-2006/Hey-Nomads, production branch `main` @ 42c324d, build
+  `npm run build`, publish `dist`, base null via netlify.toml). `/api/*` is
+  force-proxied (netlify.toml, status 200, force=true) to a separate Vercel
+  backend https://hey-nomads.vercel.app. That backend's /api/health reports it
+  is backed by the production Neon database (ep-curly-dream-axurjezu-pooler,
+  neondb). Opening /presentation calls beginPresentation() -> provision()
+  (frontend-react/src/lib/presentation.js:115-128, 79-110), which registers,
+  onboards and profiles four `qa.present.*` accounts through the REAL public
+  endpoints /auth/register, /onboarding and /profile. Therefore publishing the
+  presentation experience to the live site writes synthetic user rows into the
+  production database. Real-user isolation DOES hold on the live schema
+  (read-only information_schema check: users has no account_kind column, so the
+  pre-migration heuristic applies and `qa.present.*` matches the
+  `email NOT LIKE 'qa.%'` exclusion in account-kind.mjs NOT_REAL_EMAIL_SQL;
+  the scope guard at index.js:154-156 and presentationAuth double-check further
+  contain the token). But isolation from real users is not the same as "no
+  uncontrolled synthetic records in the real user database", which the release
+  directive forbids. No Netlify env override (VITE_API_URL) exists to point the
+  presentation page at an isolated backend (account env vars empty). RELEASE
+  STOPPED at step 4 per directive: do not publish /presentation until it is
+  provisioned against an isolated database, or the cohort is made non-writing
+  (e.g. pre-seeded fixtures or a read-only presentation path). Do not silently
+  disable the security boundary to get the site live.

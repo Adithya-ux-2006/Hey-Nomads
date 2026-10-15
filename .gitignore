@@ -35,3 +35,4 @@ backend/uploads/*
 .opencode/
 .unlazy/
 .unlazy-hook-state.json
+.vibecode-backup*/

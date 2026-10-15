@@ -49,7 +49,8 @@ export default function MessagesPage() {
       <div className="max-w-2xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-brand-coral mb-4">Messages</h1>
+          {/* Matches the ink used by every other page title; see MatchesPage. */}
+          <h1 className="text-2xl font-bold text-text-primary mb-4">Messages</h1>
           <div className="relative">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"

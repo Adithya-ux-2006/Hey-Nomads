@@ -5,6 +5,8 @@
 //
 // Usage: node scripts/profile-layout-qa.mjs [baseUrl]
 import { chromium } from 'playwright';
+import fs from 'fs';
+import path from 'path';
 // This script provisions accounts. Refuse to do that to the deployed database.
 await import('./require-test-db.mjs');
 
@@ -19,6 +21,22 @@ const results = [];
 const record = (name, pass, detail) => {
   results.push({ name, pass, detail });
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
+};
+
+// Full-page evidence per width. Best-effort: a screenshot failure never fails
+// the layout assertions it accompanies.
+const SHOT_DIR = path.resolve(process.cwd(), 'screenshots', 'qa');
+const shoot = async (page, label) => {
+  try {
+    fs.mkdirSync(SHOT_DIR, { recursive: true });
+    const file = path.join(SHOT_DIR, `profile-${label}.png`);
+    await page.screenshot({ path: file, fullPage: true });
+    console.log(`SHOT  screenshots/qa/profile-${label}.png`);
+    return file;
+  } catch (err) {
+    console.log(`SHOT_FAIL  ${label}: ${err.message}`);
+    return null;
+  }
 };
 
 const api = async (path, { method = 'GET', body, token } = {}) => {
@@ -84,7 +102,7 @@ try {
         ?.querySelector('div > div > div.rounded-2xl') || null;
       const edit = Array.from(document.querySelectorAll('a'))
         .find(a => /Edit profile/i.test(a.textContent || '')) || null;
-      const banner = card?.querySelector('.h-32') || null;
+      const banner = card?.querySelector('.h-24') || null;
       if (!card || !avatar || !edit) return null;
       const c = card.getBoundingClientRect();
       const a = avatar.getBoundingClientRect();
@@ -104,6 +122,7 @@ try {
 
     if (!geo) {
       record(`${width}px: layout measured`, false, 'could not locate card, avatar or Edit button');
+      await shoot(page, `${width}-unmeasured`);
       await page.close();
       continue;
     }
@@ -116,22 +135,27 @@ try {
     record(`${width}px: name aligns with the avatar`,
       alignDelta <= ALIGN_TOLERANCE, `${alignDelta.toFixed(1)}px apart`);
 
+    // A missing cover is a failure, never a pass-through. Both checks below
+    // used to fall through on `bannerBottom === null` and reported PASS while
+    // measuring nothing, which is how a vacuous assertion survives review.
+    const hasBanner = geo.bannerBottom !== null;
+    record(`${width}px: cover banner renders`, hasBanner,
+      hasBanner ? `bottom ${geo.bannerBottom.toFixed(0)}` : 'no cover found');
     record(`${width}px: avatar overlaps the banner`,
-      geo.bannerBottom === null || geo.avatarTop < geo.bannerBottom,
+      hasBanner && geo.avatarTop < geo.bannerBottom,
       `avatar top ${geo.avatarTop.toFixed(0)} vs banner bottom ${geo.bannerBottom?.toFixed(0)}`);
 
-    const clippedBelow = geo.editBottom > geo.cardRight; // sanity placeholder replaced below
     const editInside = geo.editRight <= geo.cardRight + 1 && geo.editTop >= 0;
     record(`${width}px: Edit button is fully inside the card`, editInside,
       `edit right ${geo.editRight.toFixed(0)} vs card right ${geo.cardRight.toFixed(0)}`);
     record(`${width}px: Edit button is not clipped by the banner`,
-      geo.bannerBottom === null || geo.editTop >= geo.bannerBottom - 40,
+      hasBanner && geo.editTop >= geo.bannerBottom - 40,
       `edit top ${geo.editTop.toFixed(0)}, banner bottom ${geo.bannerBottom?.toFixed(0)}`);
 
     record(`${width}px: no horizontal overflow`, geo.docScrollW <= geo.innerW + 1,
       `scrollWidth ${geo.docScrollW} vs innerWidth ${geo.innerW}`);
-    void clippedBelow;
 
+    await shoot(page, `${width}-profile`);
     await page.close();
   }
 
@@ -165,6 +189,7 @@ record('incomplete profile: Lifestyle shows values or an explicit empty state',
     await page.waitForTimeout(1200);
     const editOnOther = await page.getByRole('link', { name: /Edit profile/i }).count();
     record('other profile: no edit control on someone else’s profile', editOnOther === 0);
+    await shoot(page, '390-empty');
     await page.close();
   }
 } catch (err) {

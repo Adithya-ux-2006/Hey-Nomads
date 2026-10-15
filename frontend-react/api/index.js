@@ -13,6 +13,7 @@ import {
   KIND,
   humanLabel,
 } from './account-kind.mjs';
+import { mountPresentation } from './presentation.mjs';
 
 // No DSN => the SDK stays inert. Set SENTRY_DSN on Vercel to turn reporting on.
 Sentry.init({
@@ -135,6 +136,25 @@ if (process.env.VERCEL_ENV !== 'production') {
 // No explicit limit: profile JSON bodies are a few KB. /api/upload bypasses this
 // parser entirely (raw stream) and Vercel caps request bodies at 4.5MB anyway.
 app.use(express.json());
+
+// A presentation session is a signed, scoped token, not a query parameter, so
+// the scope has to be enforced where every other request already flows. This
+// runs before the first route: a presentation token is refused by every normal
+// endpoint and only the /api/presentation block below will accept it. It only
+// ever rejects - it never grants - so it cannot widen anything.
+app.use('/api', (req, res, next) => {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) return next();
+  let decoded;
+  try {
+    decoded = jwt.verify(header.split(' ')[1], JWT_SECRET);
+  } catch {
+    return next(); // authMiddleware reports the invalid token on its own route
+  }
+  if (decoded.scope !== 'presentation') return next();
+  if (req.path.startsWith('/presentation')) return next();
+  return res.status(403).json({ error: 'Presentation session cannot use this endpoint' });
+});
 
 // ── Health ─────────────────────────────────────────────────────
 // Tables the app cannot boot without. If any is missing the pool is
@@ -266,7 +286,7 @@ app.post('/api/auth/login', loginLimit, async (req, res) => {
     if (typeof password !== 'string' || password.length > 72) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    const result = await query('SELECT id, name, email, password FROM users WHERE email = $1', [email.trim().toLowerCase()]);
+      const result = await query('SELECT id, name, email, password, onboarding_complete FROM users WHERE email = $1', [email.trim().toLowerCase()]);
     if (result.rows.length === 0) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -276,7 +296,7 @@ app.post('/api/auth/login', loginLimit, async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const token = signToken(user.id);
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
+      res.json({ token, user: { id: user.id, name: user.name, email: user.email, onboarding_complete: user.onboarding_complete } });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Login failed' });
@@ -562,23 +582,42 @@ app.post('/api/profile', authMiddleware, async (req, res) => {
 
     const existing = await query('SELECT id FROM profiles WHERE user_id = $1', [userId]);
     if (existing.rows.length > 0) {
+      // Every omitted field keeps the value already stored. This statement used
+      // to fall back to the schema default for each one (`safeStr(smoking)||'no'`,
+      // `safeInt(cleanliness,3)`, `safeInt(budget,15000)`), so saving the profile
+      // editor to change a bio silently reset smoking, diet, budget and every
+      // other roommate answer to "nobody has answered this" - and matching then
+      // scored those reset values as if the person had chosen them.
+      // Casts are load-bearing: with COALESCE($n, col) Postgres has two unknown
+      // candidates to infer from and refuses the statement outright, which made
+      // every profile save fail with "could not determine data type".
       await query(
-        `UPDATE profiles SET bio=$1, occupation=$2, city=$3, move_in_date=$4,
-         sleep_time=$5, cleanliness=$6, diet=$7, noise_tolerance=$8, noise_level=$9,
-         budget=$10, deposit=$11, flat_type=$12, occupants=$13,
-         smoking=$14, drinking=$15, partying=$16, profile_image=COALESCE($17, profile_image),
-         social_level=$18, pets=$19, work_schedule=$20, neighbourhood=$21,
-         preferred_neighbourhood=$22, gender=$23
+        `UPDATE profiles SET bio=COALESCE($1::text, bio), occupation=COALESCE($2::text, occupation),
+         city=COALESCE($3::text, city), move_in_date=COALESCE($4::date, move_in_date),
+         sleep_time=COALESCE($5::text, sleep_time), cleanliness=COALESCE($6::int, cleanliness),
+         diet=COALESCE($7::text, diet), noise_tolerance=COALESCE($8::text, noise_tolerance),
+         noise_level=COALESCE($9::int, noise_level), budget=COALESCE($10::int, budget),
+         deposit=COALESCE($11::int, deposit), flat_type=COALESCE($12::text, flat_type),
+         occupants=COALESCE($13::int, occupants), smoking=COALESCE($14::text, smoking),
+         drinking=COALESCE($15::text, drinking), partying=COALESCE($16::text, partying),
+         profile_image=COALESCE($17::text, profile_image), social_level=COALESCE($18::text, social_level),
+         pets=COALESCE($19::text, pets), work_schedule=COALESCE($20::text, work_schedule),
+         neighbourhood=COALESCE($21::text, neighbourhood),
+         preferred_neighbourhood=COALESCE($22::text, preferred_neighbourhood),
+         gender=COALESCE($23::text, gender)
          WHERE user_id=$24`,
-        [safeStr(bio), safeStr(occupation), safeStr(city), safeDate(moveInDate),
-         safeStr(sleepTime)||'flexible', safeInt(cleanliness,3), safeStr(diet)||'veg',
-         safeStr(noiseTolerance)||'moderate', safeInt(noiseLevel,3),
-         safeInt(budget,15000), safeInt(deposit,5000), safeStr(flatType)||'shared',
-         safeInt(occupants,1), safeStr(smoking)||'no', safeStr(drinking)||'no',
-         safeStr(partying)||'low', profileImage||null,
-         safeStr(socialLevel)||'moderate', safeStr(pets)||'no',
-         safeStr(workSchedule)||'regular', safeStr(neighbourhood),
-         safeStr(preferredNeighbourhood), safeStr(gender), userId]
+        // safeStr() yields '' for a missing value, and COALESCE only skips NULL -
+        // an empty string would overwrite the stored answer and then fail the
+        // column's CHECK constraint. Every optional write is nulled first.
+        [safeStr(bio) || null, safeStr(occupation) || null, safeStr(city) || null, safeDate(moveInDate),
+         safeStr(sleepTime) || null, safeInt(cleanliness) ?? null, safeStr(diet) || null,
+         safeStr(noiseTolerance) || null, safeInt(noiseLevel) ?? null,
+         safeInt(budget) ?? null, safeInt(deposit) ?? null, safeStr(flatType) || null,
+         safeInt(occupants) ?? null, safeStr(smoking) || null, safeStr(drinking) || null,
+         safeStr(partying) || null, profileImage || null,
+         safeStr(socialLevel) || null, safeStr(pets) || null,
+         safeStr(workSchedule) || null, safeStr(neighbourhood) || null,
+         safeStr(preferredNeighbourhood) || null, safeStr(gender) || null, userId]
       );
     } else {
       await query(
@@ -597,6 +636,17 @@ app.post('/api/profile', authMiddleware, async (req, res) => {
          safeStr(workSchedule)||'regular', safeStr(neighbourhood),
          safeStr(preferredNeighbourhood), safeStr(gender)]
       );
+    }
+
+    // Saving real roommate answers marks them as answers, whichever branch
+    // wrote the row. Matching refuses to score a profile that has never been
+    // filled in, because every column carries a placeholder from registration
+    // and the profile editor is a second, equally valid way to answer the same
+    // questions the onboarding wizard asks.
+    const ANSWER_MARKERS = [sleepTime, cleanliness, diet, noiseTolerance, budget,
+      flatType, smoking, drinking, socialLevel, pets, workSchedule, moveInDate, city];
+    if (ANSWER_MARKERS.some(v => v !== undefined && v !== null && v !== '')) {
+      await query('UPDATE users SET onboarding_complete = TRUE WHERE id = $1', [userId]);
     }
 
     // Preferences
@@ -683,6 +733,16 @@ async function getMatchWeights() {
 // Category -> its maximum attainable sub-score. These ceilings sum to 100 so a
 // perfect match on every factor is exactly 100%.
 const MATCH_CATEGORIES = { lifestyle: 25, budget: 20, location: 20, movein: 15, interests: 10, habits: 10 };
+
+// Profiles carry column defaults from the moment a user is created (smoking
+// 'no', drinking 'no', diet 'veg', cleanliness 3, budget 15000). Until the
+// questionnaire is completed those are not answers, they are placeholders, so
+// they must not be scored as if the user had said them.
+const ANSWERED_FIELDS = [
+  'sleep_time', 'cleanliness', 'smoking', 'drinking', 'social_level', 'diet',
+  'noise_tolerance', 'flat_type', 'pets', 'work_schedule', 'move_in_date',
+  'city', 'neighbourhood', 'preferred_neighbourhood',
+];
 const WEIGHT_KEYS = {
   lifestyle: 'lifestyle_weight', budget: 'budget_weight', location: 'location_weight',
   movein: 'movein_weight', interests: 'interests_weight', habits: 'habits_weight',
@@ -701,8 +761,8 @@ async function loadScoreContext(userId, candidateIds) {
   // u.id is aliased because `p.*` may itself carry an `id` column, and node-pg
   // lets a later duplicate column name overwrite an earlier one.
   const [meResult, allProfiles, allLangs, costRows] = await Promise.all([
-    query(`SELECT u.interests, u.country, u.moving_to, p.* FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = $1`, [userId]),
-    query(`SELECT u.id AS cand_id, u.interests, u.country, u.moving_to, p.* FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = ANY($1::int[])`, [ids]),
+    query(`SELECT u.interests, u.country, u.moving_to, u.onboarding_complete, p.* FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = $1`, [userId]),
+    query(`SELECT u.id AS cand_id, u.interests, u.country, u.moving_to, u.onboarding_complete, p.* FROM users u LEFT JOIN profiles p ON u.id = p.user_id WHERE u.id = ANY($1::int[])`, [ids]),
     query(`SELECT ul.user_id, l.name FROM languages l JOIN user_languages ul ON l.id = ul.language_id WHERE ul.user_id = ANY($1::int[])`, [ids]),
     query(`SELECT LOWER(name) AS name, cost_level FROM cities`),
   ]);
@@ -731,9 +791,36 @@ async function calcCompatibility(userId, candidateId, weights) {
 
 // Pure. Same scoring code as before, reading preloaded rows.
 function scoreCompatibility(ctx, candidateId, weights) {
-  const me = ctx.me;
-  const them = ctx.themById.get(candidateId);
+  const me = answered(ctx.me);
+  const them = answered(ctx.themById.get(candidateId));
   if (!me || !them) return { score: 0, breakdown: {}, reasons: [] };
+
+  // The profiles table fills every lifestyle column with a default the moment a
+  // user is created: smoking 'no', drinking 'no', diet 'veg', cleanliness 3,
+  // budget 15000. Nothing marks those as "not answered". The scorer below
+  // awards points for answers MATCHING, so two accounts that had never been
+  // filled in scored a perfect 25/25 on lifestyle and a full 20/20 on budget,
+  // outranking people who had actually answered, and the reason strings claimed
+  // "Same sleep schedule" and "Both veg eaters" for people who never said it.
+  //
+  // onboarding_complete is the only signal that separates a real answer from a
+  // column default, and the app already sets it when someone finishes the
+  // questionnaire. Until then their answers are treated as unknown, so an
+  // unknown answer can neither earn points nor generate a reason.
+  // Completing onboarding, or saving real answers through the profile editor,
+  // both set users.onboarding_complete. Nothing else marks an answer as an
+  // answer: the profiles table has no per-field flag and no updated_at, so
+  // guessing from the value is the only alternative - and a genuine "no" to
+  // smoking is indistinguishable from the column default. Unknown stays
+  // unscored, which is the honest reading.
+  function answered(row) {
+    if (!row) return row;
+    if (row.onboarding_complete) return row;
+    const blank = { ...row };
+    for (const k of ANSWERED_FIELDS) blank[k] = null;
+    blank.budget = null;
+    return blank;
+  }
 
   // Cost level (1-5) of the city each person is moving to, used to make
   // budgets comparable across currencies. Missing city => level 3, the
@@ -759,10 +846,8 @@ function scoreCompatibility(ctx, candidateId, weights) {
     lifestyleScore += Math.round(4 * (1 - cdiff / 4));
     if (cdiff <= 1) reasons.push({ text: 'Similar cleanliness preference', type: 'positive' });
   }
-  if (me.smoking === them.smoking) { lifestyleScore += 3; if (me.smoking === 'no') reasons.push({ text: 'Both non-smokers', type: 'positive' }); }
-  else if (me.smoking === 'no' && them.smoking === 'no') { lifestyleScore += 3; }
-  if (me.drinking === them.drinking) { lifestyleScore += 3; if (me.drinking === 'no') reasons.push({ text: 'Same drinking habits', type: 'positive' }); }
-  else if (me.drinking === 'no' && them.drinking === 'no') { lifestyleScore += 3; }
+  if (me.smoking && them.smoking && me.smoking === them.smoking) { lifestyleScore += 3; if (me.smoking === 'no') reasons.push({ text: 'Both non-smokers', type: 'positive' }); }
+  if (me.drinking && them.drinking && me.drinking === them.drinking) { lifestyleScore += 3; if (me.drinking === 'no') reasons.push({ text: 'Same drinking habits', type: 'positive' }); }
   if (me.social_level && them.social_level) {
     const socialMap = { introvert: 1, moderate: 2, extrovert: 3 };
     const sdiff = Math.abs((socialMap[me.social_level]||2) - (socialMap[them.social_level]||2));
@@ -931,7 +1016,11 @@ async function actorIsRealUser(userId) {
 // Read-only. Deliberately exposes no write path: demo liking, chatting and
 // agreeing happen in the client so a demo interaction can never create a real
 // match, message or agreement row that some other user would later believe.
-app.get('/api/demo/profiles', authMiddleware, async (req, res) => {
+// Deliberately unauthenticated: Demo Mode must open signed out and must never
+// be handed a previous visitor's token. The rows it returns are the seeded
+// @heynomads.app accounts, carry no email address, and are already excluded
+// from every real feed by account classification.
+app.get('/api/demo/profiles', async (req, res) => {
   try {
     const result = await query(
       `SELECT u.id, u.name, u.age, u.interests,
@@ -952,10 +1041,21 @@ app.get('/api/demo/profiles', authMiddleware, async (req, res) => {
 
 // ── Roommates / Discovery ──────────────────────────────────────
 
-app.get('/api/roommates/recommended', authMiddleware, async (req, res) => {
+// One candidate selection backs both feeds. Discover and Roommates each kept
+// their own copy of this query, and the copies drifted: Discover excluded only
+// passes, so people you had already liked kept coming back, and it sampled the
+// 20 newest accounts before scoring, so the two screens could show different
+// people for identical answers. Both now go through this one implementation.
+async function getRecommendedRoommates(req, opts = {}) {
   try {
-    const { city, budget_min, budget_max, page = 1, limit = 20 } = req.query;
-    const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+    const { city, budget_min, budget_max, page = 1, limit = 20, pool } = opts;
+    const pageSize = parseInt(limit) || 20;
+    const offset = (Math.max(1, parseInt(page)) - 1) * pageSize;
+    // Score a wider window than one page. Capping the SQL at the page size made
+    // Discover's "top 5" really "the 5 newest accounts", so a strong match who
+    // signed up a week earlier never appeared. Pagination then walks the
+    // score-sorted pool rather than the signup order.
+    const poolSize = Math.max(parseInt(pool) || 60, pageSize + offset);
     const weights = await getMatchWeights();
 
     // Get blocked users
@@ -982,9 +1082,16 @@ let where = `WHERE u.id != $1 AND ${await realOnlySql('u')}`;
     if (budget_min) { where += ` AND p.budget >= $${idx++}`; params.push(parseInt(budget_min)); }
     if (budget_max) { where += ` AND p.budget <= $${idx++}`; params.push(parseInt(budget_max)); }
 
-    // Check which users this person already swiped on
+    // Exclude already-swiped people in SQL, not after LIMIT. Filtering them
+    // post-query meant every page was "the 20 newest accounts, minus the ones
+    // you decided", so a user who liked their way through the newest 20 got an
+    // empty feed while unswiped people still existed further down the table.
     const swipedIds = await query('SELECT swiped_id FROM swipes WHERE swiper_id = $1', [req.userId]);
     const swipedSet = new Set(swipedIds.rows.map(r => r.swiped_id));
+    if (swipedSet.size > 0) {
+      where += ` AND u.id NOT IN (${[...swipedSet].map(() => `$${idx++}`).join(',')})`;
+      params.push(...swipedSet);
+    }
 
     const candidates = await query(
       `SELECT u.id, u.name, u.age, u.interests, u.moving_to, u.country,
@@ -997,17 +1104,16 @@ let where = `WHERE u.id != $1 AND ${await realOnlySql('u')}`;
        LEFT JOIN profiles p ON u.id = p.user_id
        ${where}
        ORDER BY u.created_at DESC
-       LIMIT $${idx++} OFFSET $${idx++}`,
-      [...params, parseInt(limit), offset]
+       LIMIT $${idx++}`,
+      [...params, poolSize]
     );
 
     // Score candidates. Everything the scorer needs about the requester is the
     // same for every candidate, so it is loaded once here and the scoring runs
     // in memory. This replaces six queries per candidate - the old loop issued
     // them sequentially, which is what made this route ~10s.
-    const scoreable = candidates.rows.filter(c => !swipedSet.has(c.id));
-    const ctx = await loadScoreContext(req.userId, scoreable.map(c => c.id));
-    const results = scoreable.map(c => ({ ...c, ...scoreCompatibility(ctx, c.id, weights) }));
+    const ctx = await loadScoreContext(req.userId, candidates.rows.map(c => c.id));
+    const results = candidates.rows.map(c => ({ ...c, ...scoreCompatibility(ctx, c.id, weights) }));
 
     // Score descending. The tie-breakers make the order deterministic: the SQL
     // already returns created_at DESC, and Array#sort is stable, so this
@@ -1015,9 +1121,17 @@ let where = `WHERE u.id != $1 AND ${await realOnlySql('u')}`;
     // and timestamp from reshuffling between requests.
     results.sort((a, b) =>
       b.score - a.score || new Date(b.created_at) - new Date(a.created_at) || a.id - b.id);
-    res.json(results.slice(0, parseInt(limit)));
+    return results.slice(offset, offset + pageSize);
   } catch (err) {
     console.error('Get roommates error:', err);
+    throw err;
+  }
+}
+
+app.get('/api/roommates/recommended', authMiddleware, async (req, res) => {
+  try {
+    res.json(await getRecommendedRoommates(req, req.query));
+  } catch (err) {
     res.status(500).json({ error: 'Failed to get roommates' });
   }
 });
@@ -1862,34 +1976,13 @@ app.get('/api/discover', authMiddleware, async (req, res) => {
     );
     const targetCity = user.rows[0]?.moving_to || user.rows[0]?.city;
     const country = user.rows[0]?.country || null;
-    const weights = await getMatchWeights();
 
     const [roommates, communities, events, cities, settlement] = await Promise.all([
-      // Top 5 roommates, ranked by the real weighted engine (same scoring
-      // /roommates/recommended uses) instead of a random sample.
-      (async () => {
-        const candidates = await query(
-          `SELECT u.id, u.name, u.age, u.moving_to, u.country,
-                  p.profile_image, p.city, p.budget, p.occupation, p.bio
-           FROM users u
-           LEFT JOIN profiles p ON u.id = p.user_id
-WHERE u.id != $1
-              AND ${await realOnlySql('u')}
-              AND NOT EXISTS (SELECT 1 FROM swipes s
-                              WHERE s.swiper_id = $1 AND s.swiped_id = u.id AND s.action = 'pass')
-             AND NOT EXISTS (SELECT 1 FROM blocks b
-                             WHERE (b.blocker_id = $1 AND b.blocked_id = u.id)
-                                OR (b.blocker_id = u.id AND b.blocked_id = $1))
-           ORDER BY u.created_at DESC
-           LIMIT 20`, [req.userId]
-        );
-        const scored = [];
-        for (const c of candidates.rows) {
-          const { score, breakdown, reasons } = await calcCompatibility(req.userId, c.id, weights);
-          scored.push({ ...c, score, breakdown, reasons: reasons.slice(0, 3) });
-        }
-        return scored.sort((a, b) => b.score - a.score).slice(0, 5);
-      })(),
+        // Same candidate selection, exclusions and scoring as the Roommates
+        // feed, capped at the five this screen shows. The two screens used to
+        // keep separate copies of the query and the copies drifted, which is
+        // what made them disagree about the same person's matches.
+        getRecommendedRoommates(req, { limit: 5 }),
       // Top communities (optionally filtered by city)
       targetCity
         ? query(`SELECT * FROM communities WHERE LOWER(city) LIKE LOWER($1) ORDER BY member_count DESC LIMIT 5`, [`%${targetCity}%`])
@@ -2446,4 +2539,11 @@ app.post('/api/living-dna/constitution/:userId/accept', authMiddleware, async (r
 });
 
 // ── Vercel Serverless Export ──────────────────────────────────
+// Competition presentation routes. Mounted last so the scope guard installed
+// above the first route is already in front of them.
+mountPresentation(app, {
+  query, jwt, JWT_SECRET, Sentry, rateLimit,
+  getMatchWeights, loadScoreContext, scoreCompatibility, calcCompatibility,
+});
+
 export default (req, res) => app(req, res);

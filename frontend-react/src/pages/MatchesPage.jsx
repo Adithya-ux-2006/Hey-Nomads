@@ -33,7 +33,10 @@ export default function MatchesPage() {
   return (
     <Layout>
       <div className="max-w-2xl mx-auto px-4 py-6">
-        <h1 className="text-2xl font-bold text-brand-coral mb-6">Your Matches</h1>
+          {/* Page titles use the brand ink like Discover, Roommates and Profile do.
+            Coral is reserved for the one action or state that needs pointing at;
+            spending it on every heading made the accent meaningless. */}
+          <h1 className="text-2xl font-bold text-text-primary mb-6">Your Matches</h1>
 
         <InlineError error={actionError} />
 

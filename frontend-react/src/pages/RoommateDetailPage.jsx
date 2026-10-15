@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import Layout from '../components/Layout'
 import { apiFetch, resolveMediaUrl, auth } from '../lib/api'
+import { isDemo } from '../lib/demoMode'
 import { Card, CompatibilityBadge, Badge, Button, Spinner, SectionHeader, InlineError } from '../components/UI'
 import {
   ArrowLeft, BadgeCheck, Heart, ThumbsDown, Star, MessageSquare,
@@ -95,7 +96,11 @@ const RoommateDetailPage = () => {
   }
 
   useEffect(() => {
-    if (!auth.isAuthenticated()) {
+    // A demo tour has no token by design, and this guard - not the router's -
+    // is what the detail screen runs on. Reading it as "signed in or touring"
+    // is what keeps a card tap inside the walkthrough instead of bouncing the
+    // visitor to a sign-in form they were never asked to fill in.
+    if (!auth.isAuthenticated() && !isDemo()) {
       navigate('/login', { replace: true })
       return
     }
