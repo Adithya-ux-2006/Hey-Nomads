@@ -2,7 +2,7 @@
 // success-only token, so a ledger gate can require both exit 0 and a marker
 // that is only emitted after every assertion passed.
 //
-// Run: node scripts/gates.mjs lint|build|demo
+// Run: node scripts/gates.mjs lint|build|age|notifications|livingdna|demo
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -29,6 +29,12 @@ if (arg === 'lint') {
 } else if (arg === 'notifications') {
   run('node', ['--test', 'tests/offline/notifications.test.mjs'], 'GATE_NOTIF_UNIT_OK');
   run('node', ['scripts/offline-api-gates.mjs', 'notifications'], 'GATE_NOTIF_API_OK');
+} else if (arg === 'livingdna') {
+  // No unit tests here: the Living DNA logic is SQL, and the offline process
+  // has no database by design. What can be proven offline is the contract
+  // around it — auth in front of every route, consent checked before any
+  // answer is read, and an honest 503 when the migration has not been applied.
+  run('node', ['scripts/offline-api-gates.mjs', 'livingdna'], 'GATE_LIVINGDNA_API_OK');
 } else if (arg === 'demo') {
   // Demo Mode is a tour of the real screens, asserted from source rather than
   // from a screenshot: the contract is which modules are wired to which.
@@ -92,6 +98,6 @@ if (arg === 'lint') {
 
   console.log('GATE_DEMO_OK');
 } else {
-  console.error('usage: node scripts/gates.mjs lint|build|demo');
+  console.error('usage: node scripts/gates.mjs lint|build|age|notifications|livingdna|demo');
   process.exit(2);
 }

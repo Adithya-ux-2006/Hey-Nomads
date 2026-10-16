@@ -2515,6 +2515,15 @@ async function matchedPairWith(req, otherUserId) {
   return m.rows.length ? m.rows[0] : null;
 }
 
+// The Living DNA migration creates these tables; until it has been applied,
+// every query against them fails with "relation does not exist" (SQLSTATE
+// 42P01). Reporting that as a 500 told users their data had broken when in fact
+// the feature simply is not switched on in this environment, so those errors
+// are separated out and answered honestly instead.
+const LIVING_DNA_NOT_READY = 'Living DNA is not available here yet.';
+const isMissingLivingDnaTable = err =>
+  err?.code === '42P01' || /relation .+ does not exist/i.test(err?.message || '');
+
 app.get('/api/living-dna/questions', authMiddleware, async (req, res) => {
   try {
     const r = await query(
@@ -2523,6 +2532,7 @@ app.get('/api/living-dna/questions', authMiddleware, async (req, res) => {
     );
     res.json(r.rows);
   } catch (err) {
+    if (isMissingLivingDnaTable(err)) return res.status(503).json({ error: LIVING_DNA_NOT_READY });
     res.status(500).json({ error: 'Failed to load questions' });
   }
 });
@@ -2549,6 +2559,7 @@ app.get('/api/living-dna/me', authMiddleware, async (req, res) => {
       complete: answers.rows.length === total.rows[0].n,
     });
   } catch (err) {
+    if (isMissingLivingDnaTable(err)) return res.status(503).json({ error: LIVING_DNA_NOT_READY });
     res.status(500).json({ error: 'Failed to load your Living DNA' });
   }
 });
@@ -2595,6 +2606,7 @@ app.put('/api/living-dna/answers', authMiddleware, async (req, res) => {
       complete: after.rows[0].n === total.rows[0].n,
     });
   } catch (err) {
+    if (isMissingLivingDnaTable(err)) return res.status(503).json({ error: LIVING_DNA_NOT_READY });
     res.status(500).json({ error: 'Failed to save answers' });
   }
 });
@@ -2618,6 +2630,7 @@ app.put('/api/living-dna/sharing', authMiddleware, async (req, res) => {
     );
     res.json({ ok: true, share_preferences, share_boundaries });
   } catch (err) {
+    if (isMissingLivingDnaTable(err)) return res.status(503).json({ error: LIVING_DNA_NOT_READY });
     res.status(500).json({ error: 'Failed to save sharing settings' });
   }
 });
@@ -2698,6 +2711,7 @@ app.get('/api/living-dna/compare/:userId', authMiddleware, async (req, res) => {
       note: 'A side-by-side view of the answers you have both chosen to share. It is not a prediction of how well you will get along.',
     });
   } catch (err) {
+    if (isMissingLivingDnaTable(err)) return res.status(503).json({ error: LIVING_DNA_NOT_READY });
     res.status(500).json({ error: 'Failed to build comparison' });
   }
 });
@@ -2733,6 +2747,7 @@ app.get('/api/living-dna/constitution/:userId', authMiddleware, async (req, res)
       agreedRules: agreed,
     });
   } catch (err) {
+    if (isMissingLivingDnaTable(err)) return res.status(503).json({ error: LIVING_DNA_NOT_READY });
     res.status(500).json({ error: 'Failed to load the Living Constitution' });
   }
 });
@@ -2778,6 +2793,7 @@ app.post('/api/living-dna/constitution/:userId/rules', authMiddleware, async (re
     );
     res.status(201).json({ ok: true, rule: r.rows[0], acceptanceReset: true });
   } catch (err) {
+    if (isMissingLivingDnaTable(err)) return res.status(503).json({ error: LIVING_DNA_NOT_READY });
     res.status(500).json({ error: 'Failed to propose rule' });
   }
 });
@@ -2811,6 +2827,7 @@ app.post('/api/living-dna/constitution/:userId/accept', authMiddleware, async (r
       mutuallyAccepted: ids.includes(Number(req.userId)) && ids.includes(other),
     });
   } catch (err) {
+    if (isMissingLivingDnaTable(err)) return res.status(503).json({ error: LIVING_DNA_NOT_READY });
     res.status(500).json({ error: 'Failed to record acceptance' });
   }
 });

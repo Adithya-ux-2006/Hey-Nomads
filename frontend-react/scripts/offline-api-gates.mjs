@@ -22,7 +22,7 @@ process.env.DATABASE_URL = 'postgres://offline:offline@127.0.0.1:9/offline_never
 delete process.env.BLOB_READ_WRITE_TOKEN;
 
 const mode = process.argv[2];
-assert.ok(['upload', 'likes', 'genderprefs', 'age', 'notifications'].includes(mode), 'usage: offline-api-gates.mjs <upload|likes|genderprefs|age|notifications>');
+assert.ok(['upload', 'likes', 'genderprefs', 'age', 'notifications', 'livingdna'].includes(mode), 'usage: offline-api-gates.mjs <upload|likes|genderprefs|age|notifications|livingdna>');
 
 const { default: handler } = await import('../api/index.js');
 const { default: jwt } = await import('jsonwebtoken');
@@ -235,6 +235,63 @@ try {
     assert.ok(api.includes("type: 'match'"), 'a match must record a notification');
     assert.ok(existsSync(new URL('../api/notifications.mjs', import.meta.url)), 'the pure module must exist');
     assert.ok(existsSync(new URL('../tests/offline/notifications.test.mjs', import.meta.url)), 'notification tests must exist');
+  }
+
+  if (mode === 'livingdna') {
+    // Every Living DNA route must reject unauthenticated calls before any
+    // query: the database in this process is unreachable, so a 401 (not a 500)
+    // proves auth runs first.
+    const GET_ROUTES = ['/api/living-dna/questions', '/api/living-dna/me',
+      '/api/living-dna/compare/1', '/api/living-dna/constitution/1'];
+    for (const path of GET_ROUTES) {
+      const res = await get(path);
+      assert.equal(res.status, 401, `${path} must 401 without a token`);
+      assert.equal((await jsonOf(res)).error, 'No token provided');
+    }
+    const PUT_ROUTES = ['/api/living-dna/answers', '/api/living-dna/sharing'];
+    for (const path of PUT_ROUTES) {
+      const res = await request(path, { method: 'PUT' });
+      assert.equal(res.status, 401, `${path} must 401 without a token`);
+    }
+    const POST_ROUTES = ['/api/living-dna/constitution/1/rules', '/api/living-dna/constitution/1/accept'];
+    for (const path of POST_ROUTES) {
+      const res = await post(path);
+      assert.equal(res.status, 401, `${path} must 401 without a token`);
+    }
+
+    // A PUT with a malformed body must 400 before any query runs — the array
+    // guard sits ahead of the first database access.
+    let res = await request('/api/living-dna/answers', {
+      method: 'PUT',
+      body: JSON.stringify({ answers: 'nope' }),
+      headers: { 'content-type': 'application/json', ...auth },
+    });
+    assert.equal(res.status, 400, 'non-array answers must 400 before any DB access');
+    assert.ok((await jsonOf(res)).error.includes('array'), 'the 400 must name the expected shape');
+
+    // Same for the sharing consent guard.
+    res = await request('/api/living-dna/sharing', {
+      method: 'PUT',
+      body: JSON.stringify({ share_preferences: 'yes', share_boundaries: false }),
+      headers: { 'content-type': 'application/json', ...auth },
+    });
+    assert.equal(res.status, 400, 'non-boolean sharing must 400 before any DB access');
+
+    // Structural: every handler answers 503 honestly when the migration has
+    // not been applied, rather than a generic 500 that reads like data loss.
+    const api = readFileSync(new URL('../api/index.js', import.meta.url), 'utf8');
+    const starts = [...api.matchAll(/app\.(get|put|post)\('\/api\/living-dna\//g)].map(m => m.index);
+    assert.ok(starts.length >= 7, `expected at least 7 living-dna routes, found ${starts.length}`);
+    for (const start of starts) {
+      const next = api.indexOf('\napp.', start + 1);
+      const body = api.slice(start, next === -1 ? api.length : next);
+      assert.ok(body.includes('isMissingLivingDnaTable(err)'),
+        'every living-dna handler must map a missing table to a 503');
+    }
+    assert.ok(api.includes('LIVING_DNA_NOT_READY'), 'the honest copy must be shared across handlers');
+    // Consent must be checked before any answer row is read.
+    assert.ok(api.includes("status(403).json({ error: 'They have not chosen to share"),
+      'compare must refuse before reading answers when they have not shared');
   }
 
   process.exitCode = 0;
