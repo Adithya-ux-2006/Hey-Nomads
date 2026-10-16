@@ -22,7 +22,7 @@ process.env.DATABASE_URL = 'postgres://offline:offline@127.0.0.1:9/offline_never
 delete process.env.BLOB_READ_WRITE_TOKEN;
 
 const mode = process.argv[2];
-assert.ok(['upload', 'likes', 'genderprefs'].includes(mode), 'usage: offline-api-gates.mjs <upload|likes|genderprefs>');
+assert.ok(['upload', 'likes', 'genderprefs', 'age', 'notifications'].includes(mode), 'usage: offline-api-gates.mjs <upload|likes|genderprefs|age|notifications>');
 
 const { default: handler } = await import('../api/index.js');
 const { default: jwt } = await import('jsonwebtoken');
@@ -163,6 +163,78 @@ try {
     assert.ok(api.includes('LEFT JOIN preferences pref2'), 'candidates query must join preferences');
     assert.ok(api.includes("from './gender-prefs.mjs'"), 'the API must import the pure module');
     assert.ok(existsSync(new URL('../tests/offline/gender-prefs.test.mjs', import.meta.url)), 'predicate tests must exist');
+  }
+
+  if (mode === 'age') {
+    // Onboarding must reject an invalid DOB with a 400 and a message naming
+    // the field, before the handler writes anything. The database behind this
+    // process is unreachable, so a 400 (not a 500) proves validation ran first.
+    let res = await post('/api/onboarding', JSON.stringify({ date_of_birth: '2020-02-30' }),
+      { 'content-type': 'application/json', ...auth });
+    assert.equal(res.status, 400, 'impossible DOB must 400');
+    const body400 = await jsonOf(res);
+    assert.ok(body400.error && body400.error.length > 0, 'the 400 must carry copy');
+    assert.ok(body400.error !== 'Failed to save onboarding', 'a validation failure must not use the generic 500 message');
+
+    // Under-age DOB is rejected with the minimum age named.
+    res = await post('/api/onboarding', JSON.stringify({ date_of_birth: '2020-01-01' }),
+      { 'content-type': 'application/json', ...auth });
+    assert.equal(res.status, 400, 'under-age DOB must 400');
+    assert.ok((await jsonOf(res)).error.includes('18'), 'the message must name the minimum age');
+
+    // A future DOB is rejected.
+    res = await post('/api/onboarding', JSON.stringify({ date_of_birth: '2999-01-01' }),
+      { 'content-type': 'application/json', ...auth });
+    assert.equal(res.status, 400, 'future DOB must 400');
+
+    // Positive control: a valid DOB passes the gate and reaches the query
+    // layer, which fails with ECONNREFUSED → 500 here. That contrast is what
+    // proves the 400s above came from validation, not from the database.
+    res = await post('/api/onboarding', JSON.stringify({ date_of_birth: '2000-05-15' }),
+      { 'content-type': 'application/json', ...auth });
+    assert.equal(res.status, 500, 'valid DOB proceeds to the (unreachable) DB layer');
+
+    // The same gate on the profile editor, so the two entry points cannot
+    // disagree about what counts as a valid date.
+    res = await post('/api/profile', JSON.stringify({ dateOfBirth: '2020-02-30' }),
+      { 'content-type': 'application/json', ...auth });
+    assert.equal(res.status, 400, 'profile editor must also reject an impossible DOB');
+
+    // Structural: the pure module exists, is imported by the API, and has tests.
+    const api = readFileSync(new URL('../api/index.js', import.meta.url), 'utf8');
+    assert.ok(api.includes("from './age.mjs'"), 'the API must import the pure age module');
+    assert.ok(api.includes('validateDob('), 'onboarding must validate the DOB');
+    assert.ok(api.includes("setUser('age', derivedAge)"), 'age must be derived from the DOB, not typed');
+    assert.ok(existsSync(new URL('../api/age.mjs', import.meta.url)), 'the pure module must exist');
+    assert.ok(existsSync(new URL('../tests/offline/age.test.mjs', import.meta.url)), 'age tests must exist');
+  }
+
+  if (mode === 'notifications') {
+    // Every notifications route must reject unauthenticated calls before any
+    // query: the database in this process is unreachable, so a 401 (not a 500)
+    // proves auth runs first.
+    for (const path of ['/api/notifications', '/api/notifications/unread-count']) {
+      const res = await get(path);
+      assert.equal(res.status, 401, `${path} must 401 without a token`);
+      assert.equal((await jsonOf(res)).error, 'No token provided');
+    }
+    for (const path of ['/api/notifications/1/read', '/api/notifications/read-all']) {
+      const res = await post(path);
+      assert.equal(res.status, 401, `${path} must 401 without a token`);
+    }
+
+    // Structural: the routes exist behind auth, the pure module is imported,
+    // message/like/match all call the recorder, and the tests exist.
+    const api = readFileSync(new URL('../api/index.js', import.meta.url), 'utf8');
+    assert.ok(api.includes("app.get('/api/notifications', authMiddleware"), 'list route must exist behind auth');
+    assert.ok(api.includes("app.get('/api/notifications/unread-count', authMiddleware"), 'unread-count route must exist behind auth');
+    assert.ok(api.includes("app.post('/api/notifications/read-all', authMiddleware"), 'read-all route must exist behind auth');
+    assert.ok(api.includes("from './notifications.mjs'"), 'the API must import the pure module');
+    assert.ok(api.includes("type: 'message'"), 'a new message must record a notification');
+    assert.ok(api.includes("type: 'like'"), 'a like must record a notification');
+    assert.ok(api.includes("type: 'match'"), 'a match must record a notification');
+    assert.ok(existsSync(new URL('../api/notifications.mjs', import.meta.url)), 'the pure module must exist');
+    assert.ok(existsSync(new URL('../tests/offline/notifications.test.mjs', import.meta.url)), 'notification tests must exist');
   }
 
   process.exitCode = 0;

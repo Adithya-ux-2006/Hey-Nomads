@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { exitDemo, isDemo, onDemoChange } from '../lib/demoMode';
 import { endTour } from '../lib/tour';
 import Navbar from './Navbar';
+import NotificationBell from './NotificationBell';
 import TourOverlay from './TourOverlay';
 
 export default function Layout({ children, className = '' }) {
@@ -34,6 +35,9 @@ export default function Layout({ children, className = '' }) {
           </button>
         </div>
       )}
+      {/* Fixed top-right, so it never collides with page content or the bottom
+          navbar; it hides itself in demo mode and when signed out. */}
+      <NotificationBell />
       <div className={`pb-28 ${className}`}>
         {children}
       </div>

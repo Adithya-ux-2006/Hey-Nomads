@@ -10,6 +10,7 @@ import {
   makeRetention,
   indexedDbKv,
 } from '../lib/photoUpload'
+import { validateDob, ageFromDob, MIN_AGE } from '../../api/age.mjs'
 
 const INTERESTS = [
   { id: 'sports', label: 'Sports', icon: '⚽' },
@@ -62,7 +63,7 @@ export default function EditProfilePage() {
   if (!retentionRef.current) retentionRef.current = makeRetention(indexedDbKv())
 
   const [form, setForm] = useState({
-    name: '', age: '', gender: '', bio: '', occupation: '', university: '',
+    name: '', dateOfBirth: '', gender: '', bio: '', occupation: '', university: '',
     city: '', movingTo: '', country: '', moveInDate: '', neighbourhood: '', preferredNeighbourhood: '',
     sleepTime: 'flexible', cleanliness: 3, diet: 'veg',
     noiseTolerance: 'moderate', noiseLevel: 3,
@@ -73,6 +74,11 @@ export default function EditProfilePage() {
     preferredGender: 'unspecified', preferredBudgetMin: '', preferredBudgetMax: '',
     profileImage: '',
   })
+
+  // Age is never typed: it is derived from the date of birth, so it cannot
+  // drift out of sync with the real value the server computes. A missing or
+  // invalid date shows as "Add your date of birth" rather than an empty box.
+  const age = form.dateOfBirth ? ageFromDob(form.dateOfBirth) : null
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -92,7 +98,9 @@ export default function EditProfilePage() {
           setForm(f => ({
             ...f,
             name: profile.name || '',
-            age: profile.age || '',
+            // The profile GET derives age from date_of_birth on the server, so
+            // this stays correct without the form doing its own arithmetic.
+            dateOfBirth: profile.date_of_birth ? profile.date_of_birth.split('T')[0] : '',
             gender: profile.gender || '',
             bio: profile.bio || '',
             occupation: profile.occupation || '',
@@ -322,7 +330,7 @@ export default function EditProfilePage() {
           neighbourhood: form.neighbourhood,
           preferredNeighbourhood: form.preferredNeighbourhood,
           gender: form.gender,
-          age: form.age ? parseInt(form.age) : null,
+          dateOfBirth: form.dateOfBirth || null,
           movingTo: form.movingTo,
           movingDate: form.moveInDate || null,
           university: form.university,
@@ -384,8 +392,18 @@ export default function EditProfilePage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className={labelCls} htmlFor="f-age">Age</label>
-                  <input id="f-age" type="number" className={inputCls} placeholder="25" value={form.age} onChange={e => set('age', e.target.value)} />
+                  <label className={labelCls} htmlFor="f-dob">Date of birth</label>
+                  <input id="f-dob" type="date" max={new Date().toISOString().slice(0, 10)}
+                    className={inputCls} value={form.dateOfBirth}
+                    onChange={e => set('dateOfBirth', e.target.value)} />
+                  <p className="text-xs text-text-muted mt-1.5">
+                    {age != null
+                      ? `Age ${age}. We calculate this from your date of birth, so it stays correct as you get older.`
+                      : `Your age is calculated from this, so it stays correct. You must be ${MIN_AGE} or over.`}
+                  </p>
+                  {form.dateOfBirth && !validateDob(form.dateOfBirth).ok && (
+                    <p className="text-sm text-status-error mt-1">{validateDob(form.dateOfBirth).error}</p>
+                  )}
                 </div>
                 <div>
                   <label className={labelCls} htmlFor="f-gender">My gender</label>

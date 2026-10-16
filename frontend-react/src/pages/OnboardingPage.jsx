@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { InlineError } from '../components/UI';
+import { validateDob, MIN_AGE } from '../../api/age.mjs';
 
 const INTERESTS = [
   { id: 'sports', label: 'Sports', icon: '⚽' },
@@ -33,6 +34,9 @@ export default function OnboardingPage() {
   const [cities, setCities] = useState([]);
   const [citiesLoading, setCitiesLoading] = useState(true);
   const [data, setData] = useState({
+    date_of_birth: '',
+    gender: '',
+    preferred_gender: 'unspecified',
     looking_for: 'both',
     moving_to: '',
     moving_date: '',
@@ -46,6 +50,12 @@ export default function OnboardingPage() {
     diet: 'veg',
     interests: [],
   });
+  // DOB is validated in the module the API also uses, so onboarding and the
+  // profile editor can never disagree about what counts as a valid date or a
+  // legal age. The server re-validates anyway; this is the "tell them now
+  // instead of after submit" copy.
+  const dobCheck = data.date_of_birth ? validateDob(data.date_of_birth) : null;
+  const dobInvalid = dobCheck != null && !dobCheck.ok;
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState(null);
 
@@ -69,7 +79,63 @@ export default function OnboardingPage() {
   };
 
   const steps = [
-    // Step 0: What are you looking for?
+    // Step 0: About you. Age is derived from DOB on the server, so this step
+    // must exist before matching can run a gender filter or show an age: it is
+    // the only place either is collected, and leaving it out meant a new
+    // account was unmatchable until it found Edit Profile by accident.
+    {
+      title: 'About you',
+      subtitle: 'Your age and who you want to meet',
+      content: (
+        <div className="space-y-6 mt-6">
+          <div>
+            <label htmlFor="ob-dob" className="text-sm font-semibold text-text-primary mb-2 block">
+              Date of birth
+            </label>
+            <input
+              id="ob-dob"
+              type="date"
+              max={new Date().toISOString().slice(0, 10)}
+              value={data.date_of_birth}
+              onChange={e => update('date_of_birth', e.target.value)}
+              className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral transition-all"
+            />
+            <p className="text-xs text-text-muted mt-1.5">
+              We calculate your age from this; you never type a number. You must be {MIN_AGE} or over.
+            </p>
+            {dobInvalid && (
+              <p className="text-sm text-status-error mt-2" role="alert">{dobCheck.error}</p>
+            )}
+          </div>
+          <div>
+            <label className="text-sm font-semibold text-text-primary mb-2 block">Gender</label>
+            <div className="flex flex-wrap gap-2">
+              {[{ v: 'female', l: 'Female' }, { v: 'male', l: 'Male' }, { v: 'nonbinary', l: 'Non-binary' }, { v: 'other', l: 'Other' }].map(o => (
+                <button key={o.v} type="button" onClick={() => update('gender', o.v)}
+                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${data.gender === o.v ? 'bg-brand-coral text-white' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral'}`}>
+                  {o.l}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-semibold text-text-primary mb-2 block">I'd like to meet</label>
+            <div className="flex flex-wrap gap-2">
+              {[{ v: 'female', l: 'Women' }, { v: 'male', l: 'Men' }, { v: 'all', l: 'Everyone' }, { v: 'unspecified', l: "I'm not sure yet" }].map(o => (
+                <button key={o.v} type="button" onClick={() => update('preferred_gender', o.v)}
+                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${data.preferred_gender === o.v ? 'bg-brand-coral text-white' : 'bg-white border border-surface-border text-text-secondary hover:border-brand-coral/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral'}`}>
+                  {o.l}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-text-muted mt-1.5">
+              Both sides have to be open to it, so you only ever see people you could both meet.
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    // Step 1: What are you looking for?
     {
       title: 'What are you looking for?',
       subtitle: 'Help us personalize your experience',
@@ -218,10 +284,20 @@ export default function OnboardingPage() {
     },
   ];
 
+  // New step 0 blocks Continue until it is complete; interests still needs 3.
+  // Gender and DOB are the two fields matching actually depends on, so neither
+  // can be skipped past.
+  const aboutStepDone = Boolean(data.gender) && Boolean(data.date_of_birth) && !dobInvalid;
+  const stepBlocked = step === 0 ? !aboutStepDone : step === steps.length - 1 && data.interests.length < 3;
+
   const handleSubmit = async () => {
     setLoading(true);
     setSubmitError(null);
     try {
+      // Re-validate immediately before the request: the disable state can go
+      // stale if the user edits the date and clicks fast.
+      const check = validateDob(data.date_of_birth);
+      if (!check.ok) { setSubmitError(check.error); return; }
       await apiFetch('/onboarding', { method: 'POST', body: data });
       navigate('/discover', { replace: true });
     } catch (err) {
@@ -290,7 +366,7 @@ export default function OnboardingPage() {
           <button
             type="button"
             onClick={() => step < steps.length - 1 ? setStep(s => s + 1) : handleSubmit()}
-            disabled={loading || (step === 4 && data.interests.length < 3)}
+            disabled={loading || stepBlocked}
             className="flex-1 px-5 py-3 rounded-xl bg-brand-coral hover:bg-brand-coral-dark text-white font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral focus-visible:ring-offset-2"
           >
             {loading
@@ -300,7 +376,16 @@ export default function OnboardingPage() {
                 : 'Continue'}
           </button>
         </div>
-        {step === 4 && data.interests.length < 3 && (
+        {step === 0 && !aboutStepDone && (
+          <p className="text-sm text-text-muted mt-2 text-center">
+            {!data.date_of_birth
+              ? 'Add your date of birth so we can calculate your age.'
+              : !data.gender
+                ? 'Pick your gender to continue.'
+                : dobCheck?.error}
+          </p>
+        )}
+        {step === steps.length - 1 && data.interests.length < 3 && (
           <p className="text-sm text-text-muted mt-2 text-center">
             Pick {3 - data.interests.length} more so we can find people who share them.
           </p>

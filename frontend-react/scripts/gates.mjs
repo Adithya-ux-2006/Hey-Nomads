@@ -20,6 +20,15 @@ if (arg === 'lint') {
   run('npx', ['eslint', '.', '--max-warnings=0'], 'GATE_LINT_OK');
 } else if (arg === 'build') {
   run('npx', ['vite', 'build'], 'GATE_BUILD_OK');
+} else if (arg === 'age') {
+  // The pure module's unit tests plus the offline API gate. The unit tests are
+  // what assert the calendar edge cases; the API gate is what proves the
+  // validation actually sits in front of the database.
+  run('node', ['--test', 'tests/offline/age.test.mjs'], 'GATE_AGE_UNIT_OK');
+  run('node', ['scripts/offline-api-gates.mjs', 'age'], 'GATE_AGE_API_OK');
+} else if (arg === 'notifications') {
+  run('node', ['--test', 'tests/offline/notifications.test.mjs'], 'GATE_NOTIF_UNIT_OK');
+  run('node', ['scripts/offline-api-gates.mjs', 'notifications'], 'GATE_NOTIF_API_OK');
 } else if (arg === 'demo') {
   // Demo Mode is a tour of the real screens, asserted from source rather than
   // from a screenshot: the contract is which modules are wired to which.

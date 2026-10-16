@@ -17,6 +17,8 @@ import { mountPresentation } from './presentation.mjs';
 import { validateUpload, MAX_UPLOAD_BYTES } from './upload-guards.mjs';
 import { sentLikesQuery, receivedLikesQuery } from './likes-queries.mjs';
 import { normalizeGenderPref, feedGenderFilterSql, GENDER_PREF_VALUES } from './gender-prefs.mjs';
+import { validateDob, ageFromDob } from './age.mjs';
+import { buildNotification } from './notifications.mjs';
 
 // No DSN => the SDK stays inert. Set SENTRY_DSN on Vercel to turn reporting on.
 Sentry.init({
@@ -360,7 +362,26 @@ app.post('/api/onboarding', authMiddleware, async (req, res) => {
       looking_for, moving_to, moving_date, interests,
       budget, flat_type, cleanliness, sleep_time, social_level,
       smoking, drinking, diet,
+      date_of_birth, gender, preferred_gender,
     } = req.body;
+
+    // Age is derived from DOB, never a free-text number, so it cannot go stale
+    // or be forged. Unknown/invalid DOB fails closed here before any write.
+    let derivedAge = null;
+    if (date_of_birth != null && date_of_birth !== '') {
+      const v = validateDob(date_of_birth);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      derivedAge = v.age;
+    }
+
+    // Gender preference goes through the same normalizer the profile editor
+    // uses, so onboarding and Edit Profile can never store different vocabularies
+    // and the feed filter sees one canonical set of values.
+    let normalizedPref = null;
+    if (preferred_gender != null && preferred_gender !== '') {
+      normalizedPref = normalizeGenderPref(preferred_gender);
+      if (!normalizedPref) return res.status(400).json({ error: 'preferred_gender must be one of: female, male, all, unspecified' });
+    }
 
     // users table: the move itself.
     const userUpdates = [];
@@ -372,6 +393,11 @@ app.post('/api/onboarding', authMiddleware, async (req, res) => {
     if (moving_to) setUser('moving_to', String(moving_to).trim().slice(0, 100));
     if (moving_date) setUser('moving_date', moving_date === 'null' ? null : moving_date);
     if (Array.isArray(interests)) setUser('interests', interests);
+    if (date_of_birth != null && date_of_birth !== '') {
+      setUser('date_of_birth', date_of_birth);
+      setUser('age', derivedAge);
+    }
+    if (gender != null && gender !== '') setUser('gender', gender);
 
     // Country comes from the chosen city rather than a separate question, so
     // it can never disagree with moving_to.
@@ -409,6 +435,17 @@ app.post('/api/onboarding', authMiddleware, async (req, res) => {
       await query('INSERT INTO profiles (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING', [req.userId]);
       profileParams.push(req.userId);
       await query(`UPDATE profiles SET ${profileUpdates.join(', ')} WHERE user_id = $${pidx}`, profileParams);
+    }
+
+    // The gender preference lives on the preferences row, not the profile, and
+    // must go through the same COALESCE guard the profile editor uses: an
+    // omitted value has to leave the stored one alone rather than blanking it,
+    // which would silently un-filter the feed on a partial save.
+    if (normalizedPref != null) {
+      await query(
+        'UPDATE preferences SET preferred_gender = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
+        [normalizedPref, req.userId]
+      );
     }
 
     await query('UPDATE users SET onboarding_complete = TRUE WHERE id = $1', [req.userId]);
@@ -501,7 +538,7 @@ app.get('/api/profile/:userId', authMiddleware, async (req, res) => {
   try {
     const { userId } = req.params;
     const result = await query(
-      `SELECT u.id, u.name, u.email, u.age, u.moving_to, u.moving_date,
+      `SELECT u.id, u.name, u.email, u.age, u.date_of_birth, u.moving_to, u.moving_date,
               u.university, u.country, u.interests, u.verification_status,
               u.looking_for, u.created_at,
               p.bio, p.occupation, p.city, p.profile_image, p.move_in_date,
@@ -522,6 +559,12 @@ app.get('/api/profile/:userId', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
     const profile = result.rows[0];
+    // Age is derived from DOB when present so it can never go stale; the
+    // stored `age` column is only a legacy fallback for rows with no DOB yet.
+    if (profile.date_of_birth) {
+      const derived = ageFromDob(profile.date_of_birth);
+      if (derived != null) profile.age = derived;
+    }
     const langs = await query(
       `SELECT l.id, l.name FROM languages l
        JOIN user_languages ul ON l.id = ul.language_id
@@ -561,7 +604,8 @@ app.post('/api/profile', authMiddleware, async (req, res) => {
       prefersSameDiet, prefersSameSleep,
       socialLevel, pets, workSchedule,
       neighbourhood, preferredNeighbourhood, gender,
-      age, movingTo, movingDate, university, country, interests
+      age, movingTo, movingDate, university, country, interests,
+      dateOfBirth,
     } = req.body;
 
     const safeStr = v => v == null ? '' : String(v).trim();
@@ -581,11 +625,33 @@ app.post('/api/profile', authMiddleware, async (req, res) => {
       }
     }
 
+    // Date of birth is the source of truth for age. When it is supplied we
+    // ignore any free-text `age` in the body and recompute, so a client cannot
+    // send a DOB and a mismatched age. Invalid DOB fails closed with 400 and
+    // writes nothing. When DOB is not supplied we leave both columns alone so
+    // an unrelated profile edit never clears a stored DOB or corrupts age.
+    let dobAge = null;
+    if (dateOfBirth != null && dateOfBirth !== '') {
+      const v = validateDob(dateOfBirth);
+      if (!v.ok) return res.status(400).json({ error: v.error });
+      dobAge = v.age;
+    }
+
     // Update user-level fields
     const userUpdates = [];
     const userParams = [];
     let idx = 1;
-    if (age !== undefined) { userUpdates.push(`age = $${idx++}`); userParams.push(safeInt(age, null)); }
+    if (dobAge !== null) {
+      userUpdates.push(`date_of_birth = $${idx++}`); userParams.push(dateOfBirth);
+      userUpdates.push(`age = $${idx++}`); userParams.push(dobAge);
+    } else if (age !== undefined) {
+      // Legacy path: a bare age with no DOB. Keep it, but only if it is a sane
+      // number; an age of 0 or a non-integer is dropped rather than stored.
+      const parsedAge = parseInt(age, 10);
+      if (!Number.isNaN(parsedAge) && parsedAge >= 13 && parsedAge <= 120) {
+        userUpdates.push(`age = $${idx++}`); userParams.push(parsedAge);
+      }
+    }
     if (movingTo !== undefined) { userUpdates.push(`moving_to = $${idx++}`); userParams.push(safeStr(movingTo)); }
     if (movingDate !== undefined) { userUpdates.push(`moving_date = $${idx++}`); userParams.push(safeDate(movingDate)); }
     if (university !== undefined) { userUpdates.push(`university = $${idx++}`); userParams.push(safeStr(university)); }
@@ -1061,6 +1127,38 @@ async function actorIsRealUser(userId) {
   return r.rows.length > 0 && await isRealRow(r.rows[0]);
 }
 
+// Best-effort notification write. A bell entry is a courtesy, never a reason to
+// fail the user's actual action, so every failure path resolves to null and the
+// caller keeps its own success response. find-or-bump-or-insert keeps the
+// (recipient, type, dedup_key) row unique: a repeated like or a chatty thread
+// updates created_at and clears read_at (so it re-surfaces as unread) instead
+// of stacking a new row. read_at IS NULL partial unique index makes the
+// re-bump race-safe; the ON CONFLICT race is caught and retried once.
+async function recordNotification({ recipientId, actorId, type, ids }) {
+  const n = buildNotification({ recipientId, actorId, type, ids });
+  if (!n) return null;
+  try {
+    const updated = await query(
+      `UPDATE notifications SET created_at = CURRENT_TIMESTAMP, read_at = NULL
+       WHERE recipient_id = $1 AND type = $2 AND dedup_key = $3`,
+      [n.recipientId, n.type, n.dedupKey]
+    );
+    if (updated.rowCount > 0) return n;
+    await query(
+      `INSERT INTO notifications (recipient_id, actor_id, type, dedup_key)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT DO NOTHING`,
+      [n.recipientId, n.actorId, n.type, n.dedupKey]
+    );
+    return n;
+  } catch (err) {
+    // Most likely the notifications table does not exist yet (migration not
+    // applied). Swallow it; the user's like/message/match already succeeded.
+    console.error('recordNotification (non-fatal):', err.message);
+    return null;
+  }
+}
+
 // ── Demo Mode ────────────────────────────────────────────────
 // Read-only. Deliberately exposes no write path: demo liking, chatting and
 // agreeing happen in the client so a demo interaction can never create a real
@@ -1328,7 +1426,15 @@ app.post('/api/swipe', authMiddleware, async (req, res) => {
           await query('INSERT INTO conversation_members (conversation_id, user_id) VALUES ($1, $2), ($1, $3)', [convId, ua, ub]);
 
           matchCreated = true;
+
+          // Both sides learn about the new match. Symmetric, so both get a
+          // bell entry; best-effort only (see recordNotification).
+          await recordNotification({ recipientId: ua, actorId: ub, type: 'match', ids: { userAId: ua, userBId: ub } });
+          await recordNotification({ recipientId: ub, actorId: ua, type: 'match', ids: { userAId: ua, userBId: ub } });
         }
+      } else {
+        // No mutual like yet: the target simply learns someone liked them.
+        await recordNotification({ recipientId: targetId, actorId: req.userId, type: 'like', ids: { actorId: req.userId } });
       }
     }
 
@@ -1498,6 +1604,77 @@ app.post('/api/conversations/:otherUserId/read', authMiddleware, async (req, res
   }
 });
 
+// ── Notifications ─────────────────────────────────────────────
+// Paginated bell feed. Actor join is LEFT so a notification whose actor deleted
+// their account still renders (as "Someone") instead of vanishing and leaving a
+// gap the user cannot explain.
+
+app.get('/api/notifications', authMiddleware, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 100);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const result = await query(
+      `SELECT n.id, n.type, n.read_at, n.created_at, n.actor_id,
+              a.name AS actor_name, p.profile_image AS actor_image
+       FROM notifications n
+       LEFT JOIN users a ON a.id = n.actor_id
+       LEFT JOIN profiles p ON p.user_id = n.actor_id
+       WHERE n.recipient_id = $1
+       ORDER BY n.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [req.userId, limit, offset]
+    );
+    const unread = await query(
+      'SELECT COUNT(*)::int AS c FROM notifications WHERE recipient_id = $1 AND read_at IS NULL',
+      [req.userId]
+    );
+    res.json({ notifications: result.rows, unreadCount: unread.rows[0].c });
+  } catch (err) {
+    console.error('Get notifications error:', err);
+    res.status(500).json({ error: 'Failed to get notifications' });
+  }
+});
+
+// Unread count only — cheap enough for the bell to poll on a timer.
+app.get('/api/notifications/unread-count', authMiddleware, async (req, res) => {
+  try {
+    const r = await query(
+      'SELECT COUNT(*)::int AS c FROM notifications WHERE recipient_id = $1 AND read_at IS NULL',
+      [req.userId]
+    );
+    res.json({ unreadCount: r.rows[0].c });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get unread count' });
+  }
+});
+
+// Mark one notification read. Scoped to recipient so one user can never mark
+// another user's row.
+app.post('/api/notifications/:id/read', authMiddleware, async (req, res) => {
+  try {
+    await query(
+      'UPDATE notifications SET read_at = CURRENT_TIMESTAMP WHERE id = $1 AND recipient_id = $2 AND read_at IS NULL',
+      [req.params.id, req.userId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to mark notification read' });
+  }
+});
+
+// Mark everything read — the "clear the bell" action.
+app.post('/api/notifications/read-all', authMiddleware, async (req, res) => {
+  try {
+    await query(
+      'UPDATE notifications SET read_at = CURRENT_TIMESTAMP WHERE recipient_id = $1 AND read_at IS NULL',
+      [req.userId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to mark all read' });
+  }
+});
+
 app.post('/api/messages', authMiddleware, async (req, res) => {
   try {
     const { receiver_id, message } = req.body;
@@ -1537,6 +1714,10 @@ app.post('/api/messages', authMiddleware, async (req, res) => {
     );
 
     await query('UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [convId]);
+
+    // Best-effort: notify the receiver that a new message arrived. Non-fatal by
+    // design (see recordNotification) so a missing table never fails the send.
+    await recordNotification({ recipientId: receiver_id, actorId: req.userId, type: 'message', ids: { conversationId: convId } });
 
     res.status(201).json({ id: result.rows[0].id, content: result.rows[0].content, created_at: result.rows[0].created_at });
   } catch (err) {
