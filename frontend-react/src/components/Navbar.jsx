@@ -14,7 +14,6 @@ const navItems = [
 ];
 
 const secondaryItems = [
-  { to: '/matches', label: 'Matches' },
   { to: '/shortlist', label: 'Shortlist' },
   { to: '/agreements', label: 'Agreements' },
   { to: '/living-dna', label: 'Living DNA' },
@@ -82,10 +81,12 @@ export default function Navbar() {
           ))}
         </div>
 
-        {/* Secondary row. Matches, shortlist, events and the settling-in checklist
+        {/* Secondary row. Shortlist, events and the settling-in checklist
           were only reachable from detail pages and fallback branches, which
           made the shortlist in particular impossible to get back to.
-          Seven links cannot fit a 360px phone in one line -- "Log out" sat past
+          Matches now live in the Likes screen's own tab, so the old
+          standalone /matches link is gone.
+          Six links cannot fit a 360px phone in one line -- "Log out" sat past
           the right edge and was unreachable -- so this row wraps instead of
           clipping. Nothing is hidden behind a swipe. */}
         <div className="flex flex-wrap items-center justify-center gap-x-1 pb-1.5">
