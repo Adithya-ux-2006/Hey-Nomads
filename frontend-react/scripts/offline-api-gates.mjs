@@ -22,7 +22,7 @@ process.env.DATABASE_URL = 'postgres://offline:offline@127.0.0.1:9/offline_never
 delete process.env.BLOB_READ_WRITE_TOKEN;
 
 const mode = process.argv[2];
-assert.ok(['upload', 'likes'].includes(mode), 'usage: offline-api-gates.mjs <upload|likes>');
+assert.ok(['upload', 'likes', 'genderprefs'].includes(mode), 'usage: offline-api-gates.mjs <upload|likes|genderprefs>');
 
 const { default: handler } = await import('../api/index.js');
 const { default: jwt } = await import('jsonwebtoken');
@@ -129,6 +129,40 @@ try {
     assert.ok(queries.includes('NOT EXISTS'), 'received must drop answered swipes');
     assert.ok(queries.includes('FROM blocks'), 'blocked pairs must be excluded');
     assert.ok(existsSync(new URL('../tests/offline/likes-queries.test.mjs', import.meta.url)), 'builder tests must exist');
+  }
+
+  if (mode === 'genderprefs') {
+    // Both recommendation routes must reject unauthenticated calls before
+    // any query: the database in this process is unreachable, so a 401
+    // (not a 500) proves auth runs first.
+    for (const path of ['/api/discover', '/api/roommates/recommended']) {
+      const res = await get(path);
+      assert.equal(res.status, 401, `${path} must 401 without a token`);
+      assert.equal((await jsonOf(res)).error, 'No token provided');
+    }
+
+    // An invalid preferredGender must 400 before the handler touches the
+    // database: same authed POST shape, only the value differs.
+    let res = await post('/api/profile', JSON.stringify({ preferredGender: 'robot' }),
+      { 'content-type': 'application/json', ...auth });
+    assert.equal(res.status, 400, 'invalid preferredGender must 400 before any DB access');
+    assert.ok((await jsonOf(res)).error.includes('preferredGender'), 'the 400 must name the field');
+
+    // Positive control: a valid preferredGender passes the gate and reaches
+    // the query layer, which fails with ECONNREFUSED → 500 here. That
+    // contrast is what proves the 400 above came from validation, not from
+    // the unreachable database.
+    res = await post('/api/profile', JSON.stringify({ preferredGender: 'female' }),
+      { 'content-type': 'application/json', ...auth });
+    assert.equal(res.status, 500, 'valid preferredGender proceeds to the (unreachable) DB layer');
+
+    // Structural: the shared feed applies the two-sided filter, the
+    // candidates query joins preferences, and the pure predicate has tests.
+    const api = readFileSync(new URL('../api/index.js', import.meta.url), 'utf8');
+    assert.ok(api.includes('feedGenderFilterSql('), 'getRecommendedRoommates must apply the gender filter');
+    assert.ok(api.includes('LEFT JOIN preferences pref2'), 'candidates query must join preferences');
+    assert.ok(api.includes("from './gender-prefs.mjs'"), 'the API must import the pure module');
+    assert.ok(existsSync(new URL('../tests/offline/gender-prefs.test.mjs', import.meta.url)), 'predicate tests must exist');
   }
 
   process.exitCode = 0;

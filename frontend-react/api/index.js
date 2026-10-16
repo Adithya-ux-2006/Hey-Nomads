@@ -16,6 +16,7 @@ import {
 import { mountPresentation } from './presentation.mjs';
 import { validateUpload, MAX_UPLOAD_BYTES } from './upload-guards.mjs';
 import { sentLikesQuery, receivedLikesQuery } from './likes-queries.mjs';
+import { normalizeGenderPref, feedGenderFilterSql, GENDER_PREF_VALUES } from './gender-prefs.mjs';
 
 // No DSN => the SDK stays inert. Set SENTRY_DSN on Vercel to turn reporting on.
 Sentry.init({
@@ -567,6 +568,19 @@ app.post('/api/profile', authMiddleware, async (req, res) => {
     const safeInt = (v, d) => { const n = parseInt(v); return isNaN(n) ? d : n; };
     const safeDate = v => (!v || v === 'null') ? null : v;
 
+    // Gender-preference write gate. Unknown values fail with 400 before any
+    // query runs, so a bad pref never half-saves or reaches the filter. The
+    // legacy seed value 'no_preference' is still accepted on write and stored
+    // as 'unspecified'; the four canonical values are the only ones kept.
+    if (preferredGender != null && preferredGender !== '') {
+      const g = String(preferredGender).trim().toLowerCase();
+      if (!GENDER_PREF_VALUES.includes(g) && g !== 'no_preference') {
+        return res.status(400).json({
+          error: 'preferredGender must be one of: female, male, all, unspecified',
+        });
+      }
+    }
+
     // Update user-level fields
     const userUpdates = [];
     const userParams = [];
@@ -653,12 +667,16 @@ app.post('/api/profile', authMiddleware, async (req, res) => {
 
     // Preferences
     await query(
-      `UPDATE preferences SET preferred_gender=$1, preferred_budget_min=$2, preferred_budget_max=$3,
+      `UPDATE preferences SET preferred_gender=COALESCE($1::text, preferred_gender), preferred_budget_min=$2, preferred_budget_max=$3,
        preferred_location_radius=$4, prefers_smoking=$5, prefers_drinking=$6,
        prefers_cleanliness_min=$7, prefers_sleep_schedule=$8,
        prefers_same_diet=$9, prefers_same_sleep=$10
        WHERE user_id=$11`,
-      [safeStr(preferredGender)||null, parseInt(preferredBudgetMin)||null, parseInt(preferredBudgetMax)||null,
+      // An omitted preferredGender must not clobber the stored value (the
+      // profiles UPDATE above fixed the same class of bug). The legacy seed
+      // value 'no_preference' is normalized to 'unspecified' on write.
+      [safeStr(preferredGender) ? normalizeGenderPref(preferredGender) : null,
+       parseInt(preferredBudgetMin)||null, parseInt(preferredBudgetMax)||null,
        parseInt(preferredLocationRadius)||10, safeStr(prefersSmoking)||'no_preference',
        safeStr(prefersDrinking)||'no_preference', parseInt(prefersCleanlinessMin)||1,
        safeStr(prefersSleepSchedule)||'no_preference',
@@ -1124,6 +1142,24 @@ let where = `WHERE u.id != $1 AND ${await realOnlySql('u')}`;
       params.push(...swipedSet);
     }
 
+    // Gender preference: a hard two-sided filter, applied in SQL before the
+    // pool LIMIT so an empty feed is never caused by post-filtering. My stated
+    // preference filters each candidate's gender; each candidate's stated
+    // preference filters mine. Unspecified / legacy 'no_preference' / unknown
+    // values impose no restriction on either side, so existing feeds stay
+    // alive. My own gender+pref is one extra single-row query; the candidates'
+    // side rides on the pref2 join below.
+    const me = await query(
+      `SELECT p.gender, pref.preferred_gender
+       FROM users u
+       LEFT JOIN profiles p ON u.id = p.user_id
+       LEFT JOIN preferences pref ON u.id = pref.user_id
+       WHERE u.id = $1`, [req.userId]);
+    const gFilter = feedGenderFilterSql(me.rows[0]?.gender, me.rows[0]?.preferred_gender, idx);
+    where += ` ${gFilter.sql}`;
+    params.push(...gFilter.params);
+    idx = gFilter.nextIdx;
+
     const candidates = await query(
       `SELECT u.id, u.name, u.age, u.interests, u.moving_to, u.country,
               p.bio, p.occupation, p.city, p.profile_image, p.budget, p.deposit,
@@ -1133,6 +1169,7 @@ let where = `WHERE u.id != $1 AND ${await realOnlySql('u')}`;
               p.move_in_date, p.occupants, p.partying
        FROM users u
        LEFT JOIN profiles p ON u.id = p.user_id
+       LEFT JOIN preferences pref2 ON u.id = pref2.user_id
        ${where}
        ORDER BY u.created_at DESC
        LIMIT $${idx++}`,

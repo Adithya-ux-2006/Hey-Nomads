@@ -44,7 +44,7 @@ const attachRoutes = (context, spec) =>
     if (path === '/api/likes/received') return route.fulfill(json(spec.received));
     if (path === '/api/matches') return route.fulfill(json(spec.matches));
     if (path === '/api/languages') return route.fulfill([]);
-    if (path.startsWith('/api/profile/')) return route.fulfill(json(PROFILE));
+    if (path.startsWith('/api/profile/')) return route.fulfill(json(spec.profile || PROFILE));
     if (path === '/api/upload') {
       if (spec.uploadDelayMs) await new Promise(r => setTimeout(r, spec.uploadDelayMs));
       const u = spec.upload;
@@ -57,6 +57,7 @@ const defaultSpec = () => ({
   sent: SENT,
   received: RECEIVED,
   matches: MATCHES,
+  profile: PROFILE,
   upload: { status: 200, body: { url: 'https://blob.test/uploaded.png' } },
   uploadDelayMs: 0,
 });
@@ -239,6 +240,54 @@ async function photoPass(browser) {
   }
 }
 
+// ── Gender-preference selector on the profile editor ───────────
+
+async function genderPrefPass(browser, width) {
+  const EXPECTED_OPTIONS = ['Prefer not to specify', 'Women', 'Men', 'All genders'];
+
+  // 1. No stored preference: the selector defaults to "Prefer not to specify"
+  //    and both labels ("My gender" vs the preference) are present and distinct.
+  {
+    const { context } = await newContext(browser, {
+      spec: { ...defaultSpec(), profile: { ...PROFILE } },
+    });
+    const page = await context.newPage();
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${ORIGIN}/edit-profile`, { waitUntil: 'domcontentloaded' });
+    await text(page, 'Basic Info');
+
+    await text(page, 'My gender');
+    await text(page, 'Who would you prefer to live with?');
+
+    const sel = page.locator('#f-prefGender');
+    await sel.waitFor({ state: 'visible', timeout: 8000 });
+    assert.equal(await sel.inputValue(), 'unspecified', 'must default to Prefer not to specify');
+    assert.deepEqual(await sel.locator('option').allTextContents(), EXPECTED_OPTIONS);
+
+    // Selecting a value updates the form state.
+    await sel.selectOption('female');
+    assert.equal(await sel.inputValue(), 'female');
+
+    await assertNoOverflow(page, width);
+    await context.close();
+  }
+
+  // 2. A stored preference is reflected after load.
+  {
+    const { context, spec } = await newContext(browser);
+    spec.profile = { ...PROFILE, preferred_gender: 'female' };
+    const page = await context.newPage();
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${ORIGIN}/edit-profile`, { waitUntil: 'domcontentloaded' });
+    await text(page, 'Basic Info');
+
+    const sel = page.locator('#f-prefGender');
+    await sel.waitFor({ state: 'visible', timeout: 8000 });
+    assert.equal(await sel.inputValue(), 'female', 'stored preference must load into the selector');
+    await context.close();
+  }
+}
+
 // ── harness ────────────────────────────────────────────────────
 
 const waitForServer = url =>
@@ -278,6 +327,10 @@ try {
   console.error('demo label ok');
   await photoPass(browser);
   console.error('photo states ok');
+  for (const width of [360, 390, 1440]) {
+    await genderPrefPass(browser, width);
+    console.error(`gender-pref ${width}px ok`);
+  }
 } catch (err) {
   console.error(err);
   process.exitCode = 1;

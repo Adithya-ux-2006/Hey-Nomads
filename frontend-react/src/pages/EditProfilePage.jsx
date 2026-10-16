@@ -70,7 +70,7 @@ export default function EditProfilePage() {
     socialLevel: 'moderate', pets: '', workSchedule: '',
     budget: 15000, deposit: 5000, flatType: 'shared', occupants: 1,
     interests: [], languages: [],
-    preferredGender: '', preferredBudgetMin: '', preferredBudgetMax: '',
+    preferredGender: 'unspecified', preferredBudgetMin: '', preferredBudgetMax: '',
     profileImage: '',
   })
 
@@ -120,7 +120,9 @@ export default function EditProfilePage() {
             occupants: profile.occupants || 1,
             interests: profile.interests || [],
             languages: profile.languages?.map(l => l.id) || [],
-            preferredGender: profile.preferred_gender || profile.preferredGender || '',
+            preferredGender: ['female', 'male', 'all'].includes((profile.preferred_gender || profile.preferredGender || '').toLowerCase())
+              ? (profile.preferred_gender || profile.preferredGender).toLowerCase()
+              : 'unspecified',
             preferredBudgetMin: profile.preferred_budget_min || profile.preferredBudgetMin || '',
             preferredBudgetMax: profile.preferred_budget_max || profile.preferredBudgetMax || '',
             profileImage: profile.profile_image || profile.profileImage || '',
@@ -311,7 +313,7 @@ export default function EditProfilePage() {
           partying: form.partying,
           profileImage: imageUrl,
           languages: form.languages,
-          preferredGender: form.preferredGender || null,
+          preferredGender: form.preferredGender,
           preferredBudgetMin: form.preferredBudgetMin ? parseInt(form.preferredBudgetMin) : null,
           preferredBudgetMax: form.preferredBudgetMax ? parseInt(form.preferredBudgetMax) : null,
           socialLevel: form.socialLevel,
@@ -386,7 +388,7 @@ export default function EditProfilePage() {
                   <input id="f-age" type="number" className={inputCls} placeholder="25" value={form.age} onChange={e => set('age', e.target.value)} />
                 </div>
                 <div>
-                  <label className={labelCls} htmlFor="f-gender">Gender</label>
+                  <label className={labelCls} htmlFor="f-gender">My gender</label>
                   <select id="f-gender" className={inputCls} value={form.gender} onChange={e => set('gender', e.target.value)}>
                     <option value="">Select</option>
                     <option value="male">Male</option>
@@ -395,6 +397,18 @@ export default function EditProfilePage() {
                     <option value="prefer_not_to_say">Prefer not to say</option>
                   </select>
                 </div>
+              </div>
+              <div>
+                <label className={labelCls} htmlFor="f-prefGender">Who would you prefer to live with?</label>
+                <select id="f-prefGender" className={inputCls} value={form.preferredGender} onChange={e => set('preferredGender', e.target.value)}>
+                  <option value="unspecified">Prefer not to specify</option>
+                  <option value="female">Women</option>
+                  <option value="male">Men</option>
+                  <option value="all">All genders</option>
+                </select>
+                <p className="text-xs text-text-muted mt-1.5">
+                  This decides who sees you in Discover. People with a specific preference will only see you if your gender matches theirs. Prefer not to specify means you see everyone, and anyone comfortable with your gender sees you.
+                </p>
               </div>
               <div>
                 <label className={labelCls} htmlFor="f-bio">Bio</label>

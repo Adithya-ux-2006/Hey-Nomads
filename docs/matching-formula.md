@@ -123,6 +123,60 @@ Recommendation feeds sort by `score` descending, then `created_at` descending
 (newest first), then `id` ascending — the same comparator the presentation
 discovery feed uses.
 
+## Gender preference filter
+
+Applied in `getRecommendedRoommates` (backs both `/api/discover` and
+`/api/roommates/recommended`) as a hard pre-scoring SQL filter, before the
+candidate pool `LIMIT`, so an empty page can never be caused by post-filtering.
+Pure predicates live in `frontend-react/api/gender-prefs.mjs`.
+
+### Stored values
+
+`preferences.preferred_gender` stores one of: `female`, `male`, `all`,
+`unspecified`. The write gate in `POST /api/profile` rejects anything else with
+a 400 before any database access. The legacy seed value `no_preference` (and
+`NULL`, and any unknown string) reads as `unspecified` — it is never silently
+coerced to `all` in storage.
+
+### Two-sided rule
+
+A candidate appears in your feed only if **both** sides' stated preferences
+admit the other's gender:
+
+1. **Your preference filters their gender.** A specific preference (`female` /
+   `male`) admits only a candidate whose normalised gender matches exactly.
+   `all` and `unspecified` admit every gender — including `other`,
+   `prefer_not_to_say` and unset — because neither may invent a restriction
+   the user never stated.
+2. **Their preference filters your gender.** Symmetrically: a candidate with a
+   specific preference only sees you if your normalised gender matches theirs.
+
+Unknown gender fails closed against a *specific* preference: if someone stated
+they want women, a candidate whose gender is unset or `other` is not shown to
+them, because the match cannot be confirmed. Unknown gender never fails closed
+against `all` / `unspecified` — those admit everyone.
+
+`unspecified` and `all` therefore share filtering behaviour (neither imposes a
+restriction) but remain distinct values: `all` is an affirmative choice, while
+`unspecified` is the absence of one. The profile editor labels them separately
+("Prefer not to specify" vs "All genders") and defaults new and legacy
+(`no_preference`) accounts to "Prefer not to specify".
+
+### What it does not touch
+
+Swipe handling, existing matches, likes lists, chat, direct profile views and
+the presentation discovery feed are all unfiltered — the rule governs
+discovery recommendations only. A profile opened by direct link can still be
+liked regardless of preference; mutual human intent is allowed to override a
+stated preference, and existing matches are never retroactively broken.
+
+### Positive control
+
+`tests/offline/gender-prefs.test.mjs` carries positive controls: the
+normalisation, predicate, and SQL-fragment checks are each paired with a
+deliberately broken input that must fail the same assertion, proving the
+checker is not vacuously true.
+
 ## Where it runs
 
 - `loadScoreContext` batches the reads once per feed (requester profile, all
