@@ -22,7 +22,7 @@ process.env.DATABASE_URL = 'postgres://offline:offline@127.0.0.1:9/offline_never
 delete process.env.BLOB_READ_WRITE_TOKEN;
 
 const mode = process.argv[2];
-assert.ok(['upload', 'likes', 'genderprefs', 'age', 'notifications', 'livingdna'].includes(mode), 'usage: offline-api-gates.mjs <upload|likes|genderprefs|age|notifications|livingdna>');
+assert.ok(['upload', 'likes', 'genderprefs', 'age', 'notifications', 'livingdna', 'phase15'].includes(mode), 'usage: offline-api-gates.mjs <upload|likes|genderprefs|age|notifications|livingdna|phase15>');
 
 const { default: handler } = await import('../api/index.js');
 const { default: jwt } = await import('jsonwebtoken');
@@ -292,6 +292,47 @@ try {
     // Consent must be checked before any answer row is read.
     assert.ok(api.includes("status(403).json({ error: 'They have not chosen to share"),
       'compare must refuse before reading answers when they have not shared');
+  }
+
+  if (mode === 'phase15') {
+    // Every communities / events / cities / settlement route must reject
+    // unauthenticated calls before any query: the database in this process is
+    // unreachable, so a 401 (not a 500) proves auth runs first.
+    const GET = ['/api/communities', '/api/communities/1', '/api/events',
+      '/api/events/1/attendees', '/api/cities', '/api/cities/1', '/api/settlement'];
+    for (const path of GET) {
+      const res = await get(path);
+      assert.equal(res.status, 401, `${path} must 401 without a token`);
+      assert.equal((await jsonOf(res)).error, 'No token provided');
+    }
+    for (const path of ['/api/communities', '/api/communities/1/join',
+      '/api/communities/1/leave', '/api/events', '/api/events/1/rsvp',
+      '/api/settlement/1/complete', '/api/settlement/1/uncomplete']) {
+      const res = await post(path);
+      assert.equal(res.status, 401, `${path} must 401 without a token`);
+    }
+    for (const path of ['/api/events/1', '/api/events/1/rsvp']) {
+      const res = await request(path, { method: 'DELETE' });
+      assert.equal(res.status, 401, `DELETE ${path} must 401 without a token`);
+    }
+
+    // Structural: the scoring engine keeps a single canonical implementation
+    // with the documented weights and the gender filter applied pre-scoring.
+    const api = readFileSync(new URL('../api/index.js', import.meta.url), 'utf8');
+    assert.ok(api.includes('function scoreCompatibility'), 'one canonical scorer must exist');
+    assert.ok(api.includes('lifestyle_weight: 0.25') && api.includes('budget_weight: 0.20')
+      && api.includes('location_weight: 0.20') && api.includes('movein_weight: 0.15')
+      && api.includes('interests_weight: 0.10') && api.includes('habits_weight: 0.10'),
+      'the six documented weights must be present');
+    assert.ok(api.includes('feedGenderFilterSql('), 'the gender filter must gate the feed');
+    assert.ok(api.includes('getRecommendedRoommates'), 'Discover and Roommates must share one recommender');
+    assert.ok(existsSync(new URL('../../docs/matching-formula.md', import.meta.url)),
+      'the formula must stay documented');
+    for (const page of ['CommunitiesPage.jsx', 'CommunityDetailPage.jsx', 'EventsPage.jsx',
+      'SettleInPage.jsx', 'RoommatesPage.jsx']) {
+      assert.ok(existsSync(new URL(`../src/pages/${page}`, import.meta.url)), `${page} must exist`);
+    }
+    assert.ok(existsSync(new URL('../src/components/Navbar.jsx', import.meta.url)), 'Navbar must exist');
   }
 
   process.exitCode = 0;

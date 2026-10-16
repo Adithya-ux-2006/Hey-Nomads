@@ -2,7 +2,7 @@
 // success-only token, so a ledger gate can require both exit 0 and a marker
 // that is only emitted after every assertion passed.
 //
-// Run: node scripts/gates.mjs lint|build|age|notifications|livingdna|demo
+// Run: node scripts/gates.mjs lint|build|age|notifications|livingdna|phase15|demo
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,6 +35,8 @@ if (arg === 'lint') {
   // around it — auth in front of every route, consent checked before any
   // answer is read, and an honest 503 when the migration has not been applied.
   run('node', ['scripts/offline-api-gates.mjs', 'livingdna'], 'GATE_LIVINGDNA_API_OK');
+} else if (arg === 'phase15') {
+  run('node', ['scripts/offline-api-gates.mjs', 'phase15'], 'GATE_PHASE15_API_OK');
 } else if (arg === 'demo') {
   // Demo Mode is a tour of the real screens, asserted from source rather than
   // from a screenshot: the contract is which modules are wired to which.
@@ -98,6 +100,6 @@ if (arg === 'lint') {
 
   console.log('GATE_DEMO_OK');
 } else {
-  console.error('usage: node scripts/gates.mjs lint|build|age|notifications|livingdna|demo');
+  console.error('usage: node scripts/gates.mjs lint|build|age|notifications|livingdna|phase15|demo');
   process.exit(2);
 }
