@@ -1,10 +1,13 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Compass, Users, MessageCircle, User, Map } from 'lucide-react';
+import { Compass, Users, MessageCircle, User, Map, Heart } from 'lucide-react';
 import { auth } from '../lib/api';
 
 const navItems = [
   { to: '/discover', icon: Compass, label: 'Discover' },
   { to: '/roommates', icon: Users, label: 'Roommates' },
+  // The heart opens the Likes screen on its Sent tab, so the "who did I like"
+  // answer is one tap from anywhere.
+  { to: '/likes', icon: Heart, label: 'Likes' },
   { to: '/communities', icon: Map, label: 'Communities' },
   { to: '/messages', icon: MessageCircle, label: 'Messages' },
   { to: '/profile', icon: User, label: 'Profile' },

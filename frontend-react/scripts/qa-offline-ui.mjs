@@ -1,0 +1,288 @@
+// Route-mocked browser suite for the offline-first work (GATES.offline.md G6).
+//
+//   node scripts/qa-offline-ui.mjs
+//
+// Serves the production build with `vite preview`, intercepts every /api/**
+// call in the browser (no server, no database, no blob storage), and asserts:
+//   - the Likes screen at 360, 390 and 1440 px: Sent/Received/Matches tabs,
+//     populated and empty, with the demo screen's own "simulated data" banner
+//     as the mocked-data label;
+//   - the photo step's honest states: saved on this device, uploading, only
+//     "uploaded" after a server success, failure keeps the preview with a
+//     retry, and no success text on the failure path (positive control).
+import { spawn, spawnSync } from 'node:child_process';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+import { chromium } from 'playwright';
+
+const PORT = 4187;
+const ORIGIN = `http://127.0.0.1:${PORT}`;
+
+// ── fixtures (labelled: every name carries the Sample prefix) ──
+
+const SENT = [
+  { user_id: 21, name: 'Sample Aarav Mehta', profile_image: null, city: 'Pune', occupation: 'Designer', liked_at: '2026-10-01T10:00:00Z', matched: true },
+  { user_id: 22, name: 'Sample Sara Khan', profile_image: null, city: 'Mumbai', occupation: 'Engineer', liked_at: '2026-10-02T10:00:00Z', matched: false },
+];
+const RECEIVED = [
+  { user_id: 23, name: 'Sample Priya Sharma', profile_image: null, city: 'Delhi', occupation: 'Doctor', liked_at: '2026-10-03T10:00:00Z' },
+  { user_id: 24, name: 'Sample Rohan Iyer', profile_image: null, city: 'Chennai', occupation: 'Chef', liked_at: '2026-10-04T10:00:00Z' },
+];
+const MATCHES = [
+  { id: 500, partner_id: 21, partner_name: 'Sample Aarav Mehta', partner_image: null, partner_city: 'Pune', partner_occupation: 'Designer', updated_at: '2026-10-05T10:00:00Z', status: 'matched' },
+];
+const PROFILE = { name: 'Test User', age: 30, city: 'Pune', budget: 20000, bio: 'Offline suite' };
+
+// Mutable per-scenario spec; the router reads it at request time so a test can
+// flip the upload outcome between two clicks of the same button.
+const json = body => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+
+const attachRoutes = (context, spec) =>
+  context.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/likes/sent') return route.fulfill(json(spec.sent));
+    if (path === '/api/likes/received') return route.fulfill(json(spec.received));
+    if (path === '/api/matches') return route.fulfill(json(spec.matches));
+    if (path === '/api/languages') return route.fulfill([]);
+    if (path.startsWith('/api/profile/')) return route.fulfill(json(PROFILE));
+    if (path === '/api/upload') {
+      if (spec.uploadDelayMs) await new Promise(r => setTimeout(r, spec.uploadDelayMs));
+      const u = spec.upload;
+      return route.fulfill({ status: u.status, contentType: 'application/json', body: JSON.stringify(u.body) });
+    }
+    return route.fulfill(json([]));
+  });
+
+const defaultSpec = () => ({
+  sent: SENT,
+  received: RECEIVED,
+  matches: MATCHES,
+  upload: { status: 200, body: { url: 'https://blob.test/uploaded.png' } },
+  uploadDelayMs: 0,
+});
+
+const newContext = async (browser, { demo = false, spec = defaultSpec() } = {}) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await context.addInitScript(({ demo }) => {
+    if (demo) sessionStorage.setItem('hey_nomads_demo', '1');
+    else {
+      localStorage.setItem('authToken', 'offline-ui-token');
+      localStorage.setItem('userId', '1');
+      localStorage.setItem('userName', 'Test User');
+    }
+  }, { demo });
+  await attachRoutes(context, spec);
+  return { context, spec };
+};
+
+// Hidden sibling panels can hold the same copy (both Sent and Matches render
+// "Sample Aarav Mehta"), so every wait targets a VISIBLE match only.
+const text = (page, fragment) =>
+  page
+    .getByText(fragment, { exact: false })
+    .filter({ visible: true })
+    .first()
+    .waitFor({ state: 'visible', timeout: 8000 });
+
+const gone = async (page, fragment) => {
+  assert.equal(await page.getByText(fragment, { exact: false }).count(), 0, `"${fragment}" must not be on the page`);
+};
+
+const tab = (page, name) => page.getByRole('tab', { name: new RegExp(`^${name}`) });
+
+const assertNoOverflow = async (page, width) => {
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  assert.ok(overflow <= 1, `horizontal overflow of ${overflow}px at ${width}px`);
+};
+
+// ── Likes screen, populated, at every viewport ─────────────────
+
+async function likesPass(browser, width) {
+  const { context } = await newContext(browser);
+  const page = await context.newPage();
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto(`${ORIGIN}/likes`, { waitUntil: 'domcontentloaded' });
+
+  assert.equal(await tab(page, 'Sent').getAttribute('aria-selected'), 'true', 'Sent is the default tab');
+  await text(page, 'Sample Aarav Mehta');
+  await text(page, 'Matched');
+
+  await tab(page, 'Received').click();
+  await text(page, 'Sample Priya Sharma');
+  await text(page, 'New like');
+
+  await tab(page, 'Matches').click();
+  await text(page, 'Sample Aarav Mehta');
+  await page
+    .getByRole('link', { name: 'Message Sample Aarav Mehta' })
+    .filter({ visible: true })
+    .first()
+    .waitFor({ state: 'visible', timeout: 8000 });
+
+  await assertNoOverflow(page, width);
+  await context.close();
+}
+
+// ── Likes screen, empty ────────────────────────────────────────
+
+async function emptyPass(browser) {
+  const { context } = await newContext(browser, {
+    spec: { ...defaultSpec(), sent: [], received: [], matches: [] },
+  });
+  const page = await context.newPage();
+  await page.goto(`${ORIGIN}/likes`, { waitUntil: 'domcontentloaded' });
+
+  await text(page, 'No likes sent yet');
+  await tab(page, 'Received').click();
+  await text(page, 'No incoming likes yet');
+  await tab(page, 'Matches').click();
+  await text(page, 'No matches yet');
+  await context.close();
+}
+
+// ── Demo mode: the in-app mock transport, labelled as simulated ─
+
+async function demoPass(browser) {
+  const { context } = await newContext(browser, { demo: true });
+  const page = await context.newPage();
+  await page.goto(`${ORIGIN}/likes`, { waitUntil: 'domcontentloaded' });
+
+  // The banner is the label that keeps mocked rows from posing as real people.
+  await text(page, 'simulated data, nothing is saved');
+  await text(page, 'Sample Aarav Mehta');
+  await tab(page, 'Received').click();
+  await text(page, 'Sample Priya Sharma');
+  await context.close();
+}
+
+// ── Photo step: the honest state machine, in a real browser ────
+
+const openPhotoStep = async page => {
+  await page.goto(`${ORIGIN}/edit-profile`, { waitUntil: 'domcontentloaded' });
+  await text(page, 'Basic Info');
+  for (let i = 0; i < 6; i++) {
+    await page.getByRole('button', { name: 'Save and continue' }).click();
+  }
+  await text(page, 'Photo');
+};
+
+const PNG_PICK = { name: 'photo.png', mimeType: 'image/png', buffer: Buffer.from('offline-suite-image-bytes') };
+
+async function photoPass(browser) {
+  // 1. Offline pick stays "Saved on this device"; going online retries it.
+  {
+    const { context } = await newContext(browser);
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 390, height: 900 });
+    await openPhotoStep(page); // assets need the network; only the pick is offline
+    await context.setOffline(true);
+    await page.locator('input[type="file"]').setInputFiles(PNG_PICK);
+    await page.locator('[data-photo-state="local"]').waitFor({ state: 'visible', timeout: 8000 });
+    await text(page, 'Saved on this device');
+    await gone(page, 'Uploaded to your profile');
+
+    await context.setOffline(false); // fires the page's online event -> retry
+    await page.locator('[data-photo-state="uploaded"]').waitFor({ state: 'visible', timeout: 8000 });
+    await text(page, 'Uploaded to your profile');
+    await context.close();
+  }
+
+  // 2. Uploading is visible while the request is in flight, and it blocks Save.
+  {
+    const { context, spec } = await newContext(browser);
+    spec.uploadDelayMs = 1500;
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 390, height: 900 });
+    await openPhotoStep(page);
+    await page.locator('input[type="file"]').setInputFiles(PNG_PICK);
+    await page.locator('[data-photo-state="saving"]').waitFor({ state: 'visible', timeout: 8000 });
+    await text(page, 'Uploading');
+    await page.getByRole('button', { name: 'Uploading photo' }).waitFor({ state: 'visible', timeout: 8000 });
+    await page.locator('[data-photo-state="uploaded"]').waitFor({ state: 'visible', timeout: 8000 });
+    await context.close();
+  }
+
+  // 3. Failure keeps the preview, offers a retry, and never says "uploaded".
+  //    Then the retry recovers once the server does answer.
+  {
+    const { context, spec } = await newContext(browser);
+    spec.upload = { status: 500, body: { error: 'Upload failed' } };
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 390, height: 900 });
+    await openPhotoStep(page);
+    await page.locator('input[type="file"]').setInputFiles(PNG_PICK);
+    await page.locator('[data-photo-state="failed"]').waitFor({ state: 'visible', timeout: 8000 });
+    await text(page, 'kept on this device');
+    await page.locator('img[alt="Preview"]').waitFor({ state: 'visible', timeout: 8000 });
+    await page.getByRole('button', { name: 'Retry upload' }).waitFor({ state: 'visible', timeout: 8000 });
+    // Positive control: a failed upload may never claim success.
+    await gone(page, 'Uploaded to your profile');
+
+    spec.upload = { status: 200, body: { url: 'https://blob.test/retried.png' } };
+    await page.getByRole('button', { name: 'Retry upload' }).click();
+    await page.locator('[data-photo-state="uploaded"]').waitFor({ state: 'visible', timeout: 8000 });
+    await context.close();
+  }
+
+  // 4. A rejected file type answers inline and leaves the step idle.
+  {
+    const { context } = await newContext(browser);
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 390, height: 900 });
+    await openPhotoStep(page);
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('not an image'),
+    });
+    await text(page, 'Choose a JPG, PNG or WebP image.');
+    assert.equal(await page.locator('[data-photo-state]').count(), 0, 'an invalid pick must not invent a state');
+    await context.close();
+  }
+}
+
+// ── harness ────────────────────────────────────────────────────
+
+const waitForServer = url =>
+  new Promise((resolve, reject) => {
+    const deadline = Date.now() + 30000;
+    const probe = () => {
+      const req = http.get(url, res => { res.resume(); resolve(); });
+      req.on('error', () => {
+        if (Date.now() > deadline) reject(new Error(`preview server did not start at ${url}`));
+        else setTimeout(probe, 250);
+      });
+    };
+    probe();
+  });
+
+// Always rebuild: the suite must test the current sources, not a stale dist.
+const build = spawnSync(process.execPath, ['scripts/gates.mjs', 'build'], { stdio: 'inherit' });
+if (build.status !== 0) process.exit(build.status ?? 1);
+
+const preview = spawn(
+  process.execPath,
+  ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'],
+  { stdio: 'ignore' }
+);
+
+let browser;
+try {
+  await waitForServer(ORIGIN);
+  browser = await chromium.launch();
+  for (const width of [360, 390, 1440]) {
+    await likesPass(browser, width);
+    console.error(`likes ${width}px ok`);
+  }
+  await emptyPass(browser);
+  console.error('likes empty ok');
+  await demoPass(browser);
+  console.error('demo label ok');
+  await photoPass(browser);
+  console.error('photo states ok');
+} catch (err) {
+  console.error(err);
+  process.exitCode = 1;
+} finally {
+  if (browser) await browser.close();
+  preview.kill();
+}
+process.exit(process.exitCode ?? 0);

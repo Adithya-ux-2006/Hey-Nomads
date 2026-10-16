@@ -13,7 +13,7 @@
 //   3. No fall-through. Every screen the tour can reach has to be answered
 //      here. One uncovered path sends a real request with no session behind it
 //      and drops the visitor out of the tour onto the sign-in form.
-import { demoProfiles } from './demoProfiles';
+import { demoProfiles } from './demoProfiles.js';
 
 // session-scoped, not localStorage: a refresh should not strand the visitor on
 // the login screen, but the flag must not outlive the tab either. It is not an
@@ -135,6 +135,35 @@ const demoConversations = () => demoMatches().map((m, i) => ({
 // three-second poll does not erase a message it just rendered.
 const sent = [];
 
+// Likes the tour shows. Derived from whichever samples loaded, so the three
+// tabs stay consistent with each other: the first two samples are both in the
+// sent list and in demoMatches() (hence matched), and every other sample is an
+// incoming like the visitor has not answered. No fall-through means the Likes
+// screen must be answered like every other tour screen.
+const demoLikes = () => {
+  const rows = demoFeed;
+  const stamp = i => new Date(Date.now() - (i + 2) * 36e5).toISOString();
+  return {
+    sent: rows.slice(0, 2).map((p, i) => ({
+      user_id: p.id,
+      name: p.name,
+      profile_image: p.profile_image,
+      city: p.city,
+      occupation: p.occupation,
+      liked_at: stamp(i),
+      matched: true,
+    })),
+    received: rows.slice(2, 4).map((p, i) => ({
+      user_id: p.id,
+      name: p.name,
+      profile_image: p.profile_image,
+      city: p.city,
+      occupation: p.occupation,
+      liked_at: stamp(i),
+    })),
+  };
+};
+
 const threadFor = partnerId => {
   const partner = demoFeed.find(p => String(p.id) === String(partnerId));
   const mine = sent
@@ -186,6 +215,8 @@ export function demoResponse(path, options = {}) {
   if (p.startsWith('/roommates/recommended')) return demoFeed;
   if (p.startsWith('/shortlist')) return [];
   if (p.startsWith('/swipe')) return { ok: true, matchCreated: true };
+  if (p.startsWith('/likes/sent')) return demoLikes().sent;
+  if (p.startsWith('/likes/received')) return demoLikes().received;
   if (p === '/messages') {
     try {
       const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;

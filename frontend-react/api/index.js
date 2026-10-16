@@ -14,6 +14,8 @@ import {
   humanLabel,
 } from './account-kind.mjs';
 import { mountPresentation } from './presentation.mjs';
+import { validateUpload, MAX_UPLOAD_BYTES } from './upload-guards.mjs';
+import { sentLikesQuery, receivedLikesQuery } from './likes-queries.mjs';
 
 // No DSN => the SDK stays inert. Set SENTRY_DSN on Vercel to turn reporting on.
 Sentry.init({
@@ -700,19 +702,48 @@ app.get('/api/languages', authMiddleware, async (_req, res) => {
 
 app.post('/api/upload', authMiddleware, async (req, res) => {
   try {
+    // Stream with a hard size bound: an oversized body stops accumulating the
+    // moment it passes the cap instead of being buffered whole and then
+    // judged. Vercel's own 4.5MB request cap is the outer wall.
     const chunks = [];
+    let size = 0;
+    let overflow = false;
     await new Promise((resolve, reject) => {
-      req.on('data', chunk => chunks.push(chunk));
+      req.on('data', chunk => {
+        size += chunk.length;
+        if (size > MAX_UPLOAD_BYTES) {
+          overflow = true;
+          return;
+        }
+        chunks.push(chunk);
+      });
       req.on('end', resolve);
       req.on('error', reject);
     });
+    if (overflow) {
+      return res.status(413).json({ error: 'Image is too large. The maximum size is 4 MB.' });
+    }
     const buffer = Buffer.concat(chunks);
     const ct = req.headers['content-type'] || '';
-    const ext = ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg';
-    const filename = `${req.userId}-${Date.now()}.${ext}`;
+    // Type, size and magic-byte verdicts each carry their own status so the
+    // client can tell the user what was wrong instead of a bare "Upload failed".
+    const verdict = validateUpload({ contentType: ct, buffer });
+    if (!verdict.ok) {
+      return res.status(verdict.status).json({ error: verdict.error });
+    }
+    // Missing storage configuration is a deployment problem, not a request
+    // problem, and not the generic 500 that a real put() failure now keeps.
+    // Checked before put() so no storage call is even attempted without it.
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return res.status(503).json({
+        error: 'Image storage is not configured on this deployment.',
+        code: 'storage-not-configured',
+      });
+    }
+    const filename = `${req.userId}-${Date.now()}.${verdict.ext}`;
     const blob = await put(filename, buffer, {
       access: 'public',
-      contentType: ct.split(';')[0] || 'image/jpeg',
+      contentType: verdict.contentType,
     });
     res.json({ url: blob.url });
   } catch (err) {
@@ -1306,6 +1337,34 @@ app.delete('/api/matches/:matchId', authMiddleware, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to unmatch' });
+  }
+});
+
+// ── Likes (sent / received) ───────────────────────────────────
+// Read-only lists behind the same eligibility rules as the feed: real accounts
+// only, blocked pairs excluded on either side, no emails in any response.
+// There is no summary endpoint — counts come from these two arrays, so a
+// badge can never disagree with the list it points at.
+
+app.get('/api/likes/sent', authMiddleware, async (req, res) => {
+  try {
+    const { sql, params } = sentLikesQuery(req.userId, await realOnlySql('u'));
+    const result = await query(sql, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get sent likes error:', err);
+    res.status(500).json({ error: 'Failed to get sent likes' });
+  }
+});
+
+app.get('/api/likes/received', authMiddleware, async (req, res) => {
+  try {
+    const { sql, params } = receivedLikesQuery(req.userId, await realOnlySql('u'));
+    const result = await query(sql, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get received likes error:', err);
+    res.status(500).json({ error: 'Failed to get received likes' });
   }
 });
 

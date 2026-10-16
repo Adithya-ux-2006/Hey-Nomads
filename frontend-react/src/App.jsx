@@ -13,6 +13,7 @@ import DiscoverPage from './pages/DiscoverPage';
 import RoommatesPage from './pages/RoommatesPage';
 import RoommateDetailPage from './pages/RoommateDetailPage';
 import MatchesPage from './pages/MatchesPage';
+import LikesPage from './pages/LikesPage';
 import CommunitiesPage from './pages/CommunitiesPage';
 import CommunityDetailPage from './pages/CommunityDetailPage';
 import EventsPage from './pages/EventsPage';
@@ -81,6 +82,7 @@ function App() {
           <Route path="/roommates" element={<PrivateRoute><RoommatesPage /></PrivateRoute>} />
           <Route path="/roommates/:userId" element={<PrivateRoute><RoommateDetailPage /></PrivateRoute>} />
           <Route path="/matches" element={<PrivateRoute><MatchesPage /></PrivateRoute>} />
+<Route path="/likes" element={<PrivateRoute><LikesPage /></PrivateRoute>} />
           <Route path="/communities" element={<PrivateRoute><CommunitiesPage /></PrivateRoute>} />
           <Route path="/communities/:id" element={<PrivateRoute><CommunityDetailPage /></PrivateRoute>} />
           <Route path="/events" element={<PrivateRoute><EventsPage /></PrivateRoute>} />

@@ -1,9 +1,15 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { apiFetch, auth, resolveMediaUrl } from '../lib/api'
 import { Button, Spinner, ErrorState, InlineError } from '../components/UI'
-import { ChevronLeft, Camera } from 'lucide-react'
+import { ChevronLeft, Camera, Check, AlertTriangle } from 'lucide-react'
+import {
+  validatePhotoFile,
+  uploadPhoto,
+  makeRetention,
+  indexedDbKv,
+} from '../lib/photoUpload'
 
 const INTERESTS = [
   { id: 'sports', label: 'Sports', icon: '⚽' },
@@ -43,6 +49,17 @@ export default function EditProfilePage() {
   const [selectedFile, setSelectedFile] = useState(null)
   const [loadError, setLoadError] = useState(null)
   const [saveError, setSaveError] = useState(null)
+  // Where the photo is RIGHT NOW: idle (nothing pending) → local (kept on
+  // this device) → saving (upload in flight) → uploaded (server confirmed a
+  // URL) / failed (retryable, local copy intact). "uploaded" is only ever set
+  // from a server-returned URL — see uploadPhoto() in lib/photoUpload.js.
+  const [photoStatus, setPhotoStatus] = useState({ state: 'idle', error: null })
+  const [uploadedUrl, setUploadedUrl] = useState('')
+  // The active object URL, tracked so it can be revoked on replace/unmount
+  // instead of leaking one blob handle per pick.
+  const previewUrlRef = useRef(null)
+  const retentionRef = useRef(null)
+  if (!retentionRef.current) retentionRef.current = makeRetention(indexedDbKv())
 
   const [form, setForm] = useState({
     name: '', age: '', gender: '', bio: '', occupation: '', university: '',
@@ -113,6 +130,21 @@ export default function EditProfilePage() {
             setImagePreview(resolveMediaUrl(img))
           }
         }
+        // An unfinished photo from a previous session wins over the stored
+        // avatar: it was picked later and never reached the server. Restored
+        // as "Saved on this device" — never auto-uploaded on mount, so opening
+        // this page never fires a request the user did not ask for.
+        const pending = await retentionRef.current.load()
+        if (pending && pending.blob) {
+          const file = pending.blob instanceof File
+            ? pending.blob
+            : new File([pending.blob], pending.name || 'photo', { type: pending.blob.type || 'image/jpeg' })
+          const url = URL.createObjectURL(file)
+          previewUrlRef.current = url
+          setImagePreview(url)
+          setSelectedFile(file)
+          setPhotoStatus({ state: 'local', error: null })
+        }
       } catch (err) {
         setLoadError(err)
       } finally {
@@ -136,24 +168,127 @@ export default function EditProfilePage() {
     }))
   }
 
-  const handleFile = (e) => {
+  // Upload through the authenticated apiFetch only. Returns the uploadPhoto()
+  // result so callers can block on it; state transitions are set here.
+  const doUpload = useCallback(async (file) => {
+    setPhotoStatus({ state: 'saving', error: null })
+    const result = await uploadPhoto({
+      file,
+      uploadedUrl,
+      upload: f => apiFetch('/upload', {
+        method: 'POST',
+        body: f,
+        headers: { 'Content-Type': f.type },
+      }),
+    })
+    if (result.status === 'uploaded') {
+      setUploadedUrl(result.url)
+      // Functional update so this callback only depends on uploadedUrl — `set`
+      // is recreated every render and would churn the online-retry effect.
+      setForm(f => ({ ...f, profileImage: result.url }))
+      // Uploaded = no longer pending; drop the local copy so the next visit
+      // does not offer to re-send a photo the server already holds.
+      await retentionRef.current.clear()
+      setPhotoStatus({ state: 'uploaded', error: null })
+    } else {
+      setPhotoStatus({ state: 'failed', error: result.error })
+    }
+    return result
+  }, [uploadedUrl])
+
+  const handleFile = async (e) => {
     const file = e.target.files?.[0]
+    // Reset so choosing the same file again re-fires change.
+    e.target.value = ''
     if (!file) return
+    const check = validatePhotoFile(file)
+    if (!check.ok) {
+      setPhotoStatus({ state: 'idle', error: check.error })
+      return
+    }
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = null
+    }
+    const objectUrl = URL.createObjectURL(file)
+    previewUrlRef.current = objectUrl
+    setImagePreview(objectUrl)
     setSelectedFile(file)
-    setImagePreview(URL.createObjectURL(file))
+    setUploadedUrl('')
+    setSaveError(null)
+    // Save FIRST, then attempt the upload: a phone with no connection still
+    // keeps the pick. A failed local save is a warning, not a refusal.
+    const saved = await retentionRef.current.save({
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      blob: file,
+      savedAt: new Date().toISOString(),
+    })
+    setPhotoStatus({
+      state: 'local',
+      error: saved.ok
+        ? null
+        : saved.reason === 'quota'
+          ? 'Device storage is full, so the photo is kept for this session only.'
+          : 'This browser cannot keep photos between visits, so it is kept for this session only.',
+    })
+    // Offline-first: start the upload at once when there is a connection;
+    // with none, the local copy stays and the online event (or Retry, or
+    // Save Profile) sends it later.
+    if (navigator.onLine !== false) await doUpload(file)
   }
+
+  const handleRemovePhoto = async () => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = null
+    }
+    setSelectedFile(null)
+    setImagePreview(null)
+    setUploadedUrl('')
+    set('profileImage', '')
+    setPhotoStatus({ state: 'idle', error: null })
+    await retentionRef.current.clear()
+  }
+
+  // Reconnect retry: only through the authenticated flow above, and only for
+  // a photo that is actually waiting and not yet on the server.
+  useEffect(() => {
+    const onOnline = () => {
+      if (selectedFile && !uploadedUrl &&
+          (photoStatus.state === 'local' || photoStatus.state === 'failed')) {
+        doUpload(selectedFile)
+      }
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [selectedFile, uploadedUrl, photoStatus.state, doUpload])
+
+  // Revoke the last object URL when the page goes away.
+  useEffect(() => () => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+  }, [])
 
   const handleSave = async () => {
     setSaving(true)
+    setSaveError(null)
     try {
       let imageUrl = form.profileImage
-      if (selectedFile) {
-        const uploadRes = await apiFetch('/upload', {
-          method: 'POST',
-          body: selectedFile,
-          headers: { 'Content-Type': selectedFile.type },
-        })
-        imageUrl = uploadRes.url
+      if (selectedFile && !uploadedUrl) {
+        // A pending photo must reach the server before the profile claims it.
+        // Retry here reuses uploadPhoto()'s uploadedUrl guard, so a photo the
+        // server already confirmed is never uploaded a second time.
+        const up = await doUpload(selectedFile)
+        if (up.status !== 'uploaded') {
+          setSaveError(new Error(
+            `${up.error} Your photo is kept on this device — retry, or remove it to save without a new picture.`
+          ))
+          return
+        }
+        imageUrl = up.url
+      } else if (uploadedUrl) {
+        imageUrl = uploadedUrl
       }
       await apiFetch('/profile', {
         method: 'POST',
@@ -445,27 +580,103 @@ export default function EditProfilePage() {
 
           {/* Step 6: Photo */}
           {step === 6 && (
-            <div className="flex items-center gap-5">
-              <div className="w-20 h-20 rounded-2xl border-2 border-surface-border overflow-hidden bg-surface-muted flex-shrink-0">
-                {imagePreview ? (
-                  <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-brand-coral">
-                    {form.name?.[0]?.toUpperCase() || '?'}
-                  </div>
-                )}
+            <div className="space-y-4">
+              <div className="flex items-center gap-5">
+                <div className="w-20 h-20 rounded-2xl border-2 border-surface-border overflow-hidden bg-surface-muted flex-shrink-0">
+                  {imagePreview ? (
+                    <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-brand-coral">
+                      {form.name?.[0]?.toUpperCase() || '?'}
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className={`${chipCls} bg-brand-coral text-white cursor-pointer inline-flex items-center gap-2 px-4 py-2.5`}>
+                    <Camera size={14} /> Upload Photo
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={handleFile}
+                    />
+                  </label>
+                  {imagePreview && (
+                    <button type="button" onClick={handleRemovePhoto} className={`${chipCls} text-red-500 border-red-200 hover:bg-red-50 px-4 py-2.5`}>
+                      Remove
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="flex flex-col gap-2">
-                <label className={`${chipCls} bg-brand-coral text-white cursor-pointer inline-flex items-center gap-2 px-4 py-2.5`}>
-                  <Camera size={14} /> Upload Photo
-                  <input type="file" className="hidden" accept="image/*" onChange={handleFile} />
-                </label>
-                {imagePreview && (
-                  <button type="button" onClick={() => { setSelectedFile(null); setImagePreview(null); set('profileImage', '') }} className={`${chipCls} text-red-500 border-red-200 hover:bg-red-50 px-4 py-2.5`}>
-                    Remove
-                  </button>
-                )}
-              </div>
+
+              {/* A rejected pick with nothing pending still needs an answer —
+                  the chip below only renders once a state exists. */}
+              {photoStatus.state === 'idle' && photoStatus.error && (
+                <p role="alert" className="text-sm text-status-error">
+                  {photoStatus.error}
+                </p>
+              )}
+
+              {/* Exactly one line about where the photo is right now. Text —
+                  not colour — carries the distinction between kept locally
+                  and confirmed by the server. */}
+              {photoStatus.state !== 'idle' && (
+                <div
+                  role="status"
+                  data-photo-state={photoStatus.state}
+                  className={`flex items-start gap-2 px-4 py-3 rounded-xl border text-sm ${
+                    photoStatus.state === 'failed'
+                      ? 'bg-status-error/10 border-status-error/20 text-status-error'
+                      : 'bg-surface-muted border-surface-border text-text-primary'
+                  }`}
+                >
+                  {photoStatus.state === 'local' && (
+                    <>
+                      <Check size={16} className="text-brand-teal flex-shrink-0 mt-0.5" aria-hidden="true" />
+                      <div className="flex-1">
+                        <span className="font-semibold">Saved on this device</span>
+                        {photoStatus.error && (
+                          <p className="text-amber-700 mt-0.5">{photoStatus.error}</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  {photoStatus.state === 'saving' && (
+                    <>
+                      <Spinner size="sm" />
+                      <span className="font-semibold">Uploading…</span>
+                    </>
+                  )}
+                  {photoStatus.state === 'uploaded' && (
+                    <>
+                      <Check size={16} className="text-brand-teal flex-shrink-0 mt-0.5" aria-hidden="true" />
+                      <span className="font-semibold">Uploaded to your profile</span>
+                    </>
+                  )}
+                  {photoStatus.state === 'failed' && (
+                    <>
+                      <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
+                      <div className="flex-1">
+                        <span className="font-semibold">Upload failed — your photo is kept on this device</span>
+                        {photoStatus.error && (
+                          <p className="mt-0.5">{photoStatus.error}</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {photoStatus.state === 'failed' && selectedFile && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => doUpload(selectedFile)}
+                >
+                  Retry upload
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -486,8 +697,16 @@ export default function EditProfilePage() {
               Save and continue
             </Button>
           ) : (
-            <Button variant="primary" onClick={handleSave} disabled={saving}>
-              {saving ? <><Spinner size="sm" /> Saving…</> : 'Save Profile'}
+            <Button
+              variant="primary"
+              onClick={handleSave}
+              disabled={saving || photoStatus.state === 'saving'}
+            >
+              {saving
+                ? <><Spinner size="sm" /> Saving…</>
+                : photoStatus.state === 'saving'
+                  ? <><Spinner size="sm" /> Uploading photo…</>
+                  : 'Save Profile'}
             </Button>
           )}
         </div>
