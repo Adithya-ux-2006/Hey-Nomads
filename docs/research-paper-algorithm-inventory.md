@@ -1,6 +1,6 @@
 # Hey Nomads — Technical Parameter & Algorithm Inventory (Research Paper Source)
 
-*Compiled read-only at commit `929cec9` (2026-10-16). All file paths relative to repo root. Line numbers refer to the working tree at HEAD unless a historical commit is cited.*
+*Compiled read-only at commit `929cec9` (2026-10-16) and updated through `f7e5960` (2026-10-17). All file paths relative to repo root. Line numbers in §1–§8 refer to the working tree at `929cec9`; `api/index.js` has since grown by ~240 lines, so §9.1 lists current anchors for every key symbol. Sections added after compilation: §9 (gender-preference filter, age/DOB derivation, notification engine, Living DNA comparison/consent algorithm and failure modes, migration status), §7.8 (change history since `929cec9`), and the §8 master-register additions at the end of that table.*
 
 ---
 
@@ -466,6 +466,20 @@ Commit dates from `git log --format='%h|%ad|%s' --date=short`. Repository spans 
 
 `git log -S` confirms these were introduced once and never modified: `lifestyle_weight` (`2fca172`, `c527384` touch = file move only), weight values 0.25/0.20/… (`2fca172`), `MATCH_CATEGORIES` contents (`6028750`), budget default 15000 (`2fca172`), deposit 5000, diet 'veg', smoking/drinking 'no', partying 'low', cleanliness 3, radius 10, bcrypt 10, JWT '30d', pool max 10 (since `8483f32`), upload cap 4 MB (since `d86f9db`).
 
+### 7.8 Commits after `929cec9` (2026-10-16/17)
+
+| Commit | Date | What changed for the paper |
+|---|---|---|
+| `fca5cb5` | 2026-10-16 | Two-sided gender-preference filter: `api/gender-prefs.mjs` (pure module), feed SQL clause, profile selector + validation, `docs/matching-formula.md` gender section, offline gates (§9.2) |
+| `a87fd12` | 2026-10-17 | `api/age.mjs` (calendar age derivation, MIN_AGE 18), `api/notifications.mjs` (dedup engine), migration `2026-10-16_add_dob_and_notifications.sql` (prepared; applied later in `38bc4ef`), `NotificationBell` (30 s poll), onboarding "About you" step, 4 notification routes, `recordNotification` emit sites (§9.3, §9.4) |
+| `242ad5e` | 2026-10-17 | All 7 Living DNA handlers map SQLSTATE 42P01 (missing table) to `503 'Living DNA is not available here yet.'` instead of generic 500; shared `isMissingLivingDnaTable` helper (§9.5) |
+| `941129f` | 2026-10-17 | Removed an accidentally committed scratch file; no behaviour |
+| `ffc82b3` | 2026-10-17 | Offline auth gate (401-before-DB proof) for the 16 communities/events/cities/settlement routes + structural asserts on weights/scorer/filter (test-only) |
+| `5a2fa55` | 2026-10-17 | `GATES.phase15.md` ledger (docs-only) |
+| `4a9e61c` | 2026-10-17 | `.gitignore` gains `.netlify` (chore-only) |
+| `38bc4ef` | 2026-10-17 | **Applied** migration `2026-10-16_add_dob_and_notifications.sql` to production with explicit human approval; `require-test-db.mjs` override no longer `process.exit(0)`s when imported (it used to silently skip the importer's work while exiting 0) |
+| `f7e5960` | 2026-10-17 | Onboarding bugfix: dropped `updated_at = CURRENT_TIMESTAMP` from the `UPDATE preferences` statement — `preferences` has only `created_at`, so every onboarding save carrying a preferred gender 500ed |
+
 ---
 
 ## 8. Summary Table — Master Parameter Register
@@ -567,12 +581,150 @@ Commit dates from `git log --format='%h|%ad|%s' --date=short`. Repository spans 
 | presentation cohort budgets | 1250/1400/1450/1550 | same | `e8c23a2` | Synthetic London fixtures |
 | presentation move date | 2026-11-15 | same | `e8c23a2` | Shared cohort MOVE_DATE |
 | demo fixture score | 84 | 84 | `0144bb3` | Client-only demo compatibility |
+| **Gender preferences (added `fca5cb5`)** | | | | |
+| preferred_gender stored values | `female`, `male`, `all`, `unspecified` | none (feature new) | `fca5cb5` | Legacy `no_preference`, NULL and any unknown string read as `unspecified`; never coerced to `all` |
+| gender filter position | hard SQL clause, pre-scoring, pre-LIMIT | n/a | `fca5cb5` | Eligibility, not a score input; applied in `getRecommendedRoommates` (`index.js:1258`) |
+| unknown gender vs stated preference | fails closed | n/a | `fca5cb5` | A specific preference requires an exactly matching known gender |
+| **Age / DOB (added `a87fd12`; column applied `38bc4ef`)** | | | | |
+| MIN_AGE | 18 | n/a | `a87fd12` | Enforced in both directions by `validateDob` |
+| MAX_REASONABLE_AGE | 120 | n/a | `a87fd12` | Rejects absurd dates ("That date of birth looks incorrect.") |
+| leap-day birthday rule | 29 Feb ages on 28 Feb in common years | n/a | `a87fd12` | UK/EU convention, documented in `age.mjs` |
+| age storage | derived at write time from `date_of_birth` | free-typed integer | `a87fd12` | Onboarding writes `date_of_birth` + derived age together (`index.js:396–399`); a client-supplied age is never stored |
+| onboarding step-0 gate | blocks until gender + valid DOB present | n/a | `a87fd12` | Client `stepBlocked`; server re-validates DOB (400) |
+| **Notifications (added `a87fd12`; tables applied `38bc4ef`)** | | | | |
+| notification types | `message`, `like`, `match` | n/a | `a87fd12` | Closed DB CHECK list |
+| dedup keys | `conversation:<id>`, `actor:<id>`, `pair:<lo>-<hi>` | n/a | `a87fd12` | One unread row per (recipient, type, key); partial unique index `uq_notifications_unread_dedup` |
+| bell poll interval | 30,000 ms | n/a | `a87fd12` | No WebSocket; serverless polling of `/notifications/unread-count` |
+| notification failure policy | never fails the user's action | n/a | `a87fd12` | `recordNotification` (`index.js:1139`) swallows its own errors |
+| **Living DNA failure modes (`242ad5e`)** | | | | |
+| missing-table status | 503 `Living DNA is not available here yet.` | generic 500 | `242ad5e` | All 8 living-dna handlers, SQLSTATE 42P01 (`isMissingLivingDnaTable`) |
+| constitution rule categories | 6 fixed categories | n/a | `af45362` | `RULE_CATEGORIES`, `index.js:2757` |
+
+---
+
+## 9. Algorithms added after `929cec9`
+
+*All file:line anchors in this section were read from the working tree at `f7e5960` (2026-10-17). Sections 1–8 keep their `929cec9` anchors for provenance; `api/index.js` line numbers below differ from those sections by the post-`929cec9` insertions.*
+
+### 9.1 Current key anchors (`api/index.js` at `f7e5960`, 2845 lines)
+
+| Symbol / route | Line |
+|---|---|
+| registration `INSERT INTO preferences` | 274 |
+| `app.post('/api/onboarding')` | 359 |
+| `UPDATE preferences SET preferred_gender` (onboarding) | 448 |
+| profile-editor `UPDATE preferences SET preferred_gender=COALESCE(...)` | 738 |
+| `app.post('/api/upload')` | 789 |
+| `getMatchWeights` | 845 |
+| `MATCH_CATEGORIES` | 852 |
+| `ANSWERED_FIELDS` | 858 |
+| `loadScoreContext` | 876 |
+| `calcCompatibility` | 904 |
+| `scoreCompatibility` | 910 |
+| `totalWeight` computation | 1062 |
+| `recordNotification` | 1139 |
+| `getRecommendedRoommates` | 1198 |
+| `feedGenderFilterSql(...)` call site | 1258 |
+| match notifications (both directions) | 1434–1435 |
+| like notification | 1439 |
+| `GET /api/notifications` | 1614 |
+| `GET /api/notifications/unread-count` | 1641 |
+| `POST /api/notifications/:id/read` | 1655 |
+| `POST /api/notifications/read-all` | 1668 |
+| message notification emit | 1722 |
+| `matchedPairWith` | 2503 |
+| `LIVING_DNA_NOT_READY` | 2525 |
+| answers-per-request cap (>50 → 400) | 2576 |
+| sharing upsert (booleans only) | 2620–2633 |
+| compare: consent checked before answers read | 2654 |
+| compare: pair build loop | 2673–2696 |
+| compare: response, no percentage | 2698–2714 |
+| `GET /api/living-dna/constitution/:userId` | 2724 |
+| `RULE_CATEGORIES` (6 entries) | 2757 |
+| propose rule + acceptance reset | 2760–2796 |
+| accept constitution | 2803–2835 |
+| `export default` serverless handler | 2845 |
+
+Frontend: `POLL_MS = 30000` at `frontend-react/src/components/NotificationBell.jsx:14`.
+
+### 9.2 Two-sided gender-preference filter (`fca5cb5`, `api/gender-prefs.mjs`)
+
+Pure module (no express/pg/env) so the offline gate suite can import and assert the pair rule directly.
+
+- **Stored values** (`preferences.preferred_gender`): `female`, `male`, `all`, `unspecified` (`GENDER_PREF_VALUES`, line 16).
+- **Read-time normalization** (`normalizeGenderPref`, line 22): trim + lowercase; only `female`/`male`/`all` pass through; everything else — NULL, legacy `no_preference`, unknown strings — becomes `unspecified`. `unspecified` is **never coerced to `all`** in storage; the two only share filtering behaviour because neither side may invent a restriction the user never stated.
+- **Gender-value aliases** (`normalizeGenderValue`, line 32): `woman`/`women` → `female`, `man`/`men` → `male`; anything else (`other`, `prefer_not_to_say`, NULL, `''`) passes through lowercased (`''` → `null`) so a specific preference can never falsely match it.
+- **Single-side admission** (`genderPrefAllows`, line 43): `all`/`unspecified` admit everyone; a specific preference admits only an exactly matching, **known** gender — unknown gender fails closed against a stated preference.
+- **Pair rule** (`pairGenderCompatible`, line 51): `A's pref admits B's gender AND B's pref admits A's gender` — symmetric by construction.
+- **SQL fragment** (`feedGenderFilterSql(myGender, myPrefRaw, startIdx)`, line 60) appended to the shared candidate WHERE clause, parameterized from `startIdx`:
+  1. *My side*: if my pref is exactly `female` or `male` → `AND LOWER(COALESCE(p.gender,'')) = $n` with the pref as the parameter.
+  2. *Their side* (always emitted): `AND (LOWER(COALESCE(pref2.preferred_gender,'')) NOT IN ('female','male') OR LOWER(COALESCE($n::text,'')) = LOWER(pref2.preferred_gender))` — a candidate whose pref is NULL/`all`/`unspecified`/legacy/unknown imposes no restriction; a specific candidate pref must equal my normalized gender. My unknown gender (`''`) then matches no specific pref, so it fails closed there too.
+- **Position**: injected into the one shared candidate query inside `getRecommendedRoommates` at `index.js:1258` (`pref2` is the candidate's preferences join), i.e. **hard eligibility before scoring and before LIMIT** — it never appears in `scoreCompatibility` or any weight.
+- **Write paths**: onboarding (`index.js:448`) and the profile editor (`index.js:738`) both run the same `normalizeGenderPref`, so the two writers store one canonical vocabulary. Design doc: `docs/matching-formula.md` §Gender preference filter.
+- **Gate**: `GATES.gender-prefs.md`; structural assert in `ffc82b3` tests that the filter is a WHERE-clause fragment, not a score term.
+
+### 9.3 Date-of-birth → age derivation (`a87fd12`, `api/age.mjs`; column applied `38bc4ef`)
+
+Pure module; the offline gate asserts calendar edge cases directly.
+
+- **Constants**: `MIN_AGE = 18` (exported), `MAX_REASONABLE_AGE = 120` (module-local).
+- **`parseDob`** accepts `YYYY-MM-DD` (strict then lenient single-digit month/day, so `2000-5-5` normalizes for `<input type="date">`), a real `Date` (UTC fields; Invalid Date → `null`), or `{year, month, day}`. Month 1–12 / day 1–31 checked, then a `Date.UTC` round-trip rejects non-existent dates (Feb 30, Apr 31).
+- **Why calendar math, not timestamp diff** (header comment): DOB is a calendar date; `(now − dob)` drifts by a day around birthdays and shifts with server timezone.
+- **`ageFromDob`**: `age = today.year − dob.year`, minus 1 when the birthday has not been reached this year, comparing month/day only. **Leap-day rule**: a 29 Feb birthday has its effective day set to 28 Feb in common years, so a 29 Feb 2004 baby is 18 on 28 Feb 2022 (UK/EU convention, documented in-file).
+- **`validateDob` order** (each step returns `{ok:false, age, error}`): parse failure → *"Enter a valid date of birth (YYYY-MM-DD)."*; future date → *"Date of birth cannot be in the future."*; null age → parse message again; `age < 18` → *"You must be at least 18 to use Hey Nomads."*; `age > 120` → *"That date of birth looks incorrect."*; else `{ok:true, age}`.
+- **Server integration** (`POST /api/onboarding`, `index.js:371–375, 396–399`): DOB validated **when present** (400 carries the `validateDob` message); `date_of_birth` and the **derived** `age` are written together — a client-sent age is never read into storage. Presence of the field itself is enforced by the client's step-0 `stepBlocked` gate (needs gender + valid DOB to advance); the server does not reject an empty DOB.
+- **Schema**: `users.date_of_birth` (DATE, nullable) added by `database/migrations/2026-10-16_add_dob_and_notifications.sql`, applied to production in `38bc4ef` (5 statements, 0 failed).
+- **Gate**: `GATES.age-notifications.md` (`GATE_AGE_UNIT_OK`, `GATE_AGE_API_OK`).
+
+### 9.4 Notification engine (`a87fd12`, `api/notifications.mjs`; tables applied `38bc4ef`)
+
+- **Tables** (from the applied migration): `notifications` and `notification_preferences`. One row per **(recipient, type, dedup_key)** while unread, enforced by partial unique index `uq_notifications_unread_dedup` on `(recipient_id, type, dedup_key) WHERE read_at IS NULL`.
+- **Types** (`NOTIFICATION_TYPES`): `message`, `like`, `match` — closed DB CHECK list.
+- **Dedup keys** (`dedupKeyFor`, line 13): `message` → `conversation:<id>` (a chatty thread is one row that bumps), `like` → `actor:<actorId>` (re-liking cannot stack), `match` → `pair:<min(lo,hi)>-<max(lo,hi)>` (fires once per pair); missing ids → `null`.
+- **`buildNotification`** (line 37) returns the row or `null` and never throws: rejects missing recipient, unknown type, **self-notification** (`recipientId === actorId`), or a missing key. Rationale: a caller that already committed the message/swipe must not fail because notification metadata was malformed.
+- **`recordNotification`** (`index.js:1139`): wraps build + insert; failures are swallowed — the bell must never break the user's action (asserted by the notification gates).
+- **Emit sites**: match — both directions, `index.js:1434–1435`; like — `1439`; message — `1722` (after the message row commits).
+- **Routes** (4): `GET /api/notifications` (1614), `GET /api/notifications/unread-count` (1641), `POST /api/notifications/:id/read` (1655), `POST /api/notifications/read-all` (1668) — all `authMiddleware`.
+- **Tap destinations** (`destinationFor`): `match` → `/matches` regardless of actor (a match may carry a null actor), `message` → `/messages/:actorId`, `like` → `/roommates/:actorId`, null actor → `null`.
+- **Labels** (`labelFor`): `"<name> sent you a message"`, `"<name> liked you"`, `"<name> is now a match"`, fallback name `Someone`, default copy `"New activity"`.
+- **Client**: no WebSocket anywhere (serverless Express on Vercel) — the bell polls `unread-count` every `POLL_MS = 30000` ms (`NotificationBell.jsx:14`).
+- **Gate**: `GATES.age-notifications.md` (`GATE_NOTIF_UNIT_OK`, `GATE_NOTIF_API_OK`).
+
+### 9.5 Living DNA — consent, comparison, constitution, failure modes
+
+- **Availability by design (`242ad5e`)**: migration `2026-10-11_add_living_dna.sql` is **not applied** (needs explicit human approval), so all **8** living-dna handlers catch SQLSTATE `42P01` via `isMissingLivingDnaTable` and return `503 { error: 'Living DNA is not available here yet.' }` (`LIVING_DNA_NOT_READY`, `index.js:2525`; guard at 2537, 2564, 2611, 2635, 2716, 2752, 2798, 2832). Before `242ad5e` this surfaced as a generic 500 — the 503 is the documented behaviour, not a defect.
+- **Match gate**: `matchedPairWith(req, otherUserId)` (`index.js:2503`) resolves a real match between the pair; otherwise 403 `"Living DNA comparison is available to matched accounts only"` (constitution variants say `"A Living Constitution is available to matched accounts only"`).
+- **Consent model**: two independent booleans per user — `share_preferences`, `share_boundaries` (default `false`, `ON CONFLICT` upsert, `index.js:2620–2633`, both must be booleans or 400). In the compare handler the partner's consent is checked **before any answers are read** (`index.js:2654–2656`) → 403 `"They have not chosen to share their Living DNA yet"`.
+- **Compare algorithm** (`index.js:2658–2714`): fetch both users' answers joined to questions ordered by `position`; build pairs over **my** answers —
+  - no counterpart → `status: 'not_answered_by_them'` (their option never revealed);
+  - otherwise `shown = their answer.is_boundary ? theirs.share_boundaries : theirs.share_preferences` — sharing preferences must **not** imply sharing boundaries (`index.js:2685`);
+  - `shown` → `aligned` (same option) or `different`; not shown → `not_shared` with `their_option: null`, `their_boundary: null` unless the boundary flag itself is shared.
+  - Response: `compared / aligned / different` counts, `notAnsweredByThem = (answeredByThem === 0)`, and an explicit **no-percentage** note (`index.js:2711–2713`): a number would imply a validated prediction that does not exist.
+  - Answer writes: `PUT .../answers` caps at **50 per request** (`index.js:2576`); each answer carries `is_boundary`.
+- **Living Constitution** (rules hang off the match; shared document between exactly the two people):
+  - `RULE_CATEGORIES` — 6 fixed strings: `Rent & expenses`, `Cleaning & chores`, `Guests & quiet hours`, `Food & shared supplies`, `Privacy & belongings`, `Conflict resolution` (`index.js:2757`).
+  - Propose rule (`2760–2796`): unknown category → 400; `rule_text` trimmed and `slice(0, 500)`; case-insensitive/trimmed duplicate → 409 `"That rule has already been proposed"`; new rule starts `status='proposed'`. Because there is no version column, proposing **resets the whole document**: all acceptance rows are deleted and every `agreed`/`declined` rule returns to `proposed` (`2791–2795`), so nothing displays as settled until both re-agree.
+  - Accept (`2803–2835`): 409 `"There is nothing to accept yet"` with no rules; 409 `"Resolve the declined rules before accepting"` if any rule is `declined`; otherwise insert acceptance (`ON CONFLICT DO NOTHING`) and promote all `proposed` → `agreed`.
+  - `mutuallyAccepted` = both acceptance rows exist (`2748`, `2829`) — never inferred from rule count.
+
+### 9.6 Onboarding save path — validation order (`POST /api/onboarding`, `index.js:359–460`)
+
+1. `authMiddleware`.
+2. DOB validated when present → `derivedAge` (400 carries the `validateDob` message) — `371–375`.
+3. `preferred_gender` passed through `normalizeGenderPref` when present — `381–384`. (The branch also has a 400 for a falsy result, but `normalizeGenderPref` always returns one of the four canonical values, so it is defensive only.)
+4. **users** UPDATE: `looking_for`; `moving_to` trimmed to 100 chars; `moving_date` — the string `'null'` becomes SQL `NULL`; `interests` array; `date_of_birth` **plus derived** `age` written together; `gender`; `country` looked up from the `cities` table by case-insensitive name so it can never disagree with `moving_to` — `392–411`.
+5. **profiles** UPDATE: `city`; `budget` clamped `0–10,000,000`; `cleanliness` clamped `1–5` (default 3); flat/sleep/social/smoking/drinking/diet — `422–430`; `INSERT ... ON CONFLICT (user_id) DO NOTHING` first (`435`) for rows created before registration guaranteed one.
+6. **preferences** UPDATE: `preferred_gender` only when provided, no other columns, and **no `updated_at`** — `preferences` has only `created_at`; setting one 500ed every onboarding submit carrying a preference until `f7e5960` — `444–451`. The preferences row itself is created at registration (`index.js:274`).
+7. `onboarding_complete = TRUE` unconditionally once the path above passes — `453`.
+8. Any throw → 500 `"Failed to save onboarding"`.
 
 ---
 
 ### Verification notes
 
-- Every current-value claim above was read from the working tree at HEAD (`929cec9`) with cited file:line.
+- Every current-value claim in §1–§8 was read from the working tree at `929cec9` with cited file:line; every claim in §9 was re-read from the working tree at `f7e5960` (2026-10-17) with cited file:line.
 - Every old→new transition was confirmed by `git show <commit>` / `git log -S` / `git log -L` against `frontend-react/api/index.js`, `account-kind.mjs`, `upload-guards.mjs`, and `database/` paths.
-- Items explicitly **not verified against a live database**: whether `match_weights` row 1 in production still holds launch defaults (weights are user-editable via `POST /api/match-weights`), and whether the `account_kind` migration has since been applied (the migration file itself states NOT APPLIED as of `a092a09`/`c60f453`; the runtime probes `information_schema` per process, `index.js:1006–1010`).
-- Two migrations (`2026-10-10_add_account_kind.sql`, `2026-10-11_add_living_dna.sql`) are additive, reversible, and marked NOT APPLIED in their headers.
+- **Live production database, verified read-only on 2026-10-17**: migration `2026-10-16_add_dob_and_notifications.sql` is **APPLIED** (`applied 5, failed 0`, explicit human approval); `users.date_of_birth`, `notifications` and `notification_preferences` exist, and the partial unread-dedup index is present. The onboarding statement sequence (§9.6) was replayed against the live schema inside a transaction that was then **rolled back** — all statements OK.
+- Still **NOT APPLIED** (both additive, reversible, require explicit human approval): `2026-10-10_add_account_kind.sql`, `2026-10-11_add_living_dna.sql`. Living DNA endpoints return the documented 503 until the latter is approved and applied. Migration headers state their status; runtime probes `information_schema` per process.
+- Items explicitly **not verified against a live database**: whether `match_weights` row 1 in production still holds launch defaults (weights are user-editable via `POST /api/match-weights`).
+- Not performed: browser-rendered checks of the notification bell and onboarding flow (verification was lint/build/unit/HTTP-gate plus statement replay).
