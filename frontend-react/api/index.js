@@ -443,7 +443,9 @@ app.post('/api/onboarding', authMiddleware, async (req, res) => {
     // which would silently un-filter the feed on a partial save.
     if (normalizedPref != null) {
       await query(
-        'UPDATE preferences SET preferred_gender = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
+        // preferences has created_at only — no updated_at column. Setting one
+        // made every onboarding submit that carried a preferred gender 500.
+        'UPDATE preferences SET preferred_gender = $1 WHERE user_id = $2',
         [normalizedPref, req.userId]
       );
     }
