@@ -36,3 +36,6 @@ backend/uploads/*
 .unlazy/
 .unlazy-hook-state.json
 .vibecode-backup*/
+
+# Local Netlify folder
+.netlify
