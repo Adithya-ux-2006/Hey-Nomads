@@ -1,8 +1,9 @@
 -- Date of birth + persistent notifications.
 --
--- Status: NOT APPLIED. Additive and reversible; has not been run against
--- production. Applying it requires separate approval. It only adds a column
--- and a new table with its own indexes; it never touches users' other columns,
+-- Status: APPLIED to the production database on 2026-10-17 with explicit
+-- human approval, via scripts/apply-migration.mjs
+-- (ALLOW_DEPLOYED_DB_TESTS=1). Additive and reversible; it only adds a column
+-- and new tables with their own indexes; it never touches users' other columns,
 -- matches, messages, agreements or living-DNA tables, so it cannot alter who
 -- can see whom.
 --

@@ -53,37 +53,41 @@ const readEnvUrl = () => {
   return null;
 };
 
+// The override must NOT process.exit() here. This module is imported by
+// apply-migration.mjs, so an exit would end the importer before it applies
+// anything — and exit(0) makes that look like success. Fall through instead:
+// standalone runs still end with code 0 after the warning, while importers
+// continue into their real work.
 if (process.env.ALLOW_DEPLOYED_DB_TESTS === '1') {
   console.warn('ALLOW_DEPLOYED_DB_TESTS=1: proceeding against a database that may be the deployed one.');
-  process.exit(0);
-}
-
-const configured = process.env.DATABASE_URL;
-const effective = configured || readEnvUrl();
-
-if (!effective) {
-  deny('no database configuration was found, so the target cannot be established');
-}
-const target = normalizeHost(effective);
-if (!target) {
-  // A malformed URL is not evidence of a safe target.
-  deny('DATABASE_URL is set but could not be parsed, so the target is unknown');
-}
-
-const deployed = normalizeHost(readEnvUrl());
-
-if (deployed) {
-  if (target === deployed) deny(`the target is the deployed database (${target})`);
 } else {
-  // No .env means we cannot know where production is, so ask rather than assume.
-  const confirmed = normalizeHost(`postgresql://${process.env.CONFIRM_TEST_DATABASE_HOST || ''}`);
-  if (!confirmed) {
-    deny('there is no .env to compare against, so set CONFIRM_TEST_DATABASE_HOST to the test host you intend to use');
-  }
-  if (confirmed !== target) {
-    deny(`CONFIRM_TEST_DATABASE_HOST (${confirmed}) does not match the actual target (${target})`);
-  }
-}
+  const configured = process.env.DATABASE_URL;
+  const effective = configured || readEnvUrl();
 
-// Host only. Never print the connection string, which carries the password.
-console.log(`test database confirmed: ${target}`);
+  if (!effective) {
+    deny('no database configuration was found, so the target cannot be established');
+  }
+  const target = normalizeHost(effective);
+  if (!target) {
+    // A malformed URL is not evidence of a safe target.
+    deny('DATABASE_URL is set but could not be parsed, so the target is unknown');
+  }
+
+  const deployed = normalizeHost(readEnvUrl());
+
+  if (deployed) {
+    if (target === deployed) deny(`the target is the deployed database (${target})`);
+  } else {
+    // No .env means we cannot know where production is, so ask rather than assume.
+    const confirmed = normalizeHost(`postgresql://${process.env.CONFIRM_TEST_DATABASE_HOST || ''}`);
+    if (!confirmed) {
+      deny('there is no .env to compare against, so set CONFIRM_TEST_DATABASE_HOST to the test host you intend to use');
+    }
+    if (confirmed !== target) {
+      deny(`CONFIRM_TEST_DATABASE_HOST (${confirmed}) does not match the actual target (${target})`);
+    }
+  }
+
+  // Host only. Never print the connection string, which carries the password.
+  console.log(`test database confirmed: ${target}`);
+}

@@ -61,11 +61,22 @@ that actually ran in this session.
   (uploads, likes queries, gender-prefs) green together.
 
 ## G6 — Migration status
-- [x] PASS (documented, not applied). `database/migrations/2026-10-16_add_dob_and_notifications.sql`
-  adds `users.date_of_birth`, the `notifications` table, its two indexes and the
-  per-user `notification_preferences` table. It is additive and reversible; it
-  has **not** been run against production and must be approved and applied
-  separately. Reversal order is documented in the file header.
+- [x] PASS (applied 2026-10-17, with explicit human approval).
+  `database/migrations/2026-10-16_add_dob_and_notifications.sql` adds
+  `users.date_of_birth`, the `notifications` table, its two indexes and the
+  per-user `notification_preferences` table. Applied via
+  `scripts/apply-migration.mjs` (`ALLOW_DEPLOYED_DB_TESTS=1`), result
+  `applied 5, failed 0`. Verified after the run: `information_schema` reports
+  `users.date_of_birth`, `notifications` and `notification_preferences`, and
+  the exact onboarding-shaped `UPDATE users SET date_of_birth = …` executes
+  (scoped to a non-existent id, 0 rows touched). Reversal order remains
+  documented in the file header.
+- Incident note (2026-10-17): the DOB code shipped before this migration was
+  applied, so production onboarding failed with 500 "Failed to save onboarding"
+  on every submit. Root cause: `date_of_birth` column missing. Fixed by applying
+  the migration above; also fixed `require-test-db.mjs`, whose override used to
+  `process.exit(0)` when imported and silently skipped the migration while
+  still exiting 0 (guard self-test: 11/11 after the fix).
 
 ## Not verified here
 - Live database behaviour: every authenticated database call in this environment
