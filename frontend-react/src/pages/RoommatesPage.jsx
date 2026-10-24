@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
 import { apiFetch } from '../lib/api'
-import { isDemo } from '../lib/demoMode'
 import { useAsync } from '../lib/useAsync'
 import { Card, Badge, CompatibilityBadge, Spinner, EmptyState, ErrorState, InlineError, Button } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
@@ -12,15 +11,6 @@ import { SlidersHorizontal, ChevronDown, MapPin, Briefcase, Heart, X, Bookmark }
 // chips that pushes the pass/shortlist/like row off the screen. The full list
 // is still on the detail page.
 const MAX_CARD_REASONS = 4;
-
-const DemoModeLink = () => (
-  <Link
-    to="/demo"
-    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-brand-amber text-white text-sm font-semibold hover:opacity-90 transition-opacity"
-  >
-    Take the walkthrough
-  </Link>
-)
 
 export default function RoommatesPage() {
   const [swipedIds, setSwipedIds] = useState(new Set())
@@ -247,7 +237,6 @@ const handleSwipe = async (targetId, action, name) => {
                     </Button>
                   )}
                   <Button onClick={retry}>Load more matches</Button>
-                  <DemoModeLink />
                 </div>
               }
             />
@@ -259,19 +248,11 @@ const handleSwipe = async (targetId, action, name) => {
                   populated grid. The promo is dropped while the visitor is
                   already inside the demo. */}
               <div className="mb-4 p-3 rounded-xl bg-surface-card border border-surface-border flex flex-wrap items-center gap-3">
-                <span className="text-sm text-text-secondary flex-1 min-w-[200px]">
-                  New here? A match needs a mutual like — tap the heart and you'll match once
-                  they like you back.
-                </span>
-                {!isDemo() && (
-                  <Link
-                    to="/demo"
-                    className="px-3 py-2 rounded-lg bg-brand-amber text-white text-xs font-semibold hover:opacity-90 transition-opacity"
-                  >
-                    Take the walkthrough
-                  </Link>
-                )}
-              </div>
+                  <span className="text-sm text-text-secondary flex-1 min-w-[200px]">
+                    New here? A match needs a mutual like — tap the heart and you'll match once
+                    they like you back.
+                  </span>
+                </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {visible.map(roommate => (
                 <Card key={roommate.id} className="overflow-hidden group hover:shadow-hover">
