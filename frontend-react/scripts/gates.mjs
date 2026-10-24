@@ -65,7 +65,7 @@ if (arg === 'lint') {
   // Starting the tour has to drop any stored session. Otherwise a signed-in
   // visitor keeps their real token and account id, and the screens the tour
   // renders read that identity as their own.
-  if (!/localStorage\.removeItem\('authToken'\)/.test(demoMode)) fail('enterDemo does not drop the stored session');
+  if (!/\.removeItem\('authToken'\)/.test(demoMode)) fail('enterDemo does not drop the stored session');
   // The tour needs its own id: the chat and detail screens compare ids with
   // Number() and label the sender of a message, so null made both unreadable.
   if (!/DEMO_SELF_ID\s*=\s*\d+/.test(demoMode)) fail('the demo has no numeric self id');
@@ -74,7 +74,14 @@ if (arg === 'lint') {
   // Public route: no PrivateRoute wrapper, so a stored token cannot decide access.
   if (!/path="\/demo" element=\{<DemoModePage \/>}/.test(app)) fail('/demo is not a public route');
   // The samples endpoint must be reachable signed out, or demo inherits sign-in.
-  if (!/app\.get\('\/api\/demo\/profiles',\s*async/.test(api)) fail('/api/demo/profiles still requires auth');
+  // Demo is fully client-side now, so the stronger inversion holds: the API
+  // serves no demo route at all, and the demo module fetches nothing.
+  if (/app\.get\('\/api\/demo\/profiles'/.test(api)) fail('the API still serves a demo endpoint it should not have');
+  if (/\bfetch\s*\(/.test(demoMode)) fail('the demo transport still reaches the network');
+  // One demo experience only: the legacy /presentation route must be gone.
+  if (/to="\/presentation"/.test(landing)) fail('the landing page still links the removed /presentation flow');
+  if (fs.existsSync(path.join(root, 'src/pages/PresentationPage.jsx'))) fail('PresentationPage.jsx still exists');
+  if (fs.existsSync(path.join(root, 'src/lib/presentation.js'))) fail('presentation.js still exists');
   // Both landing demo CTAs must reach demo mode, not the sign-in form.
   if ((landing.match(/to="\/demo"/g) || []).length < 2) fail('landing does not offer two demo entry points');
   if (/to="\/login"/.test(landing)) fail('landing still sends the demo visitor to /login');

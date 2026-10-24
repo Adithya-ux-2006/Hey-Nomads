@@ -6,7 +6,7 @@
 
 ## 1. Matching & Scoring Engine
 
-**Location:** `frontend-react/api/index.js` — matching engine section, lines 755–986. Canonical prose documentation: `docs/matching-formula.md` (added in `8cd9aa1`, documented "as of commit `e5857c6`"). A second consumer of the same engine is `frontend-react/api/presentation.mjs` (lines 182–184, 210–211, 268–269), which imports `getMatchWeights`, `loadScoreContext`, `scoreCompatibility`, `calcCompatibility` from `index.js` (injected at mount, line 47–48; exported at `index.js:2605`).
+**Location:** `frontend-react/api/index.js` — matching engine section, lines 755–986. Canonical prose documentation: `docs/matching-formula.md` (added in `8cd9aa1`, documented "as of commit `e5857c6`"). Note 2026-10-24: the former second consumer, `frontend-react/api/presentation.mjs`, was removed along with the whole /presentation surface (see `src/lib/demoMode.js` for the client-side demo, which scores with the shared `scoreCompatibility` imported from `api/matching.mjs`). `calcCompatibility` retains the exported definition at `index.js:2605`.
 
 ### 1.1 Weights (`match_weights` table + code defaults)
 
@@ -109,7 +109,7 @@ Also stated in `docs/matching-formula.md:116–118`. Feed ordering (`index.js:11
 
 ### 1.7 Single-candidate path
 
-`calcCompatibility(userId, candidateId, weights)` (`index.js:818–821`) = `loadScoreContext(userId, [candidateId])` + `scoreCompatibility`. Used by: swipe→match creation (`index.js:1276–1277`, writes `matches.compatibility_score` and `status='matched'`, lines 1284–1286), candidate detail (`index.js:1209`), presentation swipe (`presentation.mjs:268–269`), presentation profile (`presentation.mjs:210–211`).
+`calcCompatibility(userId, candidateId, weights)` (`index.js:818–821`) = `loadScoreContext(userId, [candidateId])` + `scoreCompatibility`. Used by: swipe→match creation (`index.js:1276–1277`, writes `matches.compatibility_score` and `status='matched'`, lines 1284–1286), candidate detail (`index.js:1209`). (The presentation swipe/profile consumers were removed 2026-10-24 with the /presentation surface; the client-side demo scores via `scoreCompatibility` in `api/matching.mjs` instead.)
 
 ### 1.8 Candidate selection (`getRecommendedRoommates`, `index.js:1080–1160`)
 

@@ -65,6 +65,11 @@ No gate is marked PASS without output from the command named in CHECK.
   EVIDENCE: automatic-evidence=v1; definition-sha256=a321fbe81a50eb2759f4099a9dfec046c96d66a3d6e214216fb8d3759f9f9782; exit=0; EXPECT=matched; output-sha256=404ce10580eabcc7ea365b2f0a238b18ec7873d9c30b3f4ae00efc8943c50ea1; output-bytes=3269; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 - [x] Q10: Competition presentation mode runs on isolated synthetic accounts and the real matching logic, exposing no real user or private data — PASS
+  STATUS 2026-10-24: SUPERSEDED by removal — the /presentation surface
+  (PresentationPage.jsx, presentation.js, presentation-cohort.js,
+  api/presentation.mjs) and its QA suites were deleted; the rebuilt client-side
+  demo walkthrough (/demo) is the single walkthrough surface. Q10-Q12 records
+  below are historical.
   CHECK: node scripts/qa-presentation.mjs
   EXPECT: PRESENTATION_OK
   CWD: frontend-react

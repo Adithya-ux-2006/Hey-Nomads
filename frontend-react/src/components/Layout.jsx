@@ -25,7 +25,7 @@ export default function Layout({ children, className = '' }) {
           every screen in the walkthrough reads as a real account's screen. */}
       {demo && (
         <div className="bg-brand-amber/15 border-b border-brand-amber/30 px-4 py-2 flex items-center justify-between gap-3">
-          <p className="text-xs font-semibold text-text-primary">Demo Mode — simulated data, nothing is saved</p>
+          <p className="text-xs font-semibold text-text-primary">Demo Mode — simulated data, saved in this tab only</p>
           <button
             type="button"
             onClick={leave}

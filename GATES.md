@@ -105,6 +105,12 @@ No gate is marked PASS without output from the command named in CHECK.
   EVIDENCE: automatic-evidence=v1; definition-sha256=a7eb8ef4345c75dfb92ab81ebd5e36479eb45bb22ea151db0932454a5bf7c49d; exit=0; EXPECT=matched; output-sha256=c5b39ba5e35952c0a679c76ec6ed10ecccce2dd57247f297babb749336b829f3; output-bytes=1411; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Hey_Nomads\frontend-react; path=8c2f10424b45/58 entries
 
 - [x] G13: Publishing /presentation to production does not write uncontrolled synthetic records into the real user database — PASS (gate live in production)
+  STATUS 2026-10-24: SUPERSEDED by removal. The entire /presentation surface
+  (PresentationPage.jsx, src/lib/presentation.js, src/lib/presentation-cohort.js,
+  api/presentation.mjs and the /presentation route) was deleted; the residual
+  defense-in-depth is the scope guard in api/index.js rejecting any
+  still-issued presentation token on ordinary endpoints. The record below is
+  retained as history; no /api/presentation/* check is meaningful any more.
   CHECK: node -e "fetch('https://hey-nomads.vercel.app/api/presentation/session',{method:'POST'}).then(r=>r.text()).then(console.log)"
   EXPECT: 404 {"error":"Not found"} (JSON, i.e. the gate handler — an ungated
   Express default would be HTML `Cannot POST /api/presentation/session`)
