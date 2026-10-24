@@ -6,14 +6,12 @@ import pg from 'pg';
 import * as Sentry from '@sentry/node';
 import { put } from '@vercel/blob';
 import {
-  DEMO_EMAIL_PATTERN,
   realAccountSql,
   classifyEmail,
   classifyAccount,
   KIND,
   humanLabel,
 } from './account-kind.mjs';
-import { mountPresentation } from './presentation.mjs';
 import { validateUpload, MAX_UPLOAD_BYTES } from './upload-guards.mjs';
 import { sentLikesQuery, receivedLikesQuery } from './likes-queries.mjs';
 import { normalizeGenderPref, feedGenderFilterSql, GENDER_PREF_VALUES } from './gender-prefs.mjs';
@@ -985,32 +983,10 @@ async function recordNotification({ recipientId, actorId, type, ids }) {
 }
 
 // ── Demo Mode ────────────────────────────────────────────────
-// Read-only. Deliberately exposes no write path: demo liking, chatting and
-// agreeing happen in the client so a demo interaction can never create a real
-// match, message or agreement row that some other user would later believe.
-// Deliberately unauthenticated: Demo Mode must open signed out and must never
-// be handed a previous visitor's token. The rows it returns are the seeded
-// @heynomads.app accounts, carry no email address, and are already excluded
-// from every real feed by account classification.
-app.get('/api/demo/profiles', async (req, res) => {
-  try {
-    const result = await query(
-      `SELECT u.id, u.name, u.age, u.interests,
-              p.occupation, p.city, p.budget, p.bio, p.profile_image,
-              p.cleanliness, p.sleep_time, p.diet, p.flat_type
-       FROM users u
-       JOIN profiles p ON p.user_id = u.id
-       WHERE u.email LIKE $1
-       ORDER BY u.name`, [DEMO_EMAIL_PATTERN]
-    );
-    // The flag is the contract: a client must be able to label these without
-    // inferring it from the email domain.
-    res.json(result.rows.map(r => ({ ...r, is_demo: true })));
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to get demo profiles' });
-  }
-});
-
+// Demo Mode is fully client-side now: its synthetic profiles, scores, likes,
+// matches and messages live in the bundle and the demo session storage, so
+// this API exposes no demo endpoint at all. A demo browser session makes
+// zero /api/* calls by construction.
 // ── Roommates / Discovery ──────────────────────────────────────
 
 // One candidate selection backs both feeds. Discover and Roommates each kept
@@ -2658,11 +2634,4 @@ app.post('/api/living-dna/constitution/:userId/accept', authMiddleware, async (r
 });
 
 // ── Vercel Serverless Export ──────────────────────────────────
-// Competition presentation routes. Mounted last so the scope guard installed
-// above the first route is already in front of them.
-mountPresentation(app, {
-  query, jwt, JWT_SECRET, Sentry, rateLimit,
-  getMatchWeights, loadScoreContext, scoreCompatibility, calcCompatibility,
-});
-
 export default (req, res) => app(req, res);

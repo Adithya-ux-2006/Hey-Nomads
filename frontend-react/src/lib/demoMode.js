@@ -158,9 +158,6 @@ export function enterDemo() {
   if (!wasActive) emit();
   ensureState();
   persistState();
-  // keep network fetch (graceful fallback) but do not override scored feed
-  loadRealSamples();
-  return Promise.resolve();
 }
 
 export function exitDemo() {
@@ -173,16 +170,6 @@ export function exitDemo() {
 
 export function onDemoChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 export const isDemo = () => active;
-
-let loading = null;
-function loadRealSamples() {
-  if (loading) return loading;
-  loading = fetch('/api/demo/profiles')
-    .then(r => (r.ok ? r.json() : []))
-    .then(() => undefined)
-    .catch(() => undefined);
-  return loading;
-}
 
 // ---------- interactions ----------
 export function acceptLike(profileId) {

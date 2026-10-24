@@ -27,7 +27,6 @@ import ComparePage from './pages/ComparePage';
 import AgreementEditor from './pages/AgreementEditor';
 import AgreementsPage from './pages/AgreementsPage';
 import DemoModePage from './pages/DemoModePage';
-import PresentationPage from './pages/PresentationPage';
 import LivingDnaPage from './pages/LivingDnaPage';
 
 const PrivateRoute = ({ children }) => {
@@ -94,14 +93,10 @@ function App() {
           <Route path="/edit-profile" element={<PrivateRoute><EditProfilePage /></PrivateRoute>} />
           <Route path="/shortlist" element={<PrivateRoute><ShortlistPage /></PrivateRoute>} />
           <Route path="/agreements" element={<PrivateRoute><AgreementsPage /></PrivateRoute>} />
-          {/* Public on purpose: demo mode fetches the seeded samples with no
-              token, needs no session, and must not inherit whatever account
-              happens to be signed in on this browser. */}
+          {/* Public on purpose: demo mode fetches nothing and needs no
+              session, and must not inherit whatever account happens to be
+              signed in on this browser. */}
           <Route path="/demo" element={<DemoModePage />} />
-          {/* Public on purpose, for the same reason /demo is: the guided
-              walkthrough runs on its own scoped session and must not inherit
-              whatever account happens to be signed in on this browser. */}
-          <Route path="/presentation" element={<PresentationPage />} />
           <Route path="/living-dna" element={<PrivateRoute><LivingDnaPage /></PrivateRoute>} />
           {/* Public. Only signed-in users are pushed into the app. */}
           <Route

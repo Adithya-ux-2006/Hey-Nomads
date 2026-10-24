@@ -630,16 +630,25 @@ await step('agreement rejects self-agreements', async () => {
 // Demo accounts exist in the same users table as real people, so the only thing
 // keeping them honest is the recommendation query excluding them and the demo
 // routes offering no write path at all.
+const demoAccountIds = async () => {
+  const pg = (await import('pg')).default;
+  const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  await db.connect();
+  try {
+    const rows = await db.query(`SELECT id, name FROM users WHERE email LIKE '%@heynomads.app'`);
+    return rows.rows;
+  } finally { await db.end(); }
+};
+
 await step('real recommendations never include demo accounts', async () => {
   const rec = await call('GET', '/api/roommates/recommended', token);
   const list = Array.isArray(rec.body) ? rec.body : (rec.body.roommates || []);
   assert.equal(rec.status, 200, rec.body?.error);
 
-  const demos = await call('GET', '/api/demo/profiles', token);
-  assert.equal(demos.status, 200, demos.body?.error);
-  assert.ok(demos.body.length > 0, 'no demo profiles are seeded');
+  const demoRows = await demoAccountIds();
+  assert.ok(demoRows.length > 0, 'no demo accounts are seeded');
 
-  const demoIds = new Set(demos.body.map(d => d.id));
+  const demoIds = new Set(demoRows.map(d => d.id));
   const leaked = list.filter(c => demoIds.has(c.id));
   assert.equal(leaked.length, 0,
     `real recommendations contain demo accounts: ${leaked.map(c => c.name).join(', ')}`);
@@ -650,50 +659,18 @@ await step('real recommendations never include demo accounts', async () => {
   const discRoommates = disc.body.roommates || [];
   assert.ok(!discRoommates.some(r => demoIds.has(r.id)),
     'discover exposes a demo account as a real recommendation');
-  return `${list.length} real candidates, ${demos.body.length} demo profiles, no overlap`;
+  return `${list.length} real candidates, ${demoRows.length} demo accounts, no overlap`;
 });
 
-await step('demo profiles are labelled and exclude real accounts', async () => {
+await step('the demo API namespace is gone (profiles are client-side)', async () => {
   const r = await call('GET', '/api/demo/profiles', token);
-  assert.equal(r.status, 200);
-  assert.ok(r.body.length > 0, 'no demo profiles returned');
-  assert.ok(r.body.every(p => p.is_demo === true),
-    'a demo profile is missing the is_demo flag, so a client cannot label it');
-  assert.ok(!r.body.some(p => p.email), 'the demo endpoint leaks an email address');
-  return `${r.body.length} profiles, all flagged is_demo`;
-});
-
-await step('demo mode exposes no write path', async () => {
-  // There is intentionally no POST /api/demo/* route. Assert that a write
-  // attempt against the demo namespace fails rather than silently persisting.
+  assert.equal(r.status, 404, `GET /api/demo/profiles answered ${r.status}`);
   for (const method of ['POST', 'DELETE']) {
-    const r = await call(method, '/api/demo/profiles', token, { targetId: other.id });
-    assert.ok(r.status === 404 || r.status === 405,
-      `${method} /api/demo/profiles returned ${r.status}, expected 404 or 405`);
+    const rr = await call(method, '/api/demo/profiles', token, { targetId: other.id });
+    assert.ok(rr.status === 404 || rr.status === 405,
+      `${method} /api/demo/profiles returned ${rr.status}, expected 404 or 405`);
   }
-  return 'no writable demo routes';
-});
-
-await step('demo interaction creates no real match, message or agreement', async () => {
-  const pg = (await import('pg')).default;
-  const db = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
-  await db.connect();
-  const snapshot = async () => (await db.query(
-    `SELECT (SELECT count(*) FROM matches) AS m,
-            (SELECT count(*) FROM messages) AS msg,
-            (SELECT count(*) FROM agreements) AS a`
-  )).rows[0];
-  const before = await snapshot();
-
-  // Browse the demo list the way the page does: read only. Nothing below may
-  // change a row, which is what makes the mode safe.
-  await call('GET', '/api/demo/profiles', token);
-
-  const after = await snapshot();
-  assert.deepEqual(after, before,
-    `browsing demo profiles changed real rows: ${JSON.stringify({ before, after })}`);
-  await db.end();
-  return `matches/messages/agreements unchanged at ${before.m}/${before.msg}/${before.a}`;
+  return 'no demo routes exist, readable or writable';
 });
 
 // ── demo accounts are unreachable as real candidates ─────────
@@ -702,10 +679,9 @@ await step('demo interaction creates no real match, message or agreement', async
 // a hand-crafted request against a demo user id. These probe the boundary
 // directly.
 await step('the API refuses a swipe against a demo account', async () => {
-  const demos = await call('GET', '/api/demo/profiles', token);
-  assert.equal(demos.status, 200, demos.body?.error);
-  assert.ok(demos.body.length > 0, 'no demo profiles are seeded');
-  const demoId = demos.body[0].id;
+  const demoRows = await demoAccountIds();
+  assert.ok(demoRows.length > 0, 'no demo accounts are seeded');
+  const demoId = demoRows[0].id;
 
   const r = await call('POST', '/api/swipe', token, { targetId: demoId, action: 'like' });
   assert.ok(r.status === 403 || r.status === 400,
@@ -715,8 +691,8 @@ await step('the API refuses a swipe against a demo account', async () => {
 });
 
 await step('the API refuses to shortlist a demo account', async () => {
-  const demos = await call('GET', '/api/demo/profiles', token);
-  const demoId = demos.body[0].id;
+  const demoRows = await demoAccountIds();
+  const demoId = demoRows[0].id;
 
   const r = await call('POST', '/api/shortlist', token, { targetId: demoId });
   assert.ok(r.status === 403 || r.status === 400,
@@ -1021,9 +997,8 @@ await step('an existing agreement survives the pair unmatching', async () => {
 });
 
 await step('matchCreated is true exactly when a match row exists', async () => {
-  const demos = await call('GET', '/api/demo/profiles', token);
-  assert.equal(demos.status, 200);
-  const demoId = demos.body[0].id;
+  const demoRows = await demoAccountIds();
+  const demoId = demoRows[0].id;
 
   // A like on an unreachable demo target is refused outright, so it cannot be
   // the source of a false positive.

@@ -120,8 +120,7 @@ total = min(100, round( Σ_categories (breakdown[cat] / ceiling[cat]) × w_cat �
 ### Feed ordering
 
 Recommendation feeds sort by `score` descending, then `created_at` descending
-(newest first), then `id` ascending — the same comparator the presentation
-discovery feed uses.
+(newest first), then `id` ascending.
 
 ## Gender preference filter
 
@@ -182,6 +181,4 @@ checker is not vacuously true.
 - `loadScoreContext` batches the reads once per feed (requester profile, all
   candidate profiles, languages, city cost table) and scores in memory.
 - `calcCompatibility` is the single-candidate path used by swipe, candidate
-  detail, agreements and the presentation.
-- The presentation discovery feed (`/api/presentation/discover`) calls the same
-  `scoreCompatibility` with the same weights; only the candidate set differs.
+  detail and agreements.

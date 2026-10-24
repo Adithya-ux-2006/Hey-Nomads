@@ -78,6 +78,14 @@ export const auth = {
   // from advertising an app the visitor has no account inside of.
   isAuthenticated: () => !!getToken(),
   async restoreSession() {
+    if (isDemo()) {
+      // The tour is not a session: drop any leaked credentials before the
+      // screens render, without ending demo mode.
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('userId');
+      localStorage.removeItem('userName');
+      return { session: null };
+    }
     const token = getToken();
     if (!token) return { session: null };
     try {

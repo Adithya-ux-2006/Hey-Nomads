@@ -162,6 +162,15 @@ async function demoPass(browser) {
   const { context } = await newContext(browser, { demo: true });
   const page = await context.newPage();
   await page.setViewportSize({ width: 390, height: 900 });
+
+  // Landing regression: the "Try with Demo Account" button must land the
+  // signed-out visitor inside the rebuilt walkthrough directly (no hub, no
+  // extra click), and the legacy /presentation surface must be gone.
+  await page.goto(`${ORIGIN}/`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('link', { name: 'Try with Demo Account' }).first().click();
+  await page.waitForURL('**/roommates', { timeout: 15000 });
+  await text(page, 'simulated data, saved in this tab only');
+
   await page.goto(`${ORIGIN}/likes`, { waitUntil: 'domcontentloaded' });
 
   // The banner is the label that keeps mocked rows from posing as real people.

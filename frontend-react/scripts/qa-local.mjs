@@ -30,12 +30,10 @@ const SUITES = {
   profile: { script: 'profile-layout-qa.mjs', token: 'profile layout qa passed' },
   ui: { script: 'ui-inspect.mjs', token: 'ui inspection passed' },
   journey: { script: 'ui-walkthrough.mjs', token: 'ui walkthrough passed' },
-  presentation: { script: 'presentation-qa.mjs', token: 'PRESENTATION_OK' },
-  flow: { script: 'presentation-flow-qa.mjs', token: 'PRESENTATION_FLOW_OK' },
-  walk: { script: 'presentation-ui-qa.mjs', token: 'PRESENTATION_UI_OK' },
+  demo: { script: 'demo-tour-qa.mjs', token: 'demo tour qa passed' },
 };
 // `all` is the fast local gate: the two suites that cover rendering and layout.
-// ui, journey and presentation are slower and are run through their own gates.
+// ui, journey and demo are slower and are run through their own gates.
 const DEFAULT_SUITE = ['browser', 'profile'];
 const suiteFlag = argv.indexOf('--suite');
 const suite = suiteFlag !== -1 ? argv[suiteFlag + 1] : 'all';

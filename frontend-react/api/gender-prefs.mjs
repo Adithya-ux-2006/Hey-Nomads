@@ -26,7 +26,7 @@ export function normalizeGenderPref(raw) {
 }
 
 // Map a profile gender to a comparable value. Aliases cover legacy spellings
-// ('Woman' in the presentation cohort); anything else ('other',
+// ('Woman' in old fixtures); anything else ('other',
 // 'prefer_not_to_say', NULL) passes through lowercased so a specific
 // preference can never falsely match it.
 const GENDER_ALIASES = { woman: 'female', women: 'female', man: 'male', men: 'male' };
