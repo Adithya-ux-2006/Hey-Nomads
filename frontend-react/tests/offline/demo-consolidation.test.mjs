@@ -65,7 +65,7 @@ globalThis.fetch = async () => { throw new Error('offline test: network disabled
 
 const demo = await import('../../src/lib/demoMode.js');
 
-const DEMO_KEYS = ['hey_nomads_demo','hey_nomads_demo_received','hey_nomads_demo_sent','hey_nomads_demo_matches','hey_nomads_demo_dismissed','hey_nomads_demo_messages','hey_nomads_demo_initialized'];
+const DEMO_KEYS = ['hey_nomads_demo','hey_nomads_demo_received','hey_nomads_demo_sent','hey_nomads_demo_matches','hey_nomads_demo_dismissed','hey_nomads_demo_messages','hey_nomads_demo_initialized','hey_nomads_demo_shortlist','hey_nomads_demo_agreements'];
 
 afterEach(async () => {
   if (demo.isDemo()) demo.exitDemo();
@@ -114,3 +114,70 @@ test('demo data stays isolated from real-user storage keys', async () => {
   assert.equal(globalThis.localStorage.getItem('authToken'), null, 'no real auth token left after demo entry');
   assert.equal(globalThis.localStorage.getItem('userId'), null, 'no real user id left after demo entry');
 });
+
+test('shortlist GET returns shortlisted profiles; POST adds and DELETE removes', async () => {
+  await demo.enterDemo();
+  assert.equal(demo.demoResponse('/shortlist').length, 0, 'shortlist starts empty');
+
+  const target = 9101;
+  const postRes = demo.demoResponse('/shortlist', { method: 'POST', body: JSON.stringify({ targetId: target }) });
+  assert.equal(postRes.ok, true);
+  assert.ok(demo.demoResponse('/shortlist').some(p => p.id === target), 'shortlisted profile appears');
+
+  const delRes = demo.demoResponse('/shortlist', { method: 'DELETE', body: JSON.stringify({ targetId: target }) });
+  assert.equal(delRes.ok, true);
+  assert.equal(demo.demoResponse('/shortlist').length, 0, 'shortlist empty after delete');
+});
+
+test('shortlist state persists across demo re-entry', async () => {
+  await demo.enterDemo();
+  demo.demoResponse('/shortlist', { method: 'POST', body: JSON.stringify({ targetId: 9103 }) });
+  demo.exitDemo();
+  await demo.enterDemo();
+  assert.ok(demo.demoResponse('/shortlist').some(p => p.id === 9103), 'shortlist survives re-entry');
+});
+
+test('agreement GET returns a template for a matched pair; POST saves a draft', async () => {
+  await demo.enterDemo();
+  // Seed a match by accepting the first received like.
+  const received = demo.demoResponse('/likes/received');
+  const partnerId = received[0].user_id;
+  demo.acceptLike(partnerId);
+
+  const before = demo.demoResponse(`/agreement/${demo.DEMO_SELF_ID}/${partnerId}`);
+  assert.ok(typeof before.content === 'string' && before.content.length > 0, 'agreement template returned');
+  assert.equal(before.status, 'template', 'template status before save');
+
+  const saveRes = demo.demoResponse('/agreement', {
+    method: 'POST',
+    body: JSON.stringify({ userA_id: demo.DEMO_SELF_ID, userB_id: partnerId, content: 'Custom demo agreement terms.' }),
+  });
+  assert.equal(saveRes.ok, true);
+
+  const after = demo.demoResponse(`/agreement/${demo.DEMO_SELF_ID}/${partnerId}`);
+  assert.equal(after.content, 'Custom demo agreement terms.', 'saved agreement content returned');
+  assert.equal(after.status, 'draft', 'draft status after save');
+});
+
+test('resetDemo restores the seeded initial state', async () => {
+  await demo.enterDemo();
+  const target = receivedTarget();
+  const seededMatchCount = demo.demoResponse('/matches').length;
+
+  demo.acceptLike(target);
+  assert.equal(demo.demoResponse('/matches').length, seededMatchCount + 1, 'accepted like added a match');
+
+  demo.demoResponse('/shortlist', { method: 'POST', body: JSON.stringify({ targetId: target }) });
+  demo.demoResponse('/messages', { body: { receiver_id: target, message: 'hi' } });
+
+  demo.resetDemo();
+
+  assert.equal(demo.demoResponse('/matches').length, seededMatchCount, 'matches restored to seeded count after reset');
+  assert.ok(!demo.demoResponse('/matches').some(m => m.partner_id === target), 'manually added match removed by reset');
+  assert.equal(demo.demoResponse('/shortlist').length, 0, 'shortlist cleared by reset');
+});
+
+function receivedTarget() {
+  return demo.demoResponse('/likes/received')[0].user_id;
+}
+
