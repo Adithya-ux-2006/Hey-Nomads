@@ -143,16 +143,70 @@ async function emptyPass(browser) {
 
 // ── Demo mode: the in-app mock transport, labelled as simulated ─
 
+// Tab badges read "Sent 2"; poll until the digits equal n (refetch is instant
+// in demo, but the assertion still waits like any other UI transition).
+const tabCount = async (page, name) => {
+  const t = await tab(page, name).textContent();
+  return Number(String(t).replace(/\D/g, ''));
+};
+const expectTabCount = async (page, name, n) => {
+  for (let i = 0; i < 40; i++) {
+    if (await tabCount(page, name) === n) return;
+    await page.waitForTimeout(100);
+  }
+  const last = await tab(page, name).textContent();
+  throw new Error(`tab ${name} never counted ${n}; last badge: "${last}"`);
+};
+
 async function demoPass(browser) {
   const { context } = await newContext(browser, { demo: true });
   const page = await context.newPage();
+  await page.setViewportSize({ width: 390, height: 900 });
   await page.goto(`${ORIGIN}/likes`, { waitUntil: 'domcontentloaded' });
 
   // The banner is the label that keeps mocked rows from posing as real people.
-  await text(page, 'simulated data, nothing is saved');
+  await text(page, 'simulated data, saved in this tab only');
   await text(page, 'Sample Aarav Mehta');
+
+  // Seeded demo state: 2 sent likes (both matched) + 5 incoming likes.
   await tab(page, 'Received').click();
   await text(page, 'Sample Priya Sharma');
+  assert.deepEqual(
+    [
+      await tabCount(page, 'Sent'),
+      await tabCount(page, 'Received'),
+      await tabCount(page, 'Matches'),
+    ],
+    [2, 5, 2],
+  );
+
+  // Accept one: same /swipe endpoint the discovery screen uses. The like is
+  // mutual, so a match is created and the row leaves Received.
+  await page.getByRole('button', { name: 'Accept like from Sample Priya Sharma' }).click();
+  await expectTabCount(page, 'Received', 4);
+  await expectTabCount(page, 'Matches', 3);
+
+  await tab(page, 'Matches').click();
+  await text(page, 'Sample Priya Sharma');
+  await page
+    .getByRole('link', { name: 'Message Sample Priya Sharma' })
+    .filter({ visible: true })
+    .first()
+    .waitFor({ state: 'visible', timeout: 8000 });
+
+  // Refresh keeps the accepted match.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await tab(page, 'Matches').click();
+  await text(page, 'Sample Priya Sharma');
+
+  // Dismiss another: it vanishes and stays gone after a second refresh.
+  await tab(page, 'Received').click();
+  await page.getByRole('button', { name: 'Dismiss Sample Rohan Iyer' }).click();
+  await expectTabCount(page, 'Received', 3);
+  await gone(page, 'Sample Rohan Iyer');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await gone(page, 'Sample Rohan Iyer');
+
   await context.close();
 }
 

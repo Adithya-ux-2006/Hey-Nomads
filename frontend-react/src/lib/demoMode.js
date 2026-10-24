@@ -119,7 +119,12 @@ function seedState() {
 function ensureState() {
   const s = ss();
   const hasState = s && s.getItem(K_INIT) === '1';
-  if (!hasState) seedState();
+  if (!hasState) {
+    seedState();
+    // Seed straight to storage: a refresh re-enters through demoResponse()
+    // without ever calling enterDemo(), so the seed must already be persisted.
+    persistState();
+  }
   else loadState();
   if (!Array.isArray(receivedIds)) receivedIds = [];
   if (!Array.isArray(sentIds)) sentIds = [];
@@ -137,6 +142,7 @@ function likeRow(p, likedAt, matched) {
   return {
     user_id: p.id, name: p.name, profile_image: p.profile_image,
     city: p.city, occupation: p.occupation, liked_at: likedAt,
+    score: p.score,
     ...(matched ? { matched: true } : {}),
   };
 }
@@ -320,6 +326,9 @@ function demoLikes() {
 
 export function demoResponse(path, options = {}) {
   if (!active) return undefined;
+  // Refresh-safe: a reload flips the flag from storage back on without anyone
+  // calling enterDemo(), so load whatever the last session persisted first.
+  ensureState();
   const p = path.split('?')[0];
 
   if (p.startsWith('/roommates/recommended')) return demoFeed;
@@ -333,7 +342,11 @@ export function demoResponse(path, options = {}) {
         const r = likeProfile(tid);
         return { ok: true, matchCreated: r.matchCreated };
       }
-      if (tid != null) return { ok: true };
+      if (tid != null) {
+        // A pass is a decision: record it or the row can never leave Received.
+        dismissLike(tid);
+        return { ok: true };
+      }
     } catch { /* nothing */ }
     return { ok: true, matchCreated: false };
   }

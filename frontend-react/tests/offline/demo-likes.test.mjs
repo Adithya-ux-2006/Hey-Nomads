@@ -66,6 +66,27 @@ test('incoming likes are 4-6, disjoint from sent, no self', async () => {
   assert.equal(overlap.length, 0);
 });
 
+test('incoming like rows carry the engine score the Likes screen displays', async () => {
+  await demo.enterDemo();
+  for (const row of demo.demoResponse('/likes/received')) {
+    assert.equal(typeof row.score, 'number', 'received row missing score');
+    assert.ok(row.score >= 0 && row.score <= 100);
+  }
+});
+
+test('swipe pass records the dismissal, as the Likes screen Dismiss button expects', async () => {
+  await demo.enterDemo();
+  const received = demo.demoResponse('/likes/received');
+  const target = received[0].user_id;
+  const res = demo.demoResponse('/swipe', { method: 'POST', body: { targetId: target, action: 'pass' } });
+  assert.equal(res.ok, true);
+  assert.ok(!demo.demoResponse('/likes/received').some(r => r.user_id === target));
+  // a pass is a decision: it must survive the same re-entry as a match does
+  demo.exitDemo();
+  await demo.enterDemo();
+  assert.ok(!demo.demoResponse('/likes/received').some(r => r.user_id === target));
+});
+
 test('sent rows agree with matches tab', async () => {
   await demo.enterDemo();
   const sent = demo.demoResponse('/likes/sent');

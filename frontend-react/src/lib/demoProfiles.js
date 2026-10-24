@@ -9,7 +9,7 @@
 // classified as DEMO by account-kind.mjs.
 export const demoProfiles = [
   {
-    id: 9101, name: 'Aarav Mehta', age: 26, city: 'Mumbai', occupation: 'Software Engineer',
+    id: 9101, name: 'Sample Aarav Mehta', age: 26, city: 'Mumbai', occupation: 'Software Engineer',
     budget: 28000, bio: 'Loves weekend hikes and trying new cafes. Looking for a clean, quiet place to chill.',
     is_demo: true, interests: ['Music', 'Trekking', 'Cooking'], languages: ['English', 'Hindi'],
     cleanliness: 4, sleep_time: 'early', diet: 'veg', smoking: 'no', drinking: 'no',
@@ -18,7 +18,7 @@ export const demoProfiles = [
     moving_to: 'Mumbai', country: 'India',
   },
   {
-    id: 9102, name: 'Sara D\'Souza', age: 27, city: 'Mumbai', occupation: 'HR Manager',
+    id: 9102, name: 'Sample Sara D\'Souza', age: 27, city: 'Mumbai', occupation: 'HR Manager',
     budget: 24000, bio: 'Looking for someone respectful of shared spaces and early routines.',
     is_demo: true, interests: ['Reading', 'Yoga', 'Coffee'], languages: ['English', 'Hindi', 'Marathi'],
     cleanliness: 5, sleep_time: 'early', diet: 'veg', smoking: 'no', drinking: 'occasional',
@@ -27,7 +27,7 @@ export const demoProfiles = [
     moving_to: 'Mumbai', country: 'India',
   },
   {
-    id: 9103, name: 'Priya Sharma', age: 24, city: 'Bangalore', occupation: 'UX Designer',
+    id: 9103, name: 'Sample Priya Sharma', age: 24, city: 'Bangalore', occupation: 'UX Designer',
     budget: 21000, bio: 'Design enthusiast who values natural light and plants in the living room.',
     is_demo: true, interests: ['Music', 'Photography', 'Coffee'], languages: ['English', 'Hindi', 'Kannada'],
     cleanliness: 4, sleep_time: 'flexible', diet: 'veg', smoking: 'no', drinking: 'no',
@@ -36,7 +36,7 @@ export const demoProfiles = [
     moving_to: 'Bangalore', country: 'India',
   },
   {
-    id: 9104, name: 'Rohan Iyer', age: 25, city: 'Bangalore', occupation: 'Data Analyst',
+    id: 9104, name: 'Sample Rohan Iyer', age: 25, city: 'Bangalore', occupation: 'Data Analyst',
     budget: 19000, bio: 'Keeps a tidy home and respects quiet hours after 10pm.',
     is_demo: true, interests: ['Gaming', 'Music', 'Cooking'], languages: ['English', 'Tamil'],
     cleanliness: 4, sleep_time: 'late', diet: 'non-veg', smoking: 'no', drinking: 'no',
@@ -45,7 +45,7 @@ export const demoProfiles = [
     moving_to: 'Bangalore', country: 'India',
   },
   {
-    id: 9105, name: 'Diya Patel', age: 28, city: 'Delhi', occupation: 'Product Manager',
+    id: 9105, name: 'Sample Diya Patel', age: 28, city: 'Delhi', occupation: 'Product Manager',
     budget: 32000, bio: 'Travel often for work; looking for a flexible mate who enjoys city life.',
     is_demo: true, interests: ['Travel', 'Photography', 'Food'], languages: ['English', 'Hindi', 'Gujarati'],
     cleanliness: 3, sleep_time: 'flexible', diet: 'veg', smoking: 'no', drinking: 'occasional',
@@ -54,7 +54,7 @@ export const demoProfiles = [
     moving_to: 'Delhi', country: 'India',
   },
   {
-    id: 9106, name: 'Vikram Singh', age: 29, city: 'Delhi', occupation: 'Doctor',
+    id: 9106, name: 'Sample Vikram Singh', age: 29, city: 'Delhi', occupation: 'Doctor',
     budget: 35000, bio: 'Long hours but values a clean, home-cooked meal at the end of the day.',
     is_demo: true, interests: ['Gaming', 'Music', 'Reading'], languages: ['English', 'Hindi', 'Punjabi'],
     cleanliness: 5, sleep_time: 'late', diet: 'non-veg', smoking: 'no', drinking: 'no',
@@ -63,7 +63,7 @@ export const demoProfiles = [
     moving_to: 'Delhi', country: 'India',
   },
   {
-    id: 9107, name: 'Ananya Rao', age: 23, city: 'Pune', occupation: 'Teacher',
+    id: 9107, name: 'Sample Ananya Rao', age: 23, city: 'Pune', occupation: 'Teacher',
     budget: 15000, bio: 'Enjoys reading, yoga, and helping others find their space.',
     is_demo: true, interests: ['Reading', 'Yoga', 'Coffee'], languages: ['English', 'Hindi', 'Marathi'],
     cleanliness: 4, sleep_time: 'early', diet: 'veg', smoking: 'no', drinking: 'no',
@@ -72,7 +72,7 @@ export const demoProfiles = [
     moving_to: 'Pune', country: 'India',
   },
   {
-    id: 9108, name: 'Kabir Joshi', age: 30, city: 'Pune', occupation: 'Chef',
+    id: 9108, name: 'Sample Kabir Joshi', age: 30, city: 'Pune', occupation: 'Chef',
     budget: 27000, bio: 'Passionate about food and keeping a well-organized kitchen.',
     is_demo: true, interests: ['Food', 'Music', 'Travel'], languages: ['English', 'Hindi', 'Marathi'],
     cleanliness: 4, sleep_time: 'late', diet: 'non-veg', smoking: 'no', drinking: 'occasional',
@@ -81,7 +81,7 @@ export const demoProfiles = [
     moving_to: 'Pune', country: 'India',
   },
   {
-    id: 9109, name: 'Nandini Menon', age: 26, city: 'Hyderabad', occupation: 'Writer',
+    id: 9109, name: 'Sample Nandini Menon', age: 26, city: 'Hyderabad', occupation: 'Writer',
     budget: 22000, bio: 'Looking for a calm home and someone who appreciates quiet evenings.',
     is_demo: true, interests: ['Reading', 'Music', 'Coffee'], languages: ['English', 'Hindi', 'Telugu'],
     cleanliness: 4, sleep_time: 'early', diet: 'veg', smoking: 'no', drinking: 'no',
@@ -90,7 +90,7 @@ export const demoProfiles = [
     moving_to: 'Hyderabad', country: 'India',
   },
   {
-    id: 9110, name: 'Arjun Patel', age: 27, city: 'Hyderabad', occupation: 'Engineer',
+    id: 9110, name: 'Sample Arjun Patel', age: 27, city: 'Hyderabad', occupation: 'Engineer',
     budget: 26000, bio: 'Loves cricket, good conversation, and keeping things low-maintenance.',
     is_demo: true, interests: ['Cricket', 'Music', 'Food'], languages: ['English', 'Hindi', 'Telugu'],
     cleanliness: 3, sleep_time: 'flexible', diet: 'non-veg', smoking: 'no', drinking: 'occasional',

@@ -33,7 +33,7 @@ export default function DemoModePage() {
           <p className="text-sm text-text-secondary mt-2">
             A guided walk through the real screens with simulated profiles. A coach-mark
             tells you what to do and what to avoid at each step. No sign-in is needed, no
-            account is read or changed, and nothing you do here is saved.
+            account is read or changed, and demo lists are saved in this tab only.
           </p>
         </div>
 

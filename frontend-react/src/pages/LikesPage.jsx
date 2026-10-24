@@ -4,10 +4,10 @@ import Layout from '../components/Layout'
 import { apiFetch } from '../lib/api'
 import { useAsync } from '../lib/useAsync'
 import {
-  Card, EmptyState, Spinner, ErrorState, Button, Badge,
+  Card, EmptyState, Spinner, ErrorState, Button, Badge, CompatibilityBadge,
 } from '../components/UI'
 import UserAvatar from '../components/UserAvatar'
-import { Heart, MessageCircle } from 'lucide-react'
+import { Heart, MessageCircle, Check, X } from 'lucide-react'
 
 // Three tabs, one screen. Counts are the lengths of the very lists each tab
 // renders — there is no separate summary endpoint that could disagree with
@@ -38,13 +38,14 @@ const asLikeRow = m => ({
   matched: true,
 })
 
-function LikeRow({ row, matched, isNew = false }) {
+function LikeRow({ row, matched, isNew = false, pending = false, onAccept, onDismiss }) {
   return (
     <Card className="p-4 flex items-center gap-4">
       <UserAvatar src={row.profile_image} name={row.name} size="md" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <h3 className="font-semibold text-text-primary truncate">{row.name}</h3>
+          {typeof row.score === 'number' && <CompatibilityBadge score={row.score} size="sm" />}
           {matched && <Badge variant="teal">Matched</Badge>}
           {!matched && row.matched === undefined && <Badge variant="muted">New like</Badge>}
           {!matched && row.matched === false && <Badge variant="muted">Sent</Badge>}
@@ -61,9 +62,33 @@ function LikeRow({ row, matched, isNew = false }) {
           <MessageCircle size={18} />
         </Link>
       ) : (
-        <span className="text-xs text-text-muted whitespace-nowrap">
-          {row.matched === undefined ? 'Liked you' : 'Waiting for a reply'}
-        </span>
+        <>
+          <span className="hidden sm:inline text-xs text-text-muted whitespace-nowrap">
+            {row.matched === undefined ? 'Liked you' : 'Waiting for a reply'}
+          </span>
+          {onAccept && onDismiss && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onDismiss(row.user_id)}
+                disabled={pending}
+                aria-label={`Dismiss ${row.name}`}
+                className="p-3 rounded-full border border-surface-border bg-white text-text-secondary hover:border-brand-coral/40 hover:text-brand-coral transition disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral focus-visible:ring-offset-2"
+              >
+                <X size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => onAccept(row.user_id)}
+                disabled={pending}
+                aria-label={`Accept like from ${row.name}`}
+                className="p-3 rounded-full bg-brand-teal text-white hover:opacity-90 transition disabled:opacity-50 min-w-[44px] min-h-[44px] flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-coral focus-visible:ring-offset-2"
+              >
+                <Check size={18} />
+              </button>
+            </div>
+          )}
+        </>
       )}
     </Card>
   )
@@ -100,6 +125,27 @@ export default function LikesPage() {
     matches: matchesQ.data?.length || 0,
   }
 
+  // Answering an incoming like is a swipe against oneself, the same endpoint
+  // the discovery screen uses: 'like' makes it mutual (a real match), 'pass'
+  // records the decision so the row leaves Received on both demo and real data.
+  const [pendingIds, setPendingIds] = useState(new Set())
+  const [actionError, setActionError] = useState(null)
+
+  const answerLike = action => async targetId => {
+    setActionError(null)
+    setPendingIds(prev => { const next = new Set(prev); next.add(targetId); return next })
+    try {
+      await apiFetch('/swipe', { method: 'POST', body: { targetId: Number(targetId), action } })
+    } catch (err) {
+      setActionError(err)
+    } finally {
+      setPendingIds(prev => { const next = new Set(prev); next.delete(targetId); return next })
+      sentQ.retry(); receivedQ.retry(); matchesQ.retry()
+    }
+  }
+  const acceptLike = answerLike('like')
+  const dismissLike = answerLike('pass')
+
   const panel = (id, query, empty) => {
     const rows = query.data || []
     if (query.loading) {
@@ -123,6 +169,9 @@ export default function LikesPage() {
               row={row}
               matched={id === 'matches' ? true : !!row.matched}
               isNew={id === 'matches' && isNewMatch(raw)}
+              pending={pendingIds.has(row.user_id)}
+              onAccept={id === 'received' ? acceptLike : undefined}
+              onDismiss={id === 'received' ? dismissLike : undefined}
             />
           )
         })}
@@ -169,6 +218,12 @@ export default function LikesPage() {
             )
           })}
         </div>
+
+        {actionError && (
+          <p role="alert" className="-mt-2 mb-4 text-sm text-brand-coral">
+            Could not save that. {actionError.message} Adjusted lists are shown.
+          </p>
+        )}
 
         <div role="tabpanel" id="likes-panel-sent" aria-labelledby="likes-tab-sent" hidden={tab !== 'sent'}>
           {panel('sent', sentQ, (
