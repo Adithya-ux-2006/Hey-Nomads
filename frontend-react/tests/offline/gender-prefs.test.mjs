@@ -111,7 +111,8 @@ test('feedGenderFilterSql: open preference produces no my-side gender clause', (
   for (const pref of ['all', 'unspecified', null, 'no_preference', 'robot']) {
     const f = feedGenderFilterSql('female', pref, 2);
     assert.ok(!f.sql.includes(`p.gender`), `pref=${pref} must not filter candidate gender`);
-    assert.ok(f.sql.includes('pref2.preferred_gender'), 'their-side clause always present');
+    assert.equal(f.sql, '', `pref=${pref} must add no gender clause at all`);
+    assert.deepEqual(f.params, [], 'open pref must not bind any gender param');
   }
 });
 
@@ -123,11 +124,19 @@ test('feedGenderFilterSql: specific preference adds the my-side gender clause wi
 });
 
 test('feedGenderFilterSql: their-side clause passes open prefs and matches my gender otherwise', () => {
-  const f = feedGenderFilterSql(null, 'all', 5);
-  assert.ok(f.sql.includes(`NOT IN ('female', 'male')`), 'their pref not specific → pass');
-  assert.ok(f.sql.includes('$5'), 'my gender is a bound param, not interpolated');
-  assert.deepEqual(f.params, [null], 'my unknown gender stays null so COALESCE fails closed');
-  assert.equal(f.nextIdx, 6);
+  // With an open preference the fragment is empty: no clause is added at all.
+  const open = feedGenderFilterSql(null, 'all', 5);
+  assert.equal(open.sql, '', 'open pref adds no clause');
+  assert.deepEqual(open.params, [], 'open pref binds no params');
+  assert.equal(open.nextIdx, 5, 'start idx is unchanged');
+
+  // With a specific preference the their-side clause is present and my gender
+  // is a bound param, not interpolated.
+  const specific = feedGenderFilterSql('female', 'female', 5);
+  assert.ok(specific.sql.includes(`NOT IN ('female', 'male')`), 'their pref not specific → pass');
+  assert.ok(specific.sql.includes('$5'), 'my gender is a bound param, not interpolated');
+  assert.deepEqual(specific.params, ['female', 'female']);
+  assert.equal(specific.nextIdx, 7);
 });
 
 test('feedGenderFilterSql: positive control — no-clause fragment fails the my-side predicate', () => {
@@ -144,5 +153,6 @@ test('feedGenderFilterSql: fragment is SQL-only (no interpolated user values)', 
   // The dirty input is normalised (pref → unspecified, gender lowered) and
   // lands in params for the caller to bind — never inlined into the SQL text.
   assert.ok(f.params.every(p => !String(p).includes('DROP')));
-  assert.equal(f.params[0], normalizeGenderValue(dirty));
+  // With an open preference the fragment is empty and carries no params at all.
+  assert.deepEqual(f.params, []);
 });

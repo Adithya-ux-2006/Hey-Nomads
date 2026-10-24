@@ -64,6 +64,11 @@ export function feedGenderFilterSql(myGender, myPrefRaw, startIdx) {
   const params = [];
   let idx = startIdx;
 
+  // No gender filtering when preference is all or unspecified
+  if (myPref === 'all' || myPref === 'unspecified') {
+    return { sql: '', params, nextIdx: idx };
+  }
+
   if (myPref === 'female' || myPref === 'male') {
     clauses.push(`AND LOWER(COALESCE(p.gender, '')) = $${idx++}`);
     params.push(myPref);
