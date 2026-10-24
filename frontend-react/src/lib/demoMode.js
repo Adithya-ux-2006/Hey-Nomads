@@ -4,170 +4,259 @@
 // module answers their API calls with canned rows while the flag is on, so the
 // visitor walks the actual interface instead of a copy of it.
 //
-// Three rules the fixtures must keep:
-//   1. No token, no localStorage. Demo Mode opens signed out and can never be
-//      handed a previous visitor's session by an orphaned auth entry.
-//   2. No writes. Every like, unmatch and send below is answered locally, so a
-//      demo interaction cannot create a row another user later believes a
-//      person wrote.
-//   3. No fall-through. Every screen the tour can reach has to be answered
-//      here. One uncovered path sends a real request with no session behind it
-//      and drops the visitor out of the tour onto the sign-in form.
+// Persistence: demo state lives in sessionStorage (separate keys, prefixed
+// hey_nomads_demo_) so accept/dismiss/match/message survive navigation and
+// refresh within the tab, but never touch authenticated production storage.
 import { demoProfiles } from './demoProfiles.js';
+import { scoreCompatibility, DEFAULT_MATCH_WEIGHTS } from '../../api/matching.mjs';
 
-// session-scoped, not localStorage: a refresh should not strand the visitor on
-// the login screen, but the flag must not outlive the tab either. It is not an
-// auth token and grants nothing - it only decides who answers the API calls.
-const FLAG = 'hey_nomads_demo';
-
-// The tour's own identity. Numeric because the screens compare ids with
-// Number(), and deliberately outside the fixture and seeded ranges so it can
-// never collide with a row the API might otherwise return.
 export const DEMO_SELF_ID = 9999;
 export const DEMO_SELF_NAME = 'You';
 
-let active = typeof window !== 'undefined' && sessionStorage.getItem(FLAG) === '1';
+const FLAG = 'hey_nomads_demo';
+const K_RECEIVED = 'hey_nomads_demo_received';
+const K_SENT = 'hey_nomads_demo_sent';
+const K_MATCHES = 'hey_nomads_demo_matches';
+const K_DISMISSED = 'hey_nomads_demo_dismissed';
+const K_MESSAGES = 'hey_nomads_demo_messages';
+const K_INIT = 'hey_nomads_demo_initialized';
+
+const DEMO_SELF = {
+  id: DEMO_SELF_ID, name: DEMO_SELF_NAME, age: 27, city: 'Mumbai', occupation: 'Product Designer',
+  budget: 25000, bio: 'Looking for a calm, tidy flatmate.', is_demo: true,
+  interests: ['Music', 'Coffee', 'Travel'], languages: ['English', 'Hindi'],
+  cleanliness: 4, sleep_time: 'early', diet: 'veg', smoking: 'no', drinking: 'no',
+  social_level: 'moderate', noise_tolerance: 'low', flat_type: 'shared', pets: 'no',
+  work_schedule: '9-5', move_in_date: '2026-11-15', neighbourhood: 'Bandra', preferred_neighbourhood: 'Bandra',
+  moving_to: 'Mumbai', country: 'India', onboarding_complete: true,
+};
+
+const COST_BY_CITY = new Map([
+  ['mumbai', 4], ['bangalore', 3], ['delhi', 4], ['pune', 2], ['hyderabad', 3],
+]);
+
+function ss() { return (typeof sessionStorage !== 'undefined') ? sessionStorage : null; }
+function ls() { return (typeof localStorage !== 'undefined') ? localStorage : null; }
+
+let active = (typeof window !== 'undefined') && ss()?.getItem(FLAG) === '1';
 const listeners = new Set();
+function emit() { listeners.forEach(fn => fn(active)); }
 
-export const isDemo = () => active;
-
-function emit() {
-  listeners.forEach(fn => fn(active));
+// ---------- scoring ----------
+function scoreOne(p) {
+  const ctx = {
+    me: DEMO_SELF,
+    meLangs: DEMO_SELF.languages,
+    themById: new Map([[p.id, { ...p, onboarding_complete: true }]]),
+    langsById: new Map([[p.id, p.languages || []]]),
+    costByCity: COST_BY_CITY,
+  };
+  const { score, breakdown, reasons } = scoreCompatibility(ctx, p.id, DEFAULT_MATCH_WEIGHTS);
+  return {
+    ...p,
+    profile_image: p.profile_image ?? null,
+    score,
+    breakdown,
+    reasons: (reasons && reasons.length) ? reasons : [{ type: 'neutral', text: 'Potential match' }],
+  };
 }
 
-export function enterDemo() {
-  // Demo Mode opens signed out. Drop any stored session first, by key rather
-  // than through clearAuth(), because clearAuth() ends the tour it is starting.
-  // Without this a signed-in visitor keeps their real token and account id and
-  // the screens below would render a real person's profile.
-  if (typeof localStorage !== 'undefined') {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('userId');
-    localStorage.removeItem('userName');
+export const demoFeed = demoProfiles.map(scoreOne);
+
+// ---------- state ----------
+let receivedIds = [];
+let sentIds = [];
+let matchIds = [];
+let dismissedIds = [];
+let messagesByPartner = {};
+
+function parseJson(raw, fallback) {
+  if (raw == null) return fallback;
+  try { const v = JSON.parse(raw); return (v == null) ? fallback : v; }
+  catch { return fallback; }
+}
+
+function loadState() {
+  const s = ss();
+  if (!s) return;
+  receivedIds = parseJson(s.getItem(K_RECEIVED), null);
+  sentIds = parseJson(s.getItem(K_SENT), null);
+  matchIds = parseJson(s.getItem(K_MATCHES), null);
+  dismissedIds = parseJson(s.getItem(K_DISMISSED), null);
+  messagesByPartner = parseJson(s.getItem(K_MESSAGES), {});
+  if (!Array.isArray(receivedIds) || !Array.isArray(sentIds) || !Array.isArray(matchIds) || !Array.isArray(dismissedIds)) {
+    // invalid/outdated -> reseed
+    seedState();
   }
+}
+
+function persistState() {
+  const s = ss();
+  if (!s) return;
+  s.setItem(K_RECEIVED, JSON.stringify(receivedIds));
+  s.setItem(K_SENT, JSON.stringify(sentIds));
+  s.setItem(K_MATCHES, JSON.stringify(matchIds));
+  s.setItem(K_DISMISSED, JSON.stringify(dismissedIds));
+  s.setItem(K_MESSAGES, JSON.stringify(messagesByPartner));
+  s.setItem(K_INIT, '1');
+}
+
+function seedState() {
+  const feedIds = demoFeed.map(p => p.id);
+  sentIds = feedIds.slice(0, 2);
+  receivedIds = feedIds.slice(2, 7);
+  matchIds = [...sentIds];
+  dismissedIds = [];
+  messagesByPartner = {};
+  const firstMatch = matchIds[0];
+  if (firstMatch != null) {
+    messagesByPartner[firstMatch] = [
+      { text: "Hi! Saw we're both looking in the same area.", at: new Date(Date.now() - 72e5).toISOString(), fromMe: false },
+    ];
+  }
+}
+
+function ensureState() {
+  const s = ss();
+  const hasState = s && s.getItem(K_INIT) === '1';
+  if (!hasState) seedState();
+  else loadState();
+  if (!Array.isArray(receivedIds)) receivedIds = [];
+  if (!Array.isArray(sentIds)) sentIds = [];
+  if (!Array.isArray(matchIds)) matchIds = [];
+  if (!Array.isArray(dismissedIds)) dismissedIds = [];
+  if (!messagesByPartner || typeof messagesByPartner !== 'object') messagesByPartner = {};
+  // idempotency: remove any dismissed/accepted from received; dedupe matches
+  receivedIds = receivedIds.filter(id => !dismissedIds.includes(id) && !matchIds.includes(id));
+  matchIds = [...new Set(matchIds)];
+}
+
+function profileById(id) { return demoFeed.find(p => String(p.id) === String(id)); }
+
+function likeRow(p, likedAt, matched) {
+  return {
+    user_id: p.id, name: p.name, profile_image: p.profile_image,
+    city: p.city, occupation: p.occupation, liked_at: likedAt,
+    ...(matched ? { matched: true } : {}),
+  };
+}
+
+const stamp = (i) => new Date(Date.now() - (i + 2) * 36e5).toISOString();
+
+export function enterDemo() {
+  const l = ls();
+  if (l) { l.removeItem('authToken'); l.removeItem('userId'); l.removeItem('userName'); }
   const wasActive = active;
   active = true;
-  if (!wasActive) {
-    sessionStorage.setItem(FLAG, '1');
-    emit();
-  }
-  // Resolves once the samples have loaded, so the tour can navigate only when
-  // the Feed has something to render.
-  return loadRealSamples();
+  if (typeof ss() !== 'undefined' && ss()) ss().setItem(FLAG, '1');
+  if (!wasActive) emit();
+  ensureState();
+  persistState();
+  // keep network fetch (graceful fallback) but do not override scored feed
+  loadRealSamples();
+  return Promise.resolve();
 }
 
 export function exitDemo() {
   if (!active) return;
   active = false;
-  sessionStorage.removeItem(FLAG);
+  const s = ss();
+  if (s) s.removeItem(FLAG);
   emit();
 }
 
-export function onDemoChange(fn) {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
-}
-
-const scored = p => ({
-  ...p,
-  profile_image: null,
-  score: 84,
-  // The card reads reason chips as { type, text }, the same shape the scorer
-  // emits. Plain strings would render as empty pills.
-  reasons: [
-    { type: 'positive', text: `Both looking in ${p.city}` },
-    { type: 'positive', text: 'Similar monthly budget' },
-    { type: 'neutral', text: 'Same move-in window' },
-  ],
-});
-
-export const demoFeed = demoProfiles.map(scored);
+export function onDemoChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+export const isDemo = () => active;
 
 let loading = null;
-
-// The seeded @heynomads.app accounts carry ordinary-looking names, which is
-// what a demo should show. They are already excluded from every real feed by
-// account classification, and the page is marked as demo for as long as it is
-// open. The bundled fixtures are the fallback when the API is unreachable.
 function loadRealSamples() {
   if (loading) return loading;
   loading = fetch('/api/demo/profiles')
     .then(r => (r.ok ? r.json() : []))
-    .then(rows => {
-      if (Array.isArray(rows) && rows.length) {
-        demoFeed.splice(0, demoFeed.length, ...rows.map(scored));
-      }
-      return undefined;
-    })
+    .then(() => undefined)
     .catch(() => undefined);
   return loading;
 }
 
-// Derived on each request so the matches and conversation lists follow
-// whichever profiles actually loaded, not a snapshot taken at import time.
-const demoMatches = () => demoFeed.slice(0, 2).map((p, i) => ({
-  id: 500 + i,
-  user_a_id: DEMO_SELF_ID,
-  user_b_id: p.id,
-  compatibility_score: p.score,
-  status: 'matched',
-  partner_id: p.id,
-  partner_name: p.name,
-  partner_image: p.profile_image,
-  partner_city: p.city,
-  partner_occupation: p.occupation,
-  partner_bio: p.bio,
-}));
+// ---------- interactions ----------
+export function acceptLike(profileId) {
+  const id = Number(profileId);
+  receivedIds = receivedIds.filter(x => Number(x) !== id);
+  if (!matchIds.includes(id)) matchIds.push(id);
+  dismissedIds = dismissedIds.filter(x => Number(x) !== id);
+  persistState();
+  return getState();
+}
 
-const demoConversations = () => demoMatches().map((m, i) => ({
-  conversation_id: 700 + i,
-  partner_id: m.partner_id,
-  partner_name: m.partner_name,
-  partner_image: m.partner_image,
-  partner_city: m.partner_city,
-  last_message: i === 0 ? "Hi! Saw we're both looking in the same area." : 'Sounds good - want to view it this weekend?',
-  last_message_from_me: i !== 0,
-  last_message_time: new Date(Date.now() - (i + 1) * 36e5).toISOString(),
-  unread_count: i === 0 ? 1 : 0,
-}));
+export function dismissLike(profileId) {
+  const id = Number(profileId);
+  receivedIds = receivedIds.filter(x => Number(x) !== id);
+  if (!dismissedIds.includes(id)) dismissedIds.push(id);
+  persistState();
+  return getState();
+}
 
-// Messages the visitor sends during the tour. Kept in memory so the chat's
-// three-second poll does not erase a message it just rendered.
-const sent = [];
+export function likeProfile(profileId) {
+  const id = Number(profileId);
+  if (!sentIds.includes(id)) sentIds.push(id);
+  let matchCreated = false;
+  if (receivedIds.includes(id)) {
+    receivedIds = receivedIds.filter(x => Number(x) !== id);
+    if (!matchIds.includes(id)) { matchIds.push(id); matchCreated = true; }
+  }
+  if (!matchIds.includes(id) && receivedIds.includes(id) === false && sentIds.includes(id)) {
+    // auto-match only if reciprocal like existed; already handled above
+  }
+  persistState();
+  return { ok: true, matchCreated };
+}
 
-// Likes the tour shows. Derived from whichever samples loaded, so the three
-// tabs stay consistent with each other: the first two samples are both in the
-// sent list and in demoMatches() (hence matched), and every other sample is an
-// incoming like the visitor has not answered. No fall-through means the Likes
-// screen must be answered like every other tour screen.
-const demoLikes = () => {
-  const rows = demoFeed;
-  const stamp = i => new Date(Date.now() - (i + 2) * 36e5).toISOString();
+// ---------- derived ----------
+function getState() {
+  return { receivedIds: [...receivedIds], sentIds: [...sentIds], matchIds: [...matchIds], dismissedIds: [...dismissedIds] };
+}
+
+const demoMatches = () => matchIds.map((id, i) => {
+  const p = profileById(id);
+  if (!p) return null;
   return {
-    sent: rows.slice(0, 2).map((p, i) => ({
-      user_id: p.id,
-      name: p.name,
-      profile_image: p.profile_image,
-      city: p.city,
-      occupation: p.occupation,
-      liked_at: stamp(i),
-      matched: true,
-    })),
-    received: rows.slice(2, 4).map((p, i) => ({
-      user_id: p.id,
-      name: p.name,
-      profile_image: p.profile_image,
-      city: p.city,
-      occupation: p.occupation,
-      liked_at: stamp(i),
-    })),
+    id: 500 + i,
+    user_a_id: DEMO_SELF_ID,
+    user_b_id: p.id,
+    compatibility_score: p.score,
+    status: 'matched',
+    partner_id: p.id,
+    partner_name: p.name,
+    partner_image: p.profile_image,
+    partner_city: p.city,
+    partner_occupation: p.occupation,
+    partner_bio: p.bio,
+    breakdown: p.breakdown,
+    reasons: p.reasons,
   };
-};
+}).filter(Boolean);
 
-const threadFor = partnerId => {
-  const partner = demoFeed.find(p => String(p.id) === String(partnerId));
-  const mine = sent
-    .filter(m => String(m.to) === String(partnerId))
+const demoConversations = () => demoMatches().map((m, i) => {
+  const msgs = messagesByPartner[m.partner_id] || [];
+  const last = msgs.length ? msgs[msgs.length - 1] : null;
+  return {
+    conversation_id: 700 + i,
+    partner_id: m.partner_id,
+    partner_name: m.partner_name,
+    partner_image: m.partner_image,
+    partner_city: m.partner_city,
+    last_message: last ? last.text : (i === 0 ? "Hi! Saw we're both looking in the same area." : 'Sounds good - want to view it this weekend?'),
+    last_message_from_me: last ? last.fromMe : (i !== 0),
+    last_message_time: last ? last.at : new Date(Date.now() - (i + 1) * 36e5).toISOString(),
+    unread_count: (i === 0 && !last) ? 1 : 0,
+  };
+});
+
+function threadFor(partnerId) {
+  const pid = Number(partnerId);
+  const partner = profileById(pid);
+  const mine = (messagesByPartner[pid] || [])
+    .filter(m => m.fromMe)
     .map((m, i) => ({
       id: 900000 + i,
       sender_id: DEMO_SELF_ID,
@@ -176,59 +265,106 @@ const threadFor = partnerId => {
       created_at: m.at,
       sender_name: DEMO_SELF_NAME,
     }));
-  const theirs = partner
-    ? [{
-        id: 1,
-        sender_id: partner.id,
-        content: "Hi! Saw we're both looking in the same area.",
-        read_at: null,
-        created_at: new Date(Date.now() - 72e5).toISOString(),
-        sender_name: partner.name,
-      }]
-    : [];
+  const theirs = (messagesByPartner[pid] || [])
+    .filter(m => !m.fromMe)
+    .map((m, i) => ({
+      id: 900001 + i,
+      sender_id: pid,
+      content: m.text,
+      read_at: null,
+      created_at: m.at,
+      sender_name: partner ? partner.name : 'Partner',
+    }));
+  // seed a partner message if none
+  if (theirs.length === 0 && partner) {
+    theirs.push({
+      id: 1,
+      sender_id: pid,
+      content: "Hi! Saw we're both looking in the same area.",
+      read_at: null,
+      created_at: new Date(Date.now() - 72e5).toISOString(),
+      sender_name: partner.name,
+    });
+  }
   return [...theirs, ...mine].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-};
+}
 
-// The detail screen renders a sparse object safely - every field it reads is
-// guarded with `||` - so one shared shape answers both a feed card tap and the
-// partner column of a chat.
-const detailFor = id => {
-  const found = demoFeed.find(p => String(p.id) === String(id)) || demoFeed[0];
+function detailFor(id) {
+  const found = profileById(id) || demoFeed[0];
   return {
     ...found,
-    score: found?.score ?? 84,
-    breakdown: { lifestyle: 22, budget: 16, location: 18, movein: 12, interests: 8, habits: 9 },
+    score: found?.score ?? 0,
+    breakdown: found?.breakdown ?? {},
     reasons: found?.reasons ?? [],
-    interests: ['Music', 'Trekking', 'Cooking'],
-    languages: ['English', 'Hindi'],
-    is_match: demoMatches().some(m => String(m.partner_id) === String(id)),
+    interests: found?.interests ?? [],
+    languages: found?.languages ?? ['English', 'Hindi'],
+    is_match: matchIds.map(Number).includes(Number(id)),
   };
-};
+}
 
-// Returns a canned body when demo mode owns the request, or undefined to let
-// apiFetch handle it normally. Undefined - not null - so a legitimate null
-// response still falls through.
+function demoLikes() {
+  const stampFn = stamp;
+  const received = receivedIds.map((id, i) => {
+    const p = profileById(id);
+    if (!p) return null;
+    return likeRow(p, stampFn(i), false);
+  }).filter(Boolean);
+  const sent = sentIds.map((id, i) => {
+    const p = profileById(id);
+    if (!p) return null;
+    const matched = matchIds.map(Number).includes(Number(id));
+    return likeRow(p, stampFn(i), matched);
+  }).filter(Boolean);
+  return { sent, received };
+}
+
 export function demoResponse(path, options = {}) {
   if (!active) return undefined;
   const p = path.split('?')[0];
 
   if (p.startsWith('/roommates/recommended')) return demoFeed;
   if (p.startsWith('/shortlist')) return [];
-  if (p.startsWith('/swipe')) return { ok: true, matchCreated: true };
+  if (p.startsWith('/swipe')) {
+    try {
+      const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+      const tid = body?.targetId ?? body?.swiped_id;
+      const action = body?.action || 'like';
+      if (tid != null && action === 'like') {
+        const r = likeProfile(tid);
+        return { ok: true, matchCreated: r.matchCreated };
+      }
+      if (tid != null) return { ok: true };
+    } catch { /* nothing */ }
+    return { ok: true, matchCreated: false };
+  }
   if (p.startsWith('/likes/sent')) return demoLikes().sent;
   if (p.startsWith('/likes/received')) return demoLikes().received;
   if (p === '/messages') {
     try {
       const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
-      if (body?.message) sent.push({ to: body.receiver_id, text: body.message, at: new Date().toISOString() });
+      if (body?.message) {
+        const rid = Number(body.receiver_id);
+        if (!messagesByPartner[rid]) messagesByPartner[rid] = [];
+        messagesByPartner[rid].push({ text: body.message, at: new Date().toISOString(), fromMe: true });
+        persistState();
+      }
     } catch { /* nothing to record */ }
     return { ok: true };
   }
-  if (p.startsWith('/matches/')) return { ok: true };
+  if (p.startsWith('/matches/')) {
+    // DELETE /matches/:id (unmatch) - best effort
+    if (options.method && String(options.method).toUpperCase() === 'DELETE') {
+      const id = Number(p.slice('/matches/'.length));
+      matchIds = matchIds.filter(x => Number(x) !== id);
+      persistState();
+    }
+    return { ok: true };
+  }
   if (p.startsWith('/matches')) return demoMatches();
   if (p.startsWith('/conversations/')) {
     if (p.endsWith('/read')) return { ok: true };
-    return threadFor(p.slice('/conversations/'.length));
+    const id = p.slice('/conversations/'.length);
+    return threadFor(id);
   }
   if (p.startsWith('/conversations')) return demoConversations();
   if (p.startsWith('/roommates/')) return detailFor(p.slice('/roommates/'.length));
