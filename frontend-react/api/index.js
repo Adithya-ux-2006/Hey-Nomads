@@ -427,6 +427,12 @@ app.post('/api/onboarding', authMiddleware, async (req, res) => {
     if (smoking) setProfile('smoking', smoking);
     if (drinking) setProfile('drinking', drinking);
     if (diet) setProfile('diet', diet);
+    // Canonical profile gender. This used to land only on users.gender while
+    // the feed, Edit Profile and the detail pages all read profiles.gender,
+    // so an onboarding-only user's gender read as empty on both sides of the
+    // two-sided gender filter - women wanting women saw nobody. Write both
+    // columns; the feed reads COALESCE, so this row started matching.
+    if (gender != null && gender !== '') setProfile('gender', String(gender).trim().slice(0, 20));
 
     if (profileUpdates.length) {
       // Every user gets a profiles row at registration, but ON CONFLICT keeps
@@ -546,7 +552,8 @@ app.get('/api/profile/:userId', authMiddleware, async (req, res) => {
               p.sleep_time, p.cleanliness, p.diet, p.noise_tolerance, p.noise_level,
               p.budget, p.deposit, p.flat_type, p.occupants,
               p.smoking, p.drinking, p.partying, p.social_level, p.pets,
-              p.work_schedule, p.neighbourhood, p.preferred_neighbourhood, p.gender,
+              p.work_schedule, p.neighbourhood, p.preferred_neighbourhood,
+              COALESCE(p.gender, u.gender) AS gender,
               pref.preferred_gender, pref.preferred_budget_min, pref.preferred_budget_max,
               pref.preferred_location_radius, pref.prefers_smoking, pref.prefers_drinking,
               pref.prefers_cleanliness_min, pref.prefers_sleep_schedule,
@@ -1048,13 +1055,17 @@ let where = `WHERE u.id != $1 AND ${await realOnlySql('u')}`;
     // values impose no restriction on either side, so existing feeds stay
     // alive. My own gender+pref is one extra single-row query; the candidates'
     // side rides on the pref2 join below.
+    // Gender lives on profiles.gender but was historically written to
+    // users.gender by onboarding (see the setProfile('gender', ...) below,
+    // which converges future writes). COALESCE makes both columns count on
+    // both sides of the filter so nobody's gender silently reads as empty.
     const me = await query(
-      `SELECT p.gender, pref.preferred_gender
+      `SELECT COALESCE(p.gender, u.gender) AS gender, pref.preferred_gender
        FROM users u
        LEFT JOIN profiles p ON u.id = p.user_id
        LEFT JOIN preferences pref ON u.id = pref.user_id
        WHERE u.id = $1`, [req.userId]);
-    const gFilter = feedGenderFilterSql(me.rows[0]?.gender, me.rows[0]?.preferred_gender, idx);
+    const gFilter = feedGenderFilterSql(me.rows[0]?.gender, me.rows[0]?.preferred_gender, idx, 'COALESCE(p.gender, u.gender)');
     where += ` ${gFilter.sql}`;
     params.push(...gFilter.params);
     idx = gFilter.nextIdx;
@@ -1064,7 +1075,8 @@ let where = `WHERE u.id != $1 AND ${await realOnlySql('u')}`;
               p.bio, p.occupation, p.city, p.profile_image, p.budget, p.deposit,
               p.flat_type, p.sleep_time, p.cleanliness, p.diet, p.smoking, p.drinking,
               p.noise_tolerance, p.social_level, p.pets, p.work_schedule,
-              p.neighbourhood, p.preferred_neighbourhood, p.gender,
+              p.neighbourhood, p.preferred_neighbourhood,
+              COALESCE(p.gender, u.gender) AS gender,
               p.move_in_date, p.occupants, p.partying
        FROM users u
        LEFT JOIN profiles p ON u.id = p.user_id
@@ -1113,7 +1125,8 @@ app.get('/api/roommates/:userId', authMiddleware, async (req, res) => {
               p.bio, p.occupation, p.city, p.profile_image, p.budget, p.deposit,
               p.flat_type, p.sleep_time, p.cleanliness, p.diet, p.smoking, p.drinking,
               p.noise_tolerance, p.social_level, p.pets, p.work_schedule,
-              p.neighbourhood, p.preferred_neighbourhood, p.gender,
+              p.neighbourhood, p.preferred_neighbourhood,
+              COALESCE(p.gender, u.gender) AS gender,
               p.move_in_date, p.occupants, p.partying, p.noise_level
        FROM users u
        LEFT JOIN profiles p ON u.id = p.user_id

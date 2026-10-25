@@ -156,3 +156,13 @@ test('feedGenderFilterSql: fragment is SQL-only (no interpolated user values)', 
   // With an open preference the fragment is empty and carries no params at all.
   assert.deepEqual(f.params, []);
 });
+
+test('feedGenderFilterSql: candidate gender column is replaceable for legacy writes', () => {
+  // Onboarding historically wrote gender to users.gender while the feed read
+  // profiles.gender; the caller passes the COALESCE both sides should honour.
+  const f = feedGenderFilterSql('male', 'female', 2, 'COALESCE(p.gender, u.gender)');
+  assert.ok(f.sql.includes(`LOWER(COALESCE(COALESCE(p.gender, u.gender), '')) = $2`));
+  assert.deepEqual(f.params, ['female', 'male']);
+  // Swiping on another person's gender never touches the bound params.
+  assert.ok(f.sql.includes("NOT IN ('female', 'male')"));
+});

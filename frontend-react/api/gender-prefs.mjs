@@ -57,7 +57,11 @@ export function pairGenderCompatible(genderA, prefA, genderB, prefB) {
 // preference (preferences pref2, joined by the caller) filters my gender.
 // Values that are not exactly 'female' or 'male' — including NULL, 'all',
 // 'unspecified and legacy 'no_preference' — impose no restriction.
-export function feedGenderFilterSql(myGender, myPrefRaw, startIdx) {
+// candidateGenderExpr: SQL expression carrying the candidate's gender.
+// Defaults to the profile column. Callers with legacy rows whose gender lives
+// on users.gender (onboarding wrote there) pass a COALESCE of both columns so
+// an unchanged second column cannot blank a person out of the feed.
+export function feedGenderFilterSql(myGender, myPrefRaw, startIdx, candidateGenderExpr = 'p.gender') {
   const myPref = normalizeGenderPref(myPrefRaw);
   const myGenderNorm = normalizeGenderValue(myGender);
   const clauses = [];
@@ -70,7 +74,7 @@ export function feedGenderFilterSql(myGender, myPrefRaw, startIdx) {
   }
 
   if (myPref === 'female' || myPref === 'male') {
-    clauses.push(`AND LOWER(COALESCE(p.gender, '')) = $${idx++}`);
+    clauses.push(`AND LOWER(COALESCE(${candidateGenderExpr}, '')) = $${idx++}`);
     params.push(myPref);
   }
 
