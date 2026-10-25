@@ -156,12 +156,40 @@ try {
       { 'content-type': 'application/json', ...auth });
     assert.equal(res.status, 500, 'valid preferredGender proceeds to the (unreachable) DB layer');
 
+    // The Profile page's one-field save lives on its own route and must make
+    // the same three guarantees: auth before the handler, validation before
+    // any query, and a valid value that reaches the (unreachable) DB layer.
+    res = await request('/api/preferences/gender', {
+      method: 'PUT',
+      body: JSON.stringify({ preferredGender: 'female' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(res.status, 401, 'the narrow preference route must 401 without a token');
+
+    res = await request('/api/preferences/gender', {
+      method: 'PUT',
+      body: JSON.stringify({ preferredGender: 'robot' }),
+      headers: { 'content-type': 'application/json', ...auth },
+    });
+    assert.equal(res.status, 400, 'narrow route: invalid preferredGender must 400 before any DB access');
+    assert.ok((await jsonOf(res)).error.includes('preferredGender'), 'the 400 must name the field');
+
+    res = await request('/api/preferences/gender', {
+      method: 'PUT',
+      body: JSON.stringify({ preferredGender: 'female' }),
+      headers: { 'content-type': 'application/json', ...auth },
+    });
+    assert.equal(res.status, 500, 'narrow route: valid preferredGender proceeds to the (unreachable) DB layer');
+
     // Structural: the shared feed applies the two-sided filter, the
     // candidates query joins preferences, and the pure predicate has tests.
     const api = readFileSync(new URL('../api/index.js', import.meta.url), 'utf8');
     assert.ok(api.includes('feedGenderFilterSql('), 'getRecommendedRoommates must apply the gender filter');
     assert.ok(api.includes('LEFT JOIN preferences pref2'), 'candidates query must join preferences');
     assert.ok(api.includes("from './gender-prefs.mjs'"), 'the API must import the pure module');
+    assert.ok(api.includes("app.put('/api/preferences/gender', authMiddleware"), 'the narrow preference route must exist behind auth');
+    assert.ok(api.includes('ON CONFLICT (user_id) DO UPDATE SET preferred_gender'), 'the narrow route must upsert the single column');
+    assert.ok(!/app\.put\('\/api\/preferences\/gender'[\s\S]{0,1200}DELETE FROM user_languages/.test(api), 'the narrow route must not touch languages');
     assert.ok(existsSync(new URL('../tests/offline/gender-prefs.test.mjs', import.meta.url)), 'predicate tests must exist');
   }
 

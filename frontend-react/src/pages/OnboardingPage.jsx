@@ -25,6 +25,16 @@ const INTERESTS = [
   { id: 'volunteering', label: 'Volunteering', icon: '🤝' },
 ];
 
+// What this choice does to the feed, stated the moment it is made. The
+// two-sided gender filter is a hard rule, so the consequence belongs where
+// the choice happens - not first discovered as an empty Discover page.
+const PREF_SEE = {
+  female: "You'll only see women's accounts in Discover and Roommates.",
+  male: "You'll only see men's accounts in Discover and Roommates.",
+  all: "You'll see accounts of every gender.",
+  unspecified: "You'll see everyone you're compatible with.",
+};
+
 export default function OnboardingPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
@@ -128,7 +138,10 @@ export default function OnboardingPage() {
                 </button>
               ))}
             </div>
-            <p className="text-xs text-text-muted mt-1.5">
+            <p className="text-xs text-text-muted mt-1.5" aria-live="polite">
+              {PREF_SEE[data.preferred_gender] || PREF_SEE.unspecified}
+            </p>
+            <p className="text-xs text-text-muted mt-1">
               Both sides have to be open to it, so you only ever see people you could both meet.
             </p>
           </div>

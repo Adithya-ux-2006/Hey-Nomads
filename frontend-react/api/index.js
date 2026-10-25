@@ -775,6 +775,39 @@ app.post('/api/profile', authMiddleware, async (req, res) => {
   }
 });
 
+// ── Discovery preference (single field) ──────────────────────
+// The Profile page changes one thing: whom you want to live with. It cannot
+// reuse POST /api/profile for that, because that route also rewrites every
+// preference column it was not given (budget range, smoking, radius...) and
+// deletes the languages list - a one-field save from a second screen would
+// quietly clear them. This route writes the one column, nothing else, and
+// creates the preferences row if the account never had one.
+app.put('/api/preferences/gender', authMiddleware, async (req, res) => {
+  try {
+    const raw = req.body?.preferredGender;
+    if (raw == null || raw === '') {
+      return res.status(400).json({ error: 'preferredGender must be one of: female, male, all, unspecified' });
+    }
+    const value = String(raw).trim().toLowerCase();
+    // Same gate as POST /api/profile: unknown values are rejected before any
+    // query runs, so a bad preference can never half-save or reach the filter.
+    // 'no_preference' is the legacy seed value and maps to 'unspecified'.
+    if (!GENDER_PREF_VALUES.includes(value) && value !== 'no_preference') {
+      return res.status(400).json({ error: 'preferredGender must be one of: female, male, all, unspecified' });
+    }
+    await query(
+      `INSERT INTO preferences (user_id, preferred_gender)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET preferred_gender = EXCLUDED.preferred_gender`,
+      [req.userId, normalizeGenderPref(value)]
+    );
+    res.json({ ok: true, preferred_gender: normalizeGenderPref(value) });
+  } catch (err) {
+    console.error('Save gender preference error:', err);
+    res.status(500).json({ error: 'Failed to save preference' });
+  }
+});
+
 // ══════════════════════════════════════════════════════════════
 // LANGUAGES
 // ══════════════════════════════════════════════════════════════

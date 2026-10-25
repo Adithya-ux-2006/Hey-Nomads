@@ -425,6 +425,21 @@ export function demoResponse(path, options = {}) {
     } catch { /* nothing */ }
     return { ok: true, matchCreated: false };
   }
+  if (p.startsWith('/preferences/gender')) {
+    // The Profile page's one-field discovery save. A demo browser session makes
+    // no /api/* calls at all, so answer it here - an unanswered PUT would 401
+    // and the redirect would kick the visitor out of the tour mid-screen.
+    try {
+      const body = typeof options.body === 'string' ? JSON.parse(options.body) : (options.body || {});
+      const g = String(body.preferredGender || '').trim().toLowerCase();
+      return {
+        ok: true,
+        preferred_gender: ['female', 'male', 'all', 'unspecified'].includes(g) ? g : 'unspecified',
+      };
+    } catch {
+      return { ok: true, preferred_gender: 'unspecified' };
+    }
+  }
   if (p.startsWith('/likes/sent')) return demoLikes().sent;
   if (p.startsWith('/likes/received')) return demoLikes().received;
   if (p === '/messages') {

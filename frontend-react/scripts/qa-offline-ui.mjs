@@ -353,6 +353,73 @@ async function genderPrefPass(browser, width) {
 
 // ── harness ────────────────────────────────────────────────────
 
+// ── Discovery preference on the Profile page ──────────────────
+
+async function profilePrefPass(browser, width) {
+  // 1. Own profile: the control is there, loads the stored value, offers the
+  //    four canonical choices, and says out loud what the choice does.
+  {
+    const { context, spec } = await newContext(browser);
+    spec.profile = { ...PROFILE, preferred_gender: 'female' };
+    const page = await context.newPage();
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${ORIGIN}/profile`, { waitUntil: 'domcontentloaded' });
+    await text(page, 'Discovery');
+
+    const sel = page.locator('#pp-prefGender');
+    await sel.waitFor({ state: 'visible', timeout: 8000 });
+    assert.equal(await sel.inputValue(), 'female', 'stored preference must load into the profile control');
+    assert.deepEqual(
+      await sel.locator('option').allTextContents(),
+      ['Prefer not to specify', 'Women', 'Men', 'All genders'],
+      'the profile control must offer the same four values as the editor'
+    );
+
+    await sel.selectOption('male');
+    assert.equal(await sel.inputValue(), 'male', 'selecting must update the control');
+    await text(page, "You'll only see men's accounts in Discover and Roommates.");
+
+    await assertNoOverflow(page, width);
+    await context.close();
+  }
+
+  // 2. Someone else's profile: no control. A preference is the owner's
+  //    setting, not display copy for a visitor.
+  {
+    const { context } = await newContext(browser);
+    const page = await context.newPage();
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${ORIGIN}/profile/21`, { waitUntil: 'domcontentloaded' });
+    await text(page, PROFILE.name);
+    assert.equal(await page.locator('#pp-prefGender').count(), 0, 'a browsed profile must not expose the control');
+    await assertNoOverflow(page, width);
+    await context.close();
+  }
+}
+
+// ── Onboarding states the consequence of the preference choice ──
+
+async function onboardingPrefPass(browser, width) {
+  const { context } = await newContext(browser);
+  const page = await context.newPage();
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto(`${ORIGIN}/onboarding`, { waitUntil: 'domcontentloaded' });
+
+  await text(page, "I'd like to meet");
+  // The default is "I'm not sure yet": an open feed, stated honestly rather
+  // than left to be discovered as an empty Discover page.
+  await text(page, "You'll see everyone you're compatible with.");
+
+  // Choosing a gender states the consequence right there, and the two-sided
+  // rule stays on screen alongside it.
+  await page.getByRole('button', { name: 'Women', exact: true }).click();
+  await text(page, "You'll only see women's accounts in Discover and Roommates.");
+  await text(page, 'Both sides have to be open to it');
+
+  await assertNoOverflow(page, width);
+  await context.close();
+}
+
 const waitForServer = url =>
   new Promise((resolve, reject) => {
     const deadline = Date.now() + 30000;
@@ -393,6 +460,14 @@ try {
   for (const width of [360, 390, 1440]) {
     await genderPrefPass(browser, width);
     console.error(`gender-pref ${width}px ok`);
+  }
+  for (const width of [360, 390, 1440]) {
+    await profilePrefPass(browser, width);
+    console.error(`profile-pref ${width}px ok`);
+  }
+  for (const width of [360, 390, 1440]) {
+    await onboardingPrefPass(browser, width);
+    console.error(`onboarding-pref ${width}px ok`);
   }
 } catch (err) {
   console.error(err);

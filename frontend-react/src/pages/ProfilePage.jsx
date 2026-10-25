@@ -16,6 +16,28 @@ const DRINKING_MAP = { yes: 'Drinks', no: 'Non-drinker', socially: 'Socially' }
 const SOCIAL_MAP = { introvert: 'Introvert', moderate: 'Balanced', extrovert: 'Extrovert' }
 const PETS_MAP = { yes: 'Has pets', no: 'No pets', okay: 'Open to pets' }
 
+// Stored preferred_gender -> the four canonical values the feed understands.
+// 'no_preference' is the legacy seed and any unknown value reads as open.
+const normalizePref = v => {
+  const s = String(v || '').trim().toLowerCase()
+  return ['female', 'male', 'all'].includes(s) ? s : 'unspecified'
+}
+const PREF_OPTIONS = [
+  { v: 'unspecified', l: 'Prefer not to specify' },
+  { v: 'female', l: 'Women' },
+  { v: 'male', l: 'Men' },
+  { v: 'all', l: 'All genders' },
+]
+// What the choice does to the feed, stated plainly under the control so the
+// filter is never a surprise: a stated preference really does hide everyone
+// outside it, and Discover is where that shows up.
+const PREF_SEE = {
+  female: "You'll only see women's accounts in Discover and Roommates.",
+  male: "You'll only see men's accounts in Discover and Roommates.",
+  all: "You'll see accounts of every gender.",
+  unspecified: "You'll see everyone you're compatible with.",
+}
+
 const AboutItem = ({ icon: Icon, label, value, color }) =>
   value ? (
     <div className="flex items-center gap-3 p-3 rounded-xl bg-surface-bg border border-surface-border">
@@ -66,6 +88,9 @@ const ProfilePage = () => {
   const [submitting, setSubmitting] = useState(false)
   const [showBlockConfirm, setShowBlockConfirm] = useState(false)
   const [safetyError, setSafetyError] = useState(null)
+  const [pref, setPref] = useState('unspecified')
+  const [prefSaving, setPrefSaving] = useState(false)
+  const [prefError, setPrefError] = useState(null)
 
   useEffect(() => {
     if (!currentUserId) {
@@ -88,6 +113,13 @@ const ProfilePage = () => {
     return () => { cancelled = true }
   }, [viewingId, isOwn, currentUserId, navigate])
 
+  // The stored preference follows the profile it was loaded with, so a reload
+  // (or an edit saved elsewhere) never leaves the control showing a stale
+  // answer that the feed is not actually using.
+  useEffect(() => {
+    if (profile) setPref(normalizePref(profile.preferred_gender))
+  }, [profile])
+
   const reload = useCallback(() => {
     setLoading(true)
     setError(null)
@@ -96,6 +128,24 @@ const ProfilePage = () => {
       .catch(setError)
       .finally(() => setLoading(false))
   }, [isOwn, currentUserId, viewingId])
+
+  const savePref = async (next) => {
+    // Optimistic with rollback: the select answers instantly (the interaction
+    // skill's <100ms rule), and a failed save restores the previous value and
+    // shows the error rather than pretending the preference changed.
+    const previous = pref
+    setPref(next)
+    setPrefError(null)
+    setPrefSaving(true)
+    try {
+      await apiFetch('/preferences/gender', { method: 'PUT', body: { preferredGender: next } })
+    } catch (err) {
+      setPref(previous)
+      setPrefError(err)
+    } finally {
+      setPrefSaving(false)
+    }
+  }
 
   const submitBlock = async () => {
     setSubmitting(true)
@@ -275,6 +325,36 @@ const ProfilePage = () => {
             emptyText="Housing preferences haven't been added yet"
             isOwn={isOwn}
           />
+
+          {/* Discovery is your own setting: another person's preference is
+              theirs to state, so this section only ever renders on your own
+              profile, never on a profile you are browsing. */}
+          {isOwn && (
+            <Card className="p-6">
+              <SectionHeader title="Discovery" subtitle="Who shows up in your feed" />
+              <label htmlFor="pp-prefGender" className="text-sm font-semibold text-text-primary mb-2 block">
+                I'd like to live with
+              </label>
+              <select
+                id="pp-prefGender"
+                className="w-full bg-white border border-surface-border rounded-xl px-4 py-3 text-text-primary outline-none focus:border-brand-coral transition-all disabled:opacity-60"
+                value={pref}
+                onChange={e => savePref(e.target.value)}
+                disabled={prefSaving}
+                aria-describedby="pp-prefGender-hint"
+              >
+                {PREF_OPTIONS.map(o => (
+                  <option key={o.v} value={o.v}>{o.l}</option>
+                ))}
+              </select>
+              <p id="pp-prefGender-hint" aria-live="polite" className="text-xs text-text-muted mt-2">
+                {PREF_SEE[pref]}
+              </p>
+              <div className="mt-3">
+                <InlineError error={prefError} />
+              </div>
+            </Card>
+          )}
 
           {interests.length > 0 && (
             <Card className="p-6">
