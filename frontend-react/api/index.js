@@ -1036,7 +1036,14 @@ async function recordNotification({ recipientId, actorId, type, ids }) {
 // people for identical answers. Both now go through this one implementation.
 async function getRecommendedRoommates(req, opts = {}) {
   try {
-    const { city, budget_min, budget_max, page = 1, limit = 20, pool } = opts;
+    const { city, budget_min, budget_max, page = 1, limit = 20, pool, includeSwiped } = opts;
+
+    // Discover is a browse list, not the deck. Acting in the Roommates section
+    // must not delete someone from the dashboard's "Your matches", so Discover
+    // passes includeSwiped and keeps the people you liked. Read as a strict
+    // boolean: this route forwards req.query, where the value would be the
+    // string "true", so a query parameter cannot switch the feed over.
+    const keepLiked = includeSwiped === true;
     const pageSize = parseInt(limit) || 20;
     const offset = (Math.max(1, parseInt(page)) - 1) * pageSize;
     // Score a wider window than one page. Capping the SQL at the page size made
@@ -1070,12 +1077,17 @@ let where = `WHERE u.id != $1 AND ${await realOnlySql('u')}`;
     if (budget_min) { where += ` AND p.budget >= $${idx++}`; params.push(parseInt(budget_min)); }
     if (budget_max) { where += ` AND p.budget <= $${idx++}`; params.push(parseInt(budget_max)); }
 
-    // Exclude already-swiped people in SQL, not after LIMIT. Filtering them
+    // Exclude decided people in SQL, not after LIMIT. Filtering them
     // post-query meant every page was "the 20 newest accounts, minus the ones
     // you decided", so a user who liked their way through the newest 20 got an
     // empty feed while unswiped people still existed further down the table.
-    const swipedIds = await query('SELECT swiped_id FROM swipes WHERE swiper_id = $1', [req.userId]);
-    const swipedSet = new Set(swipedIds.rows.map(r => r.swiped_id));
+    const swipedIds = await query('SELECT swiped_id, action FROM swipes WHERE swiper_id = $1', [req.userId]);
+    // A pass stays hidden on every screen: it is a rejection, not an open
+    // question. A like is a pending answer, so only the deck drops it and
+    // Discover keeps showing that person until they like you back.
+    const swipedSet = new Set(
+      swipedIds.rows.filter(r => !keepLiked || r.action === 'pass').map(r => r.swiped_id)
+    );
     if (swipedSet.size > 0) {
       where += ` AND u.id NOT IN (${[...swipedSet].map(() => `$${idx++}`).join(',')})`;
       params.push(...swipedSet);
@@ -2105,8 +2117,11 @@ app.get('/api/discover', authMiddleware, async (req, res) => {
         // Same candidate selection, exclusions and scoring as the Roommates
         // feed, capped at the five this screen shows. The two screens used to
         // keep separate copies of the query and the copies drifted, which is
-        // what made them disagree about the same person's matches.
-        getRecommendedRoommates(req, { limit: 5 }),
+        // what made them disagree about the same person's matches. One shared
+        // exclusion differs on purpose: the deck hides everyone you swiped,
+        // while this list keeps the people you liked (includeSwiped) so acting
+        // in one section does not empty the other screen.
+        getRecommendedRoommates(req, { limit: 5, includeSwiped: true }),
       // Top communities (optionally filtered by city)
       targetCity
         ? query(`SELECT * FROM communities WHERE LOWER(city) LIKE LOWER($1) ORDER BY member_count DESC LIMIT 5`, [`%${targetCity}%`])
